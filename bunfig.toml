@@ -1,0 +1,6 @@
+# Bun configuration
+# https://bun.sh/docs/runtime/bunfig
+
+[install]
+# Use exact-ish workspace linking; hoist shared deps to root node_modules.
+linker = "hoisted"

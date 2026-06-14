@@ -1,0 +1,45 @@
+# ──────────────────────────────────────────────────────────────────────────
+# Wiki.js reference code — kept locally for study, NOT part of this project.
+# (wiki-main = Wiki.js v2 stable, wiki-vega = Wiki.js v3 "vega" dev branch)
+# ──────────────────────────────────────────────────────────────────────────
+/wiki-main/
+/wiki-vega/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Local runtime data (SQLite database, uploaded assets)
+/data/
+apps/server/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.db
+
+# Drizzle generated migration journal cache (keep SQL, ignore meta snapshots if desired)
+# apps/server/drizzle/meta/
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+bun-debug.log*
+
+# Vite / web
+apps/web/dist/
+.vite/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.swp
+coverage/
+.cache/

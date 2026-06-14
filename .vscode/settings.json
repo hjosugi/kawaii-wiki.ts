@@ -1,0 +1,272 @@
+{
+    "workbench.colorCustomizations": {
+        "activityBar.activeBackground": "#ffffff",
+        "activityBar.background": "#ffffff",
+        "activityBar.foreground": "#15202b",
+        "activityBar.inactiveForeground": "#15202b99",
+        "activityBarBadge.background": "#df9f9f",
+        "activityBarBadge.foreground": "#15202b",
+        "commandCenter.border": "#15202b99",
+        "sash.hoverBorder": "#ffffff",
+        "statusBar.background": "#faf9f6",
+        "statusBar.foreground": "#15202b",
+        "statusBarItem.hoverBackground": "#e8e3d5",
+        "statusBarItem.remoteBackground": "#faf9f6",
+        "statusBarItem.remoteForeground": "#15202b",
+        "titleBar.activeBackground": "#faf9f6",
+        "titleBar.activeForeground": "#15202b",
+        "titleBar.inactiveBackground": "#faf9f699",
+        "titleBar.inactiveForeground": "#15202b99"
+    },
+    "peacock.color": "#faf9f6",
+    "peacock.favoriteColors": [
+        {
+            "name": "Angular Red",
+            "value": "#b52e31"
+        },
+        {
+            "name": "React Blue",
+            "value": "#00d8ff"
+        },
+        {
+            "name": "Vue Green",
+            "value": "#42b883"
+        },
+        {
+            "name": "Svelte Orange",
+            "value": "#ff3e00"
+        },
+        {
+            "name": "Gatsby Purple",
+            "value": "#663399"
+        },
+        {
+            "name": "Rust Orange",
+            "value": "#d04d26"
+        },
+        {
+            "name": "Go Blue",
+            "value": "#00add8"
+        },
+        {
+            "name": "Node Green",
+            "value": "#339933"
+        },
+        {
+            "name": "TypeScript Blue",
+            "value": "#3178c6"
+        },
+        {
+            "name": "JavaScript Yellow",
+            "value": "#f7df1e"
+        },
+        {
+            "name": "Tailwind Teal",
+            "value": "#38bdf8"
+        },
+        {
+            "name": "GraphQL Pink",
+            "value": "#e10098"
+        },
+        {
+            "name": "Kotlin Purple",
+            "value": "#7f52ff"
+        },
+        {
+            "name": "Swift Orange",
+            "value": "#f05138"
+        },
+        {
+            "name": "Docker Blue",
+            "value": "#2496ed"
+        },
+        {
+            "name": "Kubernetes Blue",
+            "value": "#326ce5"
+        },
+        {
+            "name": "Firebase Gold",
+            "value": "#ffca28"
+        },
+        {
+            "name": "Heroku Violet",
+            "value": "#430098"
+        },
+        {
+            "name": "VS Code Blue",
+            "value": "#007acc"
+        },
+        {
+            "name": "GitHub Dark",
+            "value": "#24292e"
+        },
+        {
+            "name": "Vite Purple",
+            "value": "#646cff"
+        },
+        {
+            "name": "Supabase Green",
+            "value": "#3ecf8e"
+        },
+        {
+            "name": "Pure White",
+            "value": "#ffffff"
+        },
+        {
+            "name": "Soft White",
+            "value": "#faf9f6"
+        },
+        {
+            "name": "Ghost White",
+            "value": "#f8f8ff"
+        },
+        {
+            "name": "Snow White",
+            "value": "#fffafa"
+        },
+        {
+            "name": "Ivory",
+            "value": "#fffff0"
+        },
+        {
+            "name": "Alabaster",
+            "value": "#edeae0"
+        },
+        {
+            "name": "Babel Yellow",
+            "value": "#f9dc3e"
+        },
+        {
+            "name": "Git Orange",
+            "value": "#f05032"
+        },
+        {
+            "name": "Sass Pink",
+            "value": "#cc6699"
+        },
+        {
+            "name": "Webpack Blue",
+            "value": "#8dd6f9"
+        },
+        {
+            "name": "npm Red",
+            "value": "#cb3837"
+        },
+        {
+            "name": "Yarn Blue",
+            "value": "#2c8ebb"
+        },
+        {
+            "name": "Python Yellow",
+            "value": "#ffd43b"
+        },
+        {
+            "name": "Ruby Red",
+            "value": "#cc342d"
+        },
+        {
+            "name": "PHP Indigo",
+            "value": "#777bb4"
+        },
+        {
+            "name": "Java Orange",
+            "value": "#e76f00"
+        },
+        {
+            "name": "C++ Blue",
+            "value": "#00599c"
+        },
+        {
+            "name": "C# Purple",
+            "value": "#804796"
+        },
+        {
+            "name": "Dart Teal",
+            "value": "#00b4ab"
+        },
+        {
+            "name": "Flutter Blue",
+            "value": "#02569b"
+        },
+        {
+            "name": "Elixir Purple",
+            "value": "#4e2a84"
+        },
+        {
+            "name": "Haskell Purple",
+            "value": "#5e5086"
+        },
+        {
+            "name": "Scala Red",
+            "value": "#dc322f"
+        },
+        {
+            "name": "Clojure Green",
+            "value": "#588135"
+        },
+        {
+            "name": "Linux Yellow",
+            "value": "#fcc624"
+        },
+        {
+            "name": "Slack Aubergine",
+            "value": "#4a154b"
+        },
+        {
+            "name": "Spotify Green",
+            "value": "#1db954"
+        },
+        {
+            "name": "Discord Purple",
+            "value": "#5865f2"
+        },
+        {
+            "name": "Twitter Blue",
+            "value": "#1da1f2"
+        },
+        {
+            "name": "Figma Violet",
+            "value": "#a259ff"
+        },
+        {
+            "name": "Vercel Black",
+            "value": "#000000"
+        },
+        {
+            "name": "Netlify Teal",
+            "value": "#00ad9f"
+        },
+        {
+            "name": "AWS Orange",
+            "value": "#ff9900"
+        },
+        {
+            "name": "GCP Blue",
+            "value": "#4285f4"
+        },
+        {
+            "name": "Cloudflare Orange",
+            "value": "#f38020"
+        },
+        {
+            "name": "MongoDB Green",
+            "value": "#47a248"
+        },
+        {
+            "name": "Postgres Blue",
+            "value": "#336791"
+        },
+        {
+            "name": "Redis Red",
+            "value": "#dc382d"
+        },
+        {
+            "name": "MySQL Blue",
+            "value": "#00758f"
+        },
+        {
+            "name": "SQLite Blue",
+            "value": "#003b57"
+        }
+    ]
+}

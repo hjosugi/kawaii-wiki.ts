@@ -1,0 +1,20 @@
+/**
+ * Server entry point. Wires env → db → app and starts listening.
+ */
+import { mkdirSync } from 'node:fs'
+import { join } from 'node:path'
+import { loadEnv } from './env.ts'
+import { createDb } from './db/client.ts'
+import { createApp } from './http/app.ts'
+
+const env = loadEnv()
+mkdirSync(join(env.dataDir, 'assets'), { recursive: true })
+
+const db = createDb(env.databasePath)
+const app = createApp({ db, env }).listen(env.port)
+
+console.log(`▲ open-wiki server  →  http://localhost:${env.port}`)
+console.log(`  health: http://localhost:${env.port}/api/health`)
+
+export type { App } from './http/app.ts'
+export default app

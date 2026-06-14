@@ -1,0 +1,42 @@
+/* A few things UnoCSS utilities don't cover cleanly. */
+
+html {
+  scroll-behavior: smooth;
+}
+
+/* CodeMirror fills its pane and uses our mono stack. */
+.cm-editor {
+  height: 100%;
+  font-size: 0.875rem;
+}
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+
+/* Rendered markdown: make code blocks (highlight.js) sit nicely inside prose. */
+.prose pre {
+  background: #0d1117;
+  border-radius: 0.5rem;
+  padding: 0.9rem 1.1rem;
+  overflow-x: auto;
+}
+.prose :not(pre) > code {
+  background: rgba(125, 125, 125, 0.16);
+  padding: 0.15em 0.4em;
+  border-radius: 0.3em;
+  font-size: 0.9em;
+}
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.prose th,
+.prose td {
+  border: 1px solid rgba(125, 125, 125, 0.3);
+  padding: 0.4rem 0.7rem;
+}
+.prose h1,
+.prose h2,
+.prose h3 {
+  scroll-margin-top: 5rem;
+}

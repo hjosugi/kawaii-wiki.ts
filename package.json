@@ -1,0 +1,28 @@
+{
+  "name": "open-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A modern, lean, FP-leaning open-source wiki. Bun + Elysia + Drizzle (SQLite/FTS5) + Vue 3.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "bun --filter '@wiki/server' --filter '@wiki/web' dev",
+    "dev:server": "bun --filter '@wiki/server' dev",
+    "dev:web": "bun --filter '@wiki/web' dev",
+    "build": "bun --filter '@wiki/web' build",
+    "db:migrate": "bun --filter '@wiki/server' db:migrate",
+    "db:seed": "bun --filter '@wiki/server' db:seed",
+    "db:reset": "bun --filter '@wiki/server' db:reset",
+    "typecheck": "bun --filter '*' typecheck",
+    "test": "bun test packages apps"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "bun": ">=1.1.0"
+  }
+}
