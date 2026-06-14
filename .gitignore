@@ -1,9 +1,8 @@
 # ──────────────────────────────────────────────────────────────────────────
 # Wiki.js reference code — kept locally for study, NOT part of this project.
-# (wiki-main = Wiki.js v2 stable, wiki-vega = Wiki.js v3 "vega" dev branch)
+# reference/wiki-main = Wiki.js v2 stable; reference/wiki-vega = v3 "vega".
 # ──────────────────────────────────────────────────────────────────────────
-/wiki-main/
-/wiki-vega/
+/reference/
 
 # Dependencies
 node_modules/

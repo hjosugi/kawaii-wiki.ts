@@ -130,7 +130,7 @@ Each item notes **where to plug in**.
       Add in `packages/core/src/markdown.ts` (stays isomorphic → server render + live preview both
       get it for free).
 - [ ] **"Blocks"** (Wiki.js's best idea) — framework-agnostic web components embedded in pages
-      (e.g. `<block-index path="docs">`). See `wiki-vega/blocks/` for the pattern.
+      (e.g. `<block-index path="docs">`). See `reference/wiki-vega/blocks/` for the pattern.
 - [ ] **Roles/permissions UI + user management** — `users` table + `permissions.ts` exist; needs
       admin routes + screens.
 - [ ] **Production web serving** — serve `apps/web/dist` from Elysia (`@elysiajs/static`) for a
@@ -209,10 +209,11 @@ server's render-on-save and the editor's live preview both pick it up automatica
 ```bash
 bun install
 bun run db:seed     # admin@example.com / password  + sample pages
-bun run dev         # server :4000 + web :5173
+bun run dev         # server :4000 + web :5180
 bun run test        # 17 tests
 bun run typecheck   # all workspaces
 bun run build       # web production build
 ```
 
-Reference repos `wiki-main/` (v2) and `wiki-vega/` (v3) are gitignored — local study only.
+Reference repos live under `reference/` (`wiki-main` v2, `wiki-vega` v3) and are gitignored —
+local study only.

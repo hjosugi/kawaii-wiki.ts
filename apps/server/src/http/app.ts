@@ -43,7 +43,9 @@ export const createApp = ({ db, env }: AppDeps) => {
 
   return (
     new Elysia()
-      .use(cors({ origin: env.webOrigin, credentials: true }))
+      // Permissive CORS: the SPA uses Bearer tokens (not cookies), so it can run
+      // on any localhost port without a fixed allowed-origin.
+      .use(cors())
       .use(jwt({ name: 'jwt', secret: env.jwtSecret }))
       .use(staticPlugin({ assets: join(env.dataDir, 'assets'), prefix: '/assets' }))
       .decorate('services', services)

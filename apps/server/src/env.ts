@@ -7,7 +7,6 @@ export interface Env {
   readonly databasePath: string
   readonly dataDir: string
   readonly jwtSecret: string
-  readonly webOrigin: string
 }
 
 export const loadEnv = (): Env => ({
@@ -15,5 +14,4 @@ export const loadEnv = (): Env => ({
   databasePath: process.env.DATABASE_PATH ?? './data/wiki.sqlite',
   dataDir: process.env.DATA_DIR ?? './data',
   jwtSecret: process.env.JWT_SECRET ?? 'dev-insecure-secret-change-me',
-  webOrigin: process.env.WEB_ORIGIN ?? 'http://localhost:5173',
 })

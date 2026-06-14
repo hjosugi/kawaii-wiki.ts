@@ -61,7 +61,7 @@ open-wiki/
 │           ├── stores/        auth · pages (Pinia)
 │           ├── components/    AppHeader · MarkdownEditor (CodeMirror) · PageToc
 │           └── views/         PageView · PageEdit · SearchView · LoginView
-└── wiki-main/ · wiki-vega/    Wiki.js v2 & v3 source — local reference only (gitignored)
+└── reference/             Wiki.js v2 & v3 source (wiki-main, wiki-vega) — local study, gitignored
 ```
 
 ### Functional-programming choices
@@ -82,10 +82,10 @@ Requires [Bun](https://bun.sh) ≥ 1.1.
 ```bash
 bun install
 bun run db:seed     # creates ./apps/server/data/wiki.sqlite, an admin, and sample pages
-bun run dev         # server :4000  +  web :5173
+bun run dev         # server :4000  +  web :5180
 ```
 
-Open <http://localhost:5173>. Sign in with the seeded admin **`admin@example.com` / `password`**
+Open <http://localhost:5180> (Vite prints the exact URL). Sign in with the seeded admin **`admin@example.com` / `password`**
 (or register — the first account to register becomes the admin). Try the search box (search for
 `banana`), open a page, and hit **Edit** for the live Markdown editor.
 
@@ -132,6 +132,6 @@ service layer, the `assets` table).
 
 ## Reference code
 
-`wiki-main/` (Wiki.js v2) and `wiki-vega/` (Wiki.js v3) are checked out locally for study and are
-**gitignored** — they are not part of this project. Wiki.js is AGPL-3.0; this project does not
+`reference/wiki-main/` (Wiki.js v2) and `reference/wiki-vega/` (Wiki.js v3) are checked out locally
+for study and are **gitignored** — they are not part of this project. Wiki.js is AGPL-3.0; this project does not
 copy its code, only learns from its design.

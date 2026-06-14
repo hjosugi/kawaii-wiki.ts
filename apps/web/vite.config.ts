@@ -13,7 +13,9 @@ export default defineConfig({
     },
   },
   server: {
-    port: 5173,
-    strictPort: true,
+    // 5180 (not Vite's default 5173) to avoid colliding with other local dev
+    // servers; strictPort:false so it falls back to the next free port anyway.
+    port: 5180,
+    strictPort: false,
   },
 })
