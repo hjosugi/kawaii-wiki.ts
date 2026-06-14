@@ -13,6 +13,9 @@ writes, and a ~1 MB front-end bundle.
 > Status: **v0 — a small, complete, runnable vertical slice.** Create/edit/delete pages in
 > Markdown, rendered to HTML and full-text indexed atomically on save, with search, auth, and a
 > clean typed API. Built to grow, not to impress a feature checklist.
+>
+> 👉 Continuing this project? Read **[docs/HANDOFF.md](docs/HANDOFF.md)** — implementation status,
+> design decisions, gotchas already solved, a prioritised roadmap, and extension recipes.
 
 ---
 
