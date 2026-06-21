@@ -61,7 +61,7 @@ open-wiki/
 │           ├── stores/        auth · pages (Pinia)
 │           ├── components/    AppHeader · MarkdownEditor (CodeMirror) · PageToc
 │           └── views/         PageView · PageEdit · SearchView · LoginView
-└── reference/             Wiki.js v2 & v3 source (wiki-main, wiki-vega) — local study, gitignored
+└── reference/             Optional local Wiki.js v2/v3 source checkout for study, gitignored
 ```
 
 ### Functional-programming choices
@@ -157,6 +157,6 @@ service layer, the `assets` table).
 
 ## Reference code
 
-`reference/wiki-main/` (Wiki.js v2) and `reference/wiki-vega/` (Wiki.js v3) are checked out locally
-for study and are **gitignored** — they are not part of this project. Wiki.js is AGPL-3.0; this project does not
-copy its code, only learns from its design.
+`reference/wiki-main/` (Wiki.js v2) and `reference/wiki-vega/` (Wiki.js v3) can be checked out
+locally for study and are **gitignored** — they are not part of this project. Wiki.js is AGPL-3.0;
+this project does not copy its code, only learns from its design.
