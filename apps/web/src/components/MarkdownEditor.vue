@@ -12,6 +12,7 @@ import {
   type CalendarEvent,
 } from '@ts-wiki/core'
 import { Api } from '@/lib/api'
+import AssetPicker from '@/components/AssetPicker.vue'
 
 const props = defineProps<{ modelValue: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -22,6 +23,7 @@ const icsInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
 const showIcs = ref(false)
+const showAssets = ref(false)
 const icsText = ref('')
 let view: EditorView | null = null
 
@@ -143,6 +145,11 @@ function insertIcsEvent(event: CalendarEvent): void {
   showIcs.value = false
 }
 
+function insertAsset(markdown: string): void {
+  insertSnippet(markdown)
+  showAssets.value = false
+}
+
 onMounted(() => {
   view = new EditorView({
     parent: host.value!,
@@ -214,6 +221,9 @@ onBeforeUnmount(() => view?.destroy())
       <button class="btn-ghost" type="button" title="Upload image" :disabled="uploading" @click="chooseImage">
         {{ uploading ? 'Uploading...' : 'Image' }}
       </button>
+      <button class="btn-ghost" type="button" title="Browse assets" @click="showAssets = true">
+        Assets
+      </button>
       <button class="btn-ghost" type="button" title="Import .ics" @click="chooseIcs">
         .ics
       </button>
@@ -260,5 +270,6 @@ onBeforeUnmount(() => view?.destroy())
         <p v-else class="text-sm text-gray-500">No events found.</p>
       </section>
     </div>
+    <AssetPicker :open="showAssets" @close="showAssets = false" @insert="insertAsset" />
   </div>
 </template>

@@ -9,7 +9,7 @@
  * and aren't searchable; storage writes aren't transactional. Here a save is
  * atomic and the page is fully rendered and indexed the instant it returns.
  */
-import { eq, asc, desc } from 'drizzle-orm'
+import { eq, ne, asc, desc, sql } from 'drizzle-orm'
 import {
   type Result,
   ok,
@@ -27,6 +27,10 @@ import {
   extractPageLinks,
   extractCalendarEvents,
   normalizePath,
+  normalizeLabels,
+  isPageStatus,
+  normalizeLocale,
+  type PageStatus,
   type ExtractedCalendarEvent,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
@@ -36,6 +40,19 @@ export interface PageSummary {
   readonly path: string
   readonly title: string
   readonly description: string
+  readonly lifecycle: Page['lifecycle']
+  readonly status: Page['status']
+  readonly labels: string
+  readonly ownerId: string | null
+  readonly reviewAt: number | null
+  readonly spaceKey: string
+  readonly locale: string
+  readonly updatedAt: number
+}
+
+export interface PageSpace {
+  readonly key: string
+  readonly pages: number
   readonly updatedAt: number
 }
 
@@ -78,10 +95,17 @@ export interface UpdatePagePatch {
   readonly title?: string
   readonly content?: string
   readonly description?: string
+  readonly labels?: readonly string[]
+  readonly status?: PageStatus
+  readonly ownerId?: string | null
+  readonly reviewAt?: number | null
+  readonly locale?: string | null
 }
 
 export interface PageService {
   list(): PageSummary[]
+  trash(): PageSummary[]
+  spaces(): PageSpace[]
   graph(): PageGraph
   backlinks(path: string): PageBacklink[]
   events(): ExtractedCalendarEvent[]
@@ -96,8 +120,12 @@ export interface PageService {
     principal: Principal | null,
     expectedUpdatedAt?: number | null,
   ): Result<Page, AppError>
+  restoreRevision(path: string, revisionId: string, principal: Principal | null): Result<Page, AppError>
+  archive(path: string, principal: Principal | null): Result<Page, AppError>
+  restore(path: string, principal: Principal | null): Result<Page, AppError>
   move(oldPath: string, newPath: string, principal: Principal | null): Result<Page, AppError>
   remove(path: string, principal: Principal | null): Result<{ path: string }, AppError>
+  purge(path: string, principal: Principal | null): Result<{ path: string }, AppError>
 }
 
 export const createPageService = (db: DB): PageService => {
@@ -113,14 +141,32 @@ export const createPageService = (db: DB): PageService => {
   }
 
   const findByPath = (path: string): Page | undefined =>
-    db.select().from(pages).where(eq(pages.path, path)).get()
+    db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
 
   const findById = (id: string): Page =>
     db.select().from(pages).where(eq(pages.id, id)).get()!
 
+  const parseLabels = (value: string): string[] => {
+    try {
+      const labels = JSON.parse(value) as unknown
+      return Array.isArray(labels) ? normalizeLabels(labels.filter((label): label is string => typeof label === 'string')) : []
+    } catch {
+      return []
+    }
+  }
+
   const writeExistingPage = (
     current: Page,
-    next: { title: string; description: string; content: string },
+    next: {
+      title: string
+      description: string
+      content: string
+      labels: readonly string[]
+      status: PageStatus
+      ownerId: string | null
+      reviewAt: number | null
+      locale: string
+    },
     principal: Principal | null,
     revisionAction: 'updated' | null,
   ): Page => {
@@ -153,6 +199,11 @@ export const createPageService = (db: DB): PageService => {
           content: next.content,
           renderedHtml: html,
           toc: JSON.stringify(toc),
+          labels: JSON.stringify(next.labels),
+          status: next.status,
+          ownerId: next.ownerId,
+          reviewAt: next.reviewAt,
+          locale: next.locale,
           updatedAt: now,
         })
         .where(eq(pages.id, current.id))
@@ -170,15 +221,58 @@ export const createPageService = (db: DB): PageService => {
           path: pages.path,
           title: pages.title,
           description: pages.description,
+          lifecycle: pages.lifecycle,
+          status: pages.status,
+          labels: pages.labels,
+          ownerId: pages.ownerId,
+          reviewAt: pages.reviewAt,
+          spaceKey: pages.spaceKey,
+          locale: pages.locale,
           updatedAt: pages.updatedAt,
         })
         .from(pages)
+        .where(eq(pages.lifecycle, 'active'))
         .orderBy(asc(pages.path))
         .all()
     },
 
+    trash() {
+      return db
+        .select({
+          path: pages.path,
+          title: pages.title,
+          description: pages.description,
+          lifecycle: pages.lifecycle,
+          status: pages.status,
+          labels: pages.labels,
+          ownerId: pages.ownerId,
+          reviewAt: pages.reviewAt,
+          spaceKey: pages.spaceKey,
+          locale: pages.locale,
+          updatedAt: pages.updatedAt,
+        })
+        .from(pages)
+        .where(ne(pages.lifecycle, 'active'))
+        .orderBy(desc(pages.updatedAt))
+        .all()
+    },
+
+    spaces() {
+      return db
+        .select({
+          key: pages.spaceKey,
+          pages: sql<number>`count(*)`,
+          updatedAt: sql<number>`max(${pages.updatedAt})`,
+        })
+        .from(pages)
+        .where(eq(pages.lifecycle, 'active'))
+        .groupBy(pages.spaceKey)
+        .orderBy(asc(pages.spaceKey))
+        .all()
+    },
+
     graph() {
-      const allPages = db.select().from(pages).orderBy(asc(pages.path)).all()
+      const allPages = db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()
       const existing = new Map(allPages.map((page) => [page.path, page]))
       const missing = new Set<string>()
       const edgeKeys = new Set<string>()
@@ -209,7 +303,7 @@ export const createPageService = (db: DB): PageService => {
       const target = normalizePath(path)
       const out: PageBacklink[] = []
       const seen = new Set<string>()
-      for (const page of db.select().from(pages).orderBy(asc(pages.path)).all()) {
+      for (const page of db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()) {
         for (const link of extractPageLinks(page.content)) {
           if (link.path !== target) continue
           const key = `${page.path}\u0000${link.kind}`
@@ -228,6 +322,7 @@ export const createPageService = (db: DB): PageService => {
           content: pages.content,
         })
         .from(pages)
+        .where(eq(pages.lifecycle, 'active'))
         .orderBy(asc(pages.path))
         .all()
         .flatMap((page) => extractCalendarEvents(page.content, page.path))
@@ -257,6 +352,7 @@ export const createPageService = (db: DB): PageService => {
 
     getByPath(path) {
       const page = findByPath(path)
+      if (page?.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       return page ? ok(page) : err(notFound(`No page at "${path}"`))
     },
 
@@ -284,6 +380,13 @@ export const createPageService = (db: DB): PageService => {
             renderedHtml: html,
             toc: JSON.stringify(toc),
             contentType: 'markdown',
+            lifecycle: 'active',
+            labels: JSON.stringify(v.labels),
+            status: v.status,
+            ownerId: v.ownerId,
+            reviewAt: v.reviewAt,
+            spaceKey: v.path.split('/')[0] || 'main',
+            locale: v.locale,
             authorId: principal?.id ?? null,
             createdAt: now,
             updatedAt: now,
@@ -315,7 +418,7 @@ export const createPageService = (db: DB): PageService => {
       if (!can(principal, 'page:write')) return err(forbidden())
 
       const current = findByPath(path)
-      if (!current) return err(notFound(`No page at "${path}"`))
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
 
       const validated = validatePageInput({
         path: current.path,
@@ -324,6 +427,11 @@ export const createPageService = (db: DB): PageService => {
         // Leave undefined when not supplied so the summary is re-derived from
         // the new content rather than carrying a stale auto-description forward.
         description: patch.description,
+        labels: patch.labels ?? parseLabels(current.labels),
+        status: patch.status ?? current.status,
+        ownerId: patch.ownerId === undefined ? current.ownerId : patch.ownerId,
+        reviewAt: patch.reviewAt === undefined ? current.reviewAt : patch.reviewAt,
+        locale: patch.locale ?? current.locale,
       })
       if (!validated.ok) return validated
       const v = validated.value
@@ -337,7 +445,7 @@ export const createPageService = (db: DB): PageService => {
       if (!can(principal, 'page:write')) return err(forbidden())
 
       const current = findByPath(path)
-      if (!current) return err(notFound(`No page at "${path}"`))
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       if (expectedUpdatedAt !== null && current.updatedAt !== expectedUpdatedAt) {
         return err(conflict(`Page "${path}" changed outside the collaborative editor`))
       }
@@ -345,7 +453,108 @@ export const createPageService = (db: DB): PageService => {
       // Lightweight save for collaborative autosave: refresh content + render +
       // search index WITHOUT snapshotting a revision (explicit Save does that).
       const description = toPlainText(content).slice(0, 200)
-      const page = writeExistingPage(current, { title: current.title, description, content }, principal, null)
+      const page = writeExistingPage(
+        current,
+        {
+          title: current.title,
+          description,
+          content,
+          labels: parseLabels(current.labels),
+          status: isPageStatus(current.status) ? current.status : 'draft',
+          ownerId: current.ownerId,
+          reviewAt: current.reviewAt,
+          locale: normalizeLocale(current.locale),
+        },
+        principal,
+        null,
+      )
+      return ok(page)
+    },
+
+    restoreRevision(path, revisionId, principal) {
+      if (!can(principal, 'page:write')) return err(forbidden())
+
+      const current = findByPath(path)
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
+      const revision = db.select().from(pageRevisions).where(eq(pageRevisions.id, revisionId)).get()
+      if (!revision || revision.pageId !== current.id) return err(notFound('Revision not found'))
+
+      const page = writeExistingPage(
+        current,
+        {
+          title: revision.title,
+          description: revision.description,
+          content: revision.content,
+          labels: parseLabels(current.labels),
+          status: isPageStatus(current.status) ? current.status : 'draft',
+          ownerId: current.ownerId,
+          reviewAt: current.reviewAt,
+          locale: normalizeLocale(current.locale),
+        },
+        principal,
+        'updated',
+      )
+      return ok(page)
+    },
+
+    archive(path, principal) {
+      if (!can(principal, 'page:delete')) return err(forbidden())
+
+      const current = findByPath(path)
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
+      const now = Date.now()
+      const page = db.transaction((tx) => {
+        tx.insert(pageRevisions)
+          .values({
+            id: crypto.randomUUID(),
+            pageId: current.id,
+            path: current.path,
+            title: current.title,
+            description: current.description,
+            content: current.content,
+            authorId: principal?.id ?? null,
+            action: 'archived',
+            createdAt: now,
+          })
+          .run()
+        tx.update(pages)
+          .set({ lifecycle: 'archived', updatedAt: now })
+          .where(eq(pages.id, current.id))
+          .run()
+        ftsDelete.run(current.id)
+        return findById(current.id)
+      })
+      return ok(page)
+    },
+
+    restore(path, principal) {
+      if (!can(principal, 'page:write')) return err(forbidden())
+
+      const current = findByPath(path)
+      if (!current) return err(notFound(`No page at "${path}"`))
+      if (current.lifecycle === 'active') return ok(current)
+      const now = Date.now()
+      const page = db.transaction((tx) => {
+        tx.insert(pageRevisions)
+          .values({
+            id: crypto.randomUUID(),
+            pageId: current.id,
+            path: current.path,
+            title: current.title,
+            description: current.description,
+            content: current.content,
+            authorId: principal?.id ?? null,
+            action: 'restored',
+            createdAt: now,
+          })
+          .run()
+        tx.update(pages)
+          .set({ lifecycle: 'active', updatedAt: now })
+          .where(eq(pages.id, current.id))
+          .run()
+        reindex(current.id, current.title, current.description, current.content)
+        return findById(current.id)
+      })
       return ok(page)
     },
 
@@ -353,13 +562,18 @@ export const createPageService = (db: DB): PageService => {
       if (!can(principal, 'page:write')) return err(forbidden())
 
       const current = findByPath(oldPath)
-      if (!current) return err(notFound(`No page at "${oldPath}"`))
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${oldPath}"`))
 
       const validated = validatePageInput({
         path: newPath,
         title: current.title,
         content: current.content,
         description: current.description,
+        labels: parseLabels(current.labels),
+        status: isPageStatus(current.status) ? current.status : 'draft',
+        ownerId: current.ownerId,
+        reviewAt: current.reviewAt,
+        locale: current.locale,
       })
       if (!validated.ok) return validated
       const v = validated.value
@@ -386,6 +600,7 @@ export const createPageService = (db: DB): PageService => {
         tx.update(pages)
           .set({
             path: v.path,
+            spaceKey: v.path.split('/')[0] || 'main',
             updatedAt: now,
           })
           .where(eq(pages.id, current.id))
@@ -402,10 +617,10 @@ export const createPageService = (db: DB): PageService => {
       if (!can(principal, 'page:delete')) return err(forbidden())
 
       const current = findByPath(path)
-      if (!current) return err(notFound(`No page at "${path}"`))
+      if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
 
       const now = Date.now()
-      db.transaction((tx) => {
+      const deleted = db.transaction((tx) => {
         tx.insert(pageRevisions)
           .values({
             id: crypto.randomUUID(),
@@ -420,11 +635,41 @@ export const createPageService = (db: DB): PageService => {
           })
           .run()
 
+        tx.update(pages)
+          .set({ lifecycle: 'deleted', updatedAt: now })
+          .where(eq(pages.id, current.id))
+          .run()
+        ftsDelete.run(current.id)
+        return findById(current.id)
+      })
+
+      return ok({ path: deleted.path })
+    },
+
+    purge(path, principal) {
+      if (!can(principal, 'admin:access')) return err(forbidden())
+
+      const current = findByPath(path)
+      if (!current) return err(notFound(`No page at "${path}"`))
+      const now = Date.now()
+      db.transaction((tx) => {
+        tx.insert(pageRevisions)
+          .values({
+            id: crypto.randomUUID(),
+            pageId: current.id,
+            path: current.path,
+            title: current.title,
+            description: current.description,
+            content: current.content,
+            authorId: principal?.id ?? null,
+            action: 'purged',
+            createdAt: now,
+          })
+          .run()
         tx.delete(pages).where(eq(pages.id, current.id)).run()
         ftsDelete.run(current.id)
       })
-
-      return ok({ path })
+      return ok({ path: current.path })
     },
   }
 }

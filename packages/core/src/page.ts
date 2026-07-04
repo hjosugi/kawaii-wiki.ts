@@ -10,12 +10,18 @@ import { normalizePath } from './slug.ts'
 import { summarize } from './markdown.ts'
 
 export type ContentType = 'markdown'
+export type PageStatus = 'draft' | 'in-review' | 'verified' | 'outdated'
 
 export interface PageInput {
   readonly path: string
   readonly title: string
   readonly content: string
   readonly description?: string
+  readonly labels?: readonly string[]
+  readonly status?: PageStatus
+  readonly ownerId?: string | null
+  readonly reviewAt?: number | null
+  readonly locale?: string | null
 }
 
 /** A validated, normalised page input ready to persist. */
@@ -25,10 +31,46 @@ export interface ValidPageInput {
   readonly content: string
   readonly description: string
   readonly contentType: ContentType
+  readonly labels: readonly string[]
+  readonly status: PageStatus
+  readonly ownerId: string | null
+  readonly reviewAt: number | null
+  readonly locale: string
 }
 
 const MAX_PATH = 512
 const MAX_TITLE = 255
+const MAX_LABELS = 20
+const MAX_LABEL_LENGTH = 40
+const PAGE_STATUSES = new Set<PageStatus>(['draft', 'in-review', 'verified', 'outdated'])
+const DEFAULT_LOCALE = 'und'
+
+export const normalizeLabel = (label: string): string =>
+  normalizePath(label)
+    .split('/')
+    .filter(Boolean)
+    .join('-')
+
+export const normalizeLabels = (labels: readonly string[] = []): string[] => {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of labels) {
+    const label = normalizeLabel(raw)
+    if (!label || seen.has(label)) continue
+    seen.add(label)
+    out.push(label.slice(0, MAX_LABEL_LENGTH))
+    if (out.length >= MAX_LABELS) break
+  }
+  return out
+}
+
+export const isPageStatus = (value: unknown): value is PageStatus =>
+  typeof value === 'string' && PAGE_STATUSES.has(value as PageStatus)
+
+export const normalizeLocale = (value: string | null | undefined): string => {
+  const locale = (value ?? '').trim()
+  return /^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8}){0,3}$/.test(locale) ? locale.toLowerCase() : DEFAULT_LOCALE
+}
 
 export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppError> => {
   const path = normalizePath(input.path ?? '')
@@ -41,6 +83,22 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
 
   const content = input.content ?? ''
   const description = (input.description ?? '').trim() || summarize(content)
+  const status = input.status ?? 'draft'
+  if (!isPageStatus(status)) return err(validationError('Unknown page status', 'status'))
+  const ownerId = input.ownerId?.trim() || null
+  const reviewAt = typeof input.reviewAt === 'number' && Number.isFinite(input.reviewAt) ? input.reviewAt : null
+  const locale = normalizeLocale(input.locale)
 
-  return ok({ path, title, content, description, contentType: 'markdown' })
+  return ok({
+    path,
+    title,
+    content,
+    description,
+    contentType: 'markdown',
+    labels: normalizeLabels(input.labels),
+    status,
+    ownerId,
+    reviewAt,
+    locale,
+  })
 }

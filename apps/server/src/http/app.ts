@@ -4,7 +4,7 @@
  * principal resolution, error mapping — are declared once here; handlers stay
  * thin and delegate to services.
  */
-import { existsSync } from 'node:fs'
+import { existsSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
@@ -18,6 +18,8 @@ import {
   rateLimited,
   unauthorized,
   validationError,
+  serializePageFile,
+  parsePageFile,
 } from '@ts-wiki/core'
 import type { Env } from '../env.ts'
 import type { DB } from '../db/client.ts'
@@ -214,7 +216,8 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
       })
 
       // ── Health ────────────────────────────────────────────────────────────
-      .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.1.2' }))
+      .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.2.0' }))
+      .get('/api/settings/public', ({ services }) => services.settings.public())
 
       // ── Auth ──────────────────────────────────────────────────────────────
       .post(
@@ -259,6 +262,11 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
 
       // ── Pages: collection ─────────────────────────────────────────────────
       .get('/api/pages', ({ services }) => ({ pages: services.pages.list() }))
+      .get('/api/spaces', ({ services }) => ({ spaces: services.pages.spaces() }))
+      .get('/api/pages/trash', ({ services, principal }) => {
+        if (!can(principal, 'page:delete')) throw new HttpError(forbidden())
+        return { pages: services.pages.trash() }
+      })
       .get('/api/graph', ({ services }) => services.pages.graph())
       .get('/api/events/index', ({ services }) => ({ events: services.pages.events() }))
       .post(
@@ -276,6 +284,16 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
             title: t.String(),
             content: t.String(),
             description: t.Optional(t.String()),
+            labels: t.Optional(t.Array(t.String())),
+            status: t.Optional(t.Union([
+              t.Literal('draft'),
+              t.Literal('in-review'),
+              t.Literal('verified'),
+              t.Literal('outdated'),
+            ])),
+            ownerId: t.Optional(t.Union([t.String(), t.Null()])),
+            reviewAt: t.Optional(t.Union([t.Number(), t.Null()])),
+            locale: t.Optional(t.Union([t.String(), t.Null()])),
           }),
         },
       )
@@ -283,7 +301,11 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
       // ── Pages: single (path is a query param so it may contain slashes) ───
       .get(
         '/api/page',
-        ({ query, services }) => ({ page: unwrap(services.pages.getByPath(query.path)) }),
+        ({ query, services }) => {
+          const page = unwrap(services.pages.getByPath(query.path))
+          services.analytics.recordPageView(page.path)
+          return { page }
+        },
         { query: t.Object({ path: t.String() }) },
       )
       .get(
@@ -295,6 +317,67 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
         '/api/page/history',
         ({ query, services }) => ({ revisions: unwrap(services.pages.history(query.path)) }),
         { query: t.Object({ path: t.String() }) },
+      )
+      .get(
+        '/api/page/comments',
+        ({ query, services }) => ({ comments: unwrap(services.comments.list(query.path)) }),
+        { query: t.Object({ path: t.String() }) },
+      )
+      .post(
+        '/api/page/comments',
+        ({ body, services, principal }) => {
+          const comment = unwrap(services.comments.create(body.path, body.body, principal))
+          bus.emit({ type: 'page:changed', action: 'updated', path: comment.path })
+          audit(logger, 'comment.create', {
+            userId: principal?.id ?? null,
+            path: comment.path,
+            commentId: comment.id,
+            mentions: comment.mentions,
+          })
+          return { comment }
+        },
+        { body: t.Object({ path: t.String(), body: t.String() }) },
+      )
+      .put(
+        '/api/page/comments/:id',
+        ({ params, body, services, principal }) => {
+          const comment = unwrap(services.comments.update(params.id, body.body, principal))
+          bus.emit({ type: 'page:changed', action: 'updated', path: comment.path })
+          audit(logger, 'comment.update', {
+            userId: principal?.id ?? null,
+            path: comment.path,
+            commentId: comment.id,
+            mentions: comment.mentions,
+          })
+          return { comment }
+        },
+        {
+          params: t.Object({ id: t.String() }),
+          body: t.Object({ body: t.String() }),
+        },
+      )
+      .post(
+        '/api/page/comments/:id/resolve',
+        ({ params, services, principal }) => {
+          const comment = unwrap(services.comments.resolve(params.id, principal))
+          bus.emit({ type: 'page:changed', action: 'updated', path: comment.path })
+          audit(logger, 'comment.resolve', {
+            userId: principal?.id ?? null,
+            path: comment.path,
+            commentId: comment.id,
+          })
+          return { comment }
+        },
+        { params: t.Object({ id: t.String() }) },
+      )
+      .delete(
+        '/api/page/comments/:id',
+        ({ params, services, principal }) => {
+          const result = unwrap(services.comments.remove(params.id, principal))
+          audit(logger, 'comment.delete', { userId: principal?.id ?? null, commentId: result.id })
+          return result
+        },
+        { params: t.Object({ id: t.String() }) },
       )
       .put(
         '/api/page',
@@ -311,8 +394,55 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
             title: t.Optional(t.String()),
             content: t.Optional(t.String()),
             description: t.Optional(t.String()),
+            labels: t.Optional(t.Array(t.String())),
+            status: t.Optional(t.Union([
+              t.Literal('draft'),
+              t.Literal('in-review'),
+              t.Literal('verified'),
+              t.Literal('outdated'),
+            ])),
+            ownerId: t.Optional(t.Union([t.String(), t.Null()])),
+            reviewAt: t.Optional(t.Union([t.Number(), t.Null()])),
+            locale: t.Optional(t.Union([t.String(), t.Null()])),
           }),
         },
+      )
+      .post(
+        '/api/page/restore-revision',
+        ({ body, services, principal }) => {
+          const page = unwrap(services.pages.restoreRevision(body.path, body.revisionId, principal))
+          bus.emit({ type: 'page:changed', action: 'updated', path: page.path })
+          void git.savePage(page, gitAuthor(principal?.id))
+          audit(logger, 'page.revision.restore', {
+            userId: principal?.id ?? null,
+            path: page.path,
+            revisionId: body.revisionId,
+          })
+          return { page }
+        },
+        { body: t.Object({ path: t.String(), revisionId: t.String() }) },
+      )
+      .post(
+        '/api/page/archive',
+        ({ body, services, principal }) => {
+          const page = unwrap(services.pages.archive(body.path, principal))
+          bus.emit({ type: 'page:changed', action: 'deleted', path: page.path })
+          void git.deletePage(page.path, gitAuthor(principal?.id))
+          audit(logger, 'page.archive', { userId: principal?.id ?? null, path: page.path })
+          return { page }
+        },
+        { body: t.Object({ path: t.String() }) },
+      )
+      .post(
+        '/api/page/restore',
+        ({ body, services, principal }) => {
+          const page = unwrap(services.pages.restore(body.path, principal))
+          bus.emit({ type: 'page:changed', action: 'created', path: page.path })
+          void git.savePage(page, gitAuthor(principal?.id))
+          audit(logger, 'page.restore', { userId: principal?.id ?? null, path: page.path })
+          return { page }
+        },
+        { body: t.Object({ path: t.String() }) },
       )
       .post(
         '/api/page/move',
@@ -341,12 +471,148 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
         },
         { query: t.Object({ path: t.String() }) },
       )
+      .delete(
+        '/api/page/purge',
+        ({ query, services, principal }) => {
+          const result = unwrap(services.pages.purge(query.path, principal))
+          bus.emit({ type: 'page:changed', action: 'deleted', path: result.path })
+          void git.deletePage(result.path, gitAuthor(principal?.id))
+          audit(logger, 'page.purge', { userId: principal?.id ?? null, path: result.path })
+          return result
+        },
+        { query: t.Object({ path: t.String() }) },
+      )
+
+      // ── Export / Import ──────────────────────────────────────────────────
+      .get(
+        '/api/export/page',
+        ({ query, services }) => {
+          const page = unwrap(services.pages.getByPath(query.path))
+          const filename = `${page.path.split('/').at(-1) || 'page'}.${query.format === 'html' ? 'html' : 'md'}`
+          if (query.format === 'html') {
+            return new Response(`<!doctype html><html><head><meta charset="utf-8"><title>${page.title}</title></head><body>${page.renderedHtml}</body></html>`, {
+              headers: {
+                'content-type': 'text/html; charset=utf-8',
+                'content-disposition': `attachment; filename="${filename}"`,
+              },
+            })
+          }
+          return new Response(
+            serializePageFile({
+              title: page.title,
+              description: page.description,
+              content: page.content,
+            }),
+            {
+              headers: {
+                'content-type': 'text/markdown; charset=utf-8',
+                'content-disposition': `attachment; filename="${filename}"`,
+              },
+            },
+          )
+        },
+        {
+          query: t.Object({
+            path: t.String(),
+            format: t.Optional(t.Union([t.Literal('markdown'), t.Literal('html')])),
+          }),
+        },
+      )
+      .get('/api/export/site', ({ services, principal }) => {
+        if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+        const exportedAt = new Date().toISOString()
+        const exportedPages = services.pages.list().map((summary) => {
+          const page = unwrap(services.pages.getByPath(summary.path))
+          return {
+            path: page.path,
+            title: page.title,
+            description: page.description,
+            content: page.content,
+            labels: page.labels,
+            status: page.status,
+            ownerId: page.ownerId,
+            reviewAt: page.reviewAt,
+            spaceKey: page.spaceKey,
+            locale: page.locale,
+            createdAt: page.createdAt,
+            updatedAt: page.updatedAt,
+          }
+        })
+        return {
+          manifestVersion: 1,
+          exportedAt,
+          pages: exportedPages,
+          assets: services.assets.list(),
+        }
+      })
+      .post(
+        '/api/import/markdown',
+        ({ body, services, principal }) => {
+          if (!can(principal, 'page:write')) throw new HttpError(forbidden())
+          const parsed = parsePageFile(body.content)
+          const title = (body.title ?? parsed.title).trim() || body.path.split('/').at(-1) || 'Imported page'
+          const description = body.description ?? parsed.description
+          const existing = services.pages.getByPath(body.path)
+          const page = unwrap(
+            existing.ok
+              ? services.pages.update(body.path, {
+                  title,
+                  description,
+                  content: parsed.content,
+                  labels: body.labels,
+                  status: body.status,
+                  locale: body.locale,
+                }, principal)
+              : services.pages.create({
+                  path: body.path,
+                  title,
+                  description,
+                  content: parsed.content,
+                  labels: body.labels,
+                  status: body.status,
+                  locale: body.locale,
+                }, principal),
+          )
+          bus.emit({ type: 'page:changed', action: existing.ok ? 'updated' : 'created', path: page.path })
+          void git.savePage(page, gitAuthor(principal?.id))
+          audit(logger, 'page.import_markdown', { userId: principal?.id ?? null, path: page.path })
+          return { page }
+        },
+        {
+          body: t.Object({
+            path: t.String(),
+            title: t.Optional(t.String()),
+            description: t.Optional(t.String()),
+            content: t.String(),
+            labels: t.Optional(t.Array(t.String())),
+            status: t.Optional(t.Union([
+              t.Literal('draft'),
+              t.Literal('in-review'),
+              t.Literal('verified'),
+              t.Literal('outdated'),
+            ])),
+            locale: t.Optional(t.Union([t.String(), t.Null()])),
+          }),
+        },
+      )
 
       // ── Search ────────────────────────────────────────────────────────────
-      .get('/api/search', ({ query, services }) => services.search.search(query.q ?? '', query.limit), {
+      .get('/api/search', ({ query, services }) =>
+        services.search.search(query.q ?? '', query.limit, {
+          pathPrefix: query.pathPrefix,
+          label: query.label,
+          status: query.status,
+          spaceKey: query.spaceKey,
+          locale: query.locale,
+        }), {
         query: t.Object({
           q: t.Optional(t.String()),
           limit: t.Optional(t.Numeric()),
+          pathPrefix: t.Optional(t.String()),
+          label: t.Optional(t.String()),
+          status: t.Optional(t.String()),
+          spaceKey: t.Optional(t.String()),
+          locale: t.Optional(t.String()),
         }),
       })
 
@@ -448,6 +714,25 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
 
       // ── Admin (each method gates on admin:access inside the service) ───────
       .get('/api/admin/stats', ({ services, principal }) => unwrap(services.admin.stats(principal)))
+      .get('/api/admin/analytics', ({ services, principal }) => {
+        if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+        return services.analytics.summary()
+      })
+      .put(
+        '/api/admin/settings',
+        ({ body, services, principal }) => ({ settings: unwrap(services.settings.update(principal, body)) }),
+        {
+          body: t.Object({
+            siteTitle: t.Optional(t.String()),
+            accentColor: t.Optional(t.String()),
+            theme: t.Optional(t.Union([t.Literal('system'), t.Literal('light'), t.Literal('dark')])),
+            navLinks: t.Optional(t.Array(t.Object({
+              label: t.String(),
+              url: t.String(),
+            }))),
+          }),
+        },
+      )
       .get('/api/admin/users', ({ services, principal }) => ({
         users: unwrap(services.admin.listUsers(principal)),
       }))
@@ -488,6 +773,10 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
       })
 
       // ── Assets ────────────────────────────────────────────────────────────
+      .get('/api/assets', ({ services, principal }) => {
+        if (!can(principal, 'page:write')) throw new HttpError(forbidden())
+        return { assets: services.assets.list() }
+      })
       .post(
         '/api/assets',
         async ({ body, services, principal }) => {
@@ -499,10 +788,13 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
           if (file.size > ASSET_MAX_BYTES) {
             throw new HttpError(validationError(`Asset must be ${ASSET_MAX_SIZE} or smaller`, 'file'))
           }
-          const safeName = safeAssetStorageName(file)
+          const id = crypto.randomUUID()
+          const safeName = safeAssetStorageName(file, id)
           await Bun.write(join(env.dataDir, 'assets', safeName), file)
           const asset = services.assets.record({
+            id,
             filename: file.name,
+            storageName: safeName,
             mime: file.type,
             size: file.size,
             authorId: principal?.id ?? null,
@@ -513,12 +805,48 @@ export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps
             filename: asset.filename,
             size: asset.size,
           })
-          return { id: asset.id, filename: asset.filename, url: `/assets/${safeName}` }
+          return { id: asset.id, filename: asset.filename, url: asset.url }
         },
         {
           body: t.Object({
             file: t.File({ maxSize: ASSET_MAX_SIZE, type: [...ALLOWED_ASSET_MIME_TYPES] }),
           }),
+        },
+      )
+      .delete(
+        '/api/assets/:id',
+        ({ params, services, principal }) => {
+          if (!can(principal, 'page:delete')) throw new HttpError(forbidden())
+          const asset = services.assets.remove(params.id)
+          if (!asset) throw new HttpError(validationError('Asset not found', 'id'))
+          if (!asset.storageName.includes('/') && !asset.storageName.includes('\\')) {
+            rmSync(join(env.dataDir, 'assets', asset.storageName), { force: true })
+          }
+          audit(logger, 'asset.delete', {
+            userId: principal?.id ?? null,
+            assetId: asset.id,
+            filename: asset.filename,
+          })
+          return { asset }
+        },
+        { params: t.Object({ id: t.String() }) },
+      )
+      .put(
+        '/api/assets/:id',
+        ({ params, body, services, principal }) => {
+          if (!can(principal, 'page:write')) throw new HttpError(forbidden())
+          const asset = services.assets.rename(params.id, body.filename)
+          if (!asset) throw new HttpError(validationError('Asset not found or filename is empty', 'filename'))
+          audit(logger, 'asset.rename', {
+            userId: principal?.id ?? null,
+            assetId: asset.id,
+            filename: asset.filename,
+          })
+          return { asset }
+        },
+        {
+          params: t.Object({ id: t.String() }),
+          body: t.Object({ filename: t.String({ minLength: 1 }) }),
         },
       )
       .get('/ui', () => {

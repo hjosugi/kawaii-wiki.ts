@@ -65,11 +65,7 @@ async function restore(): Promise<void> {
   restoring.value = true
   error.value = null
   try {
-    await Api.updatePage(path.value, {
-      title: revision.title,
-      content: revision.content,
-      description: revision.description,
-    })
+    await Api.restoreRevision(path.value, revision.id)
     await pagesStore.refresh()
     router.push('/' + path.value)
   } catch (e) {

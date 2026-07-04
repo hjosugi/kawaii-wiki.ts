@@ -13,6 +13,18 @@ import { Database } from 'bun:sqlite'
  *  substring/CJK-heavy content (see README "Search"). */
 export const FTS_TOKENIZER = "unicode61 remove_diacritics 2"
 
+const hasColumn = (sqlite: Database, table: string, column: string): boolean =>
+  sqlite
+    .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+    .all()
+    .some((row) => row.name === column)
+
+const addColumn = (sqlite: Database, table: string, column: string, definition: string): void => {
+  if (!hasColumn(sqlite, table, column)) {
+    sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`)
+  }
+}
+
 export const runMigrations = (sqlite: Database): void => {
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec('PRAGMA foreign_keys = ON;')
@@ -36,6 +48,13 @@ export const runMigrations = (sqlite: Database): void => {
       rendered_html TEXT NOT NULL DEFAULT '',
       toc           TEXT NOT NULL DEFAULT '[]',
       content_type  TEXT NOT NULL DEFAULT 'markdown',
+      lifecycle     TEXT NOT NULL DEFAULT 'active',
+      status        TEXT NOT NULL DEFAULT 'draft',
+      labels        TEXT NOT NULL DEFAULT '[]',
+      owner_id      TEXT,
+      review_at     INTEGER,
+      space_key     TEXT NOT NULL DEFAULT 'main',
+      locale        TEXT NOT NULL DEFAULT 'und',
       author_id     TEXT,
       created_at    INTEGER NOT NULL,
       updated_at    INTEGER NOT NULL
@@ -55,9 +74,35 @@ export const runMigrations = (sqlite: Database): void => {
     );
     CREATE INDEX IF NOT EXISTS revisions_page_idx ON page_revisions(page_id);
 
+    CREATE TABLE IF NOT EXISTS page_comments (
+      id          TEXT PRIMARY KEY,
+      page_id     TEXT NOT NULL,
+      path        TEXT NOT NULL,
+      body        TEXT NOT NULL,
+      author_id   TEXT,
+      resolved_at INTEGER,
+      created_at  INTEGER NOT NULL,
+      updated_at  INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS comments_page_idx ON page_comments(page_id);
+    CREATE INDEX IF NOT EXISTS comments_path_idx ON page_comments(path);
+
+    CREATE TABLE IF NOT EXISTS page_analytics (
+      path           TEXT PRIMARY KEY,
+      views          INTEGER NOT NULL DEFAULT 0,
+      last_viewed_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS site_settings (
+      key        TEXT PRIMARY KEY,
+      value      TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS assets (
       id         TEXT PRIMARY KEY,
       filename   TEXT NOT NULL,
+      storage_name TEXT NOT NULL DEFAULT '',
       mime       TEXT NOT NULL,
       size       INTEGER NOT NULL,
       author_id  TEXT,
@@ -87,6 +132,15 @@ export const runMigrations = (sqlite: Database): void => {
       tokenize = '${FTS_TOKENIZER}'
     );
   `)
+
+  addColumn(sqlite, 'pages', 'lifecycle', "TEXT NOT NULL DEFAULT 'active'")
+  addColumn(sqlite, 'pages', 'status', "TEXT NOT NULL DEFAULT 'draft'")
+  addColumn(sqlite, 'pages', 'labels', "TEXT NOT NULL DEFAULT '[]'")
+  addColumn(sqlite, 'pages', 'owner_id', 'TEXT')
+  addColumn(sqlite, 'pages', 'review_at', 'INTEGER')
+  addColumn(sqlite, 'pages', 'space_key', "TEXT NOT NULL DEFAULT 'main'")
+  addColumn(sqlite, 'pages', 'locale', "TEXT NOT NULL DEFAULT 'und'")
+  addColumn(sqlite, 'assets', 'storage_name', "TEXT NOT NULL DEFAULT ''")
 }
 
 /** Run migrations standalone: `bun src/db/migrate.ts`. */

@@ -15,13 +15,21 @@ export interface SearchHit {
   readonly rank: number
 }
 
+export interface SearchFilters {
+  readonly pathPrefix?: string
+  readonly label?: string
+  readonly status?: string
+  readonly spaceKey?: string
+  readonly locale?: string
+}
+
 export interface SearchResponse {
   readonly query: string
   readonly hits: SearchHit[]
 }
 
 export interface SearchService {
-  search(query: string, limit?: number): SearchResponse
+  search(query: string, limit?: number, filters?: SearchFilters): SearchResponse
 }
 
 /**
@@ -48,16 +56,40 @@ export const createSearchService = (db: DB): SearchService => {
     FROM pages_fts
     JOIN pages p ON p.id = pages_fts.page_id
     WHERE pages_fts MATCH ?
+      AND p.lifecycle = 'active'
+      AND (? IS NULL OR p.path LIKE ?)
+      AND (? IS NULL OR p.labels LIKE ?)
+      AND (? IS NULL OR p.status = ?)
+      AND (? IS NULL OR p.space_key = ?)
+      AND (? IS NULL OR p.locale = ?)
     ORDER BY rank
     LIMIT ?
   `)
 
   return {
-    search(query, limit = 20) {
+    search(query, limit = 20, filters = {}) {
       const match = buildMatchQuery(query)
       if (!match) return { query, hits: [] }
+      const pathPrefix = filters.pathPrefix?.trim()
+      const label = filters.label?.trim()
+      const status = filters.status?.trim()
+      const spaceKey = filters.spaceKey?.trim()
+      const locale = filters.locale?.trim()
       try {
-        const hits = stmt.all(match, limit) as SearchHit[]
+        const hits = stmt.all(
+          match,
+          pathPrefix || null,
+          pathPrefix ? `${pathPrefix.replace(/[%_]/g, '')}%` : null,
+          label || null,
+          label ? `%"${label.replace(/[%_"]/g, '')}"%` : null,
+          status || null,
+          status || null,
+          spaceKey || null,
+          spaceKey || null,
+          locale || null,
+          locale || null,
+          limit,
+        ) as SearchHit[]
         return { query, hits }
       } catch {
         // Malformed FTS expression — treat as no results rather than 500.

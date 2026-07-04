@@ -50,6 +50,9 @@ const escapeHtml = (s: string): string =>
 const escapeAttr = (s: string): string => escapeHtml(s).replace(/'/g, '&#39;')
 
 const EVENT_KEYS = new Set(['title', 'start', 'end', 'timezone', 'location', 'url', 'description'])
+const CALLOUT_TYPES = new Set(['info', 'success', 'warning', 'danger'])
+const CALLOUT_KEYS = new Set(['type', 'title'])
+const EMBED_KEYS = new Set(['url', 'title', 'description'])
 
 const parseDateParts = (value: string): { date: string; time?: string } | null => {
   const trimmed = value.trim()
@@ -332,6 +335,58 @@ const renderEventCard = (content: string): string | null => {
   </section>`
 }
 
+const parseKeyedBlock = (
+  content: string,
+  keys: ReadonlySet<string>,
+): { fields: Map<string, string>; body: string } => {
+  const fields = new Map<string, string>()
+  const body: string[] = []
+  let inBody = false
+
+  for (const line of content.split(/\r?\n/)) {
+    const match = !inBody ? line.match(/^([A-Za-z][A-Za-z_-]*):\s*(.*)$/) : null
+    const key = match?.[1]?.toLowerCase().replace(/-/g, '')
+    if (match && key && keys.has(key)) {
+      fields.set(key, match[2]!.trim())
+      continue
+    }
+    inBody = true
+    body.push(line)
+  }
+
+  return { fields, body: body.join('\n').trim() }
+}
+
+const renderCalloutBlock = (content: string): string => {
+  const { fields, body } = parseKeyedBlock(content, CALLOUT_KEYS)
+  const requestedType = fields.get('type') ?? 'info'
+  const type = CALLOUT_TYPES.has(requestedType) ? requestedType : 'info'
+  const title = fields.get('title') ?? type
+  const renderedBody = body ? md.render(body) : ''
+
+  return `<aside class="wiki-callout wiki-callout-${escapeAttr(type)}">
+    <div class="wiki-callout-title">${escapeHtml(title)}</div>
+    ${renderedBody ? `<div class="wiki-callout-body">${renderedBody}</div>` : ''}
+  </aside>`
+}
+
+const renderEmbedBlock = (content: string): string | null => {
+  const { fields } = parseKeyedBlock(content, EMBED_KEYS)
+  const url = fields.get('url')
+  if (!url || !/^https?:\/\//i.test(url)) return null
+  const title = fields.get('title') || url
+  const description = fields.get('description')
+
+  return `<a class="wiki-embed" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">
+    <span class="wiki-embed-title">${escapeHtml(title)}</span>
+    ${description ? `<span class="wiki-embed-description">${escapeHtml(description)}</span>` : ''}
+    <span class="wiki-embed-url">${escapeHtml(url)}</span>
+  </a>`
+}
+
+const renderMermaidBlock = (content: string): string =>
+  `<pre class="wiki-diagram wiki-mermaid"><code>${escapeHtml(content)}</code></pre>`
+
 const md: MarkdownIt = new MarkdownIt({
   html: false, // never trust raw HTML in wiki content
   linkify: true,
@@ -363,6 +418,12 @@ md.renderer.rules.fence = (tokens, idx, options, env, self): string => {
     const rendered = renderEventCard(token.content)
     if (rendered) return rendered
   }
+  if (info === 'callout') return renderCalloutBlock(token.content)
+  if (info === 'embed') {
+    const rendered = renderEmbedBlock(token.content)
+    if (rendered) return rendered
+  }
+  if (info === 'mermaid') return renderMermaidBlock(token.content)
   return defaultFence ? defaultFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
 }
 

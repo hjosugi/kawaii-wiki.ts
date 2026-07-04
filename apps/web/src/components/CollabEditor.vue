@@ -12,6 +12,7 @@ import { renderMarkdown } from '@ts-wiki/core'
 import { Api, getToken } from '@/lib/api'
 import { WS_BASE_URL } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
+import AssetPicker from '@/components/AssetPicker.vue'
 
 const props = defineProps<{ room: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -22,6 +23,7 @@ const text = ref('')
 const synced = ref(false)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
+const showAssets = ref(false)
 const preview = computed(() => renderMarkdown(text.value).html)
 const auth = useAuth()
 
@@ -127,6 +129,11 @@ async function onImageInput(event: Event): Promise<void> {
   input.value = ''
 }
 
+function insertAsset(markdown: string): void {
+  insertSnippet(markdown)
+  showAssets.value = false
+}
+
 onMounted(() => {
   ydoc = new Y.Doc()
   const ytext = ydoc.getText('content')
@@ -208,6 +215,9 @@ onBeforeUnmount(() => {
         <button class="btn-ghost" type="button" title="Upload image" :disabled="uploading" @click="uploadInput?.click()">
           {{ uploading ? 'Uploading...' : 'Image' }}
         </button>
+        <button class="btn-ghost" type="button" title="Browse assets" @click="showAssets = true">
+          Assets
+        </button>
         <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple @change="onImageInput" />
       </div>
     </div>
@@ -219,6 +229,7 @@ onBeforeUnmount(() => {
         v-html="preview"
       ></div>
     </div>
+    <AssetPicker :open="showAssets" @close="showAssets = false" @insert="insertAsset" />
   </div>
 </template>
 

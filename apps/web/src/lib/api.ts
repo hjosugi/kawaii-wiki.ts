@@ -91,6 +91,13 @@ export interface Page {
   renderedHtml: string
   toc: string
   contentType: string
+  lifecycle: 'active' | 'archived' | 'deleted'
+  status: 'draft' | 'in-review' | 'verified' | 'outdated'
+  labels: string
+  ownerId: string | null
+  reviewAt: number | null
+  spaceKey: string
+  locale: string
   authorId: string | null
   createdAt: number
   updatedAt: number
@@ -99,6 +106,18 @@ export interface PageSummary {
   path: string
   title: string
   description: string
+  lifecycle: 'active' | 'archived' | 'deleted'
+  status: 'draft' | 'in-review' | 'verified' | 'outdated'
+  labels: string
+  ownerId: string | null
+  reviewAt: number | null
+  spaceKey: string
+  locale: string
+  updatedAt: number
+}
+export interface PageSpace {
+  key: string
+  pages: number
   updatedAt: number
 }
 export interface SearchHit {
@@ -134,13 +153,33 @@ export interface PageRevision {
   description: string
   content: string
   authorId: string | null
-  action: 'created' | 'updated' | 'moved' | 'deleted'
+  action: 'created' | 'updated' | 'moved' | 'deleted' | 'archived' | 'restored' | 'purged'
   createdAt: number
 }
 export interface AssetUpload {
   id: string
   filename: string
   url: string
+}
+export interface AssetView {
+  id: string
+  filename: string
+  storageName: string
+  mime: string
+  size: number
+  authorId: string | null
+  createdAt: number
+  url: string
+}
+export interface PageComment {
+  id: string
+  path: string
+  body: string
+  authorId: string | null
+  mentions: string[]
+  resolvedAt: number | null
+  createdAt: number
+  updatedAt: number
 }
 export interface AdminUserView {
   id: string
@@ -154,6 +193,16 @@ export interface AdminStats {
   pages: number
   revisions: number
 }
+export interface AnalyticsSummary {
+  totalViews: number
+  topPages: Array<{ path: string; views: number; lastViewedAt: number | null }>
+}
+export interface PublicSettings {
+  siteTitle: string
+  accentColor: string
+  theme: 'system' | 'light' | 'dark'
+  navLinks: Array<{ label: string; url: string }>
+}
 interface AuthResult {
   token: string
   user: PublicUser
@@ -161,6 +210,7 @@ interface AuthResult {
 
 export const Api = {
   health: () => call<{ ok: true; name: string; version: string }>(client().api.health.get()),
+  publicSettings: () => fetchJson<PublicSettings>('/api/settings/public', { method: 'GET' }),
 
   // Auth
   register: (body: { email: string; name: string; password: string }) =>
@@ -171,17 +221,58 @@ export const Api = {
 
   // Pages
   listPages: () => call<{ pages: PageSummary[] }>(client().api.pages.get()).then((d) => d.pages),
+  trashPages: () => fetchJson<{ pages: PageSummary[] }>('/api/pages/trash', { method: 'GET' }).then((d) => d.pages),
   getPage: (path: string) =>
     call<{ page: Page }>(client().api.page.get({ query: { path } })).then((d) => d.page),
-  createPage: (body: { path: string; title: string; content: string; description?: string }) =>
+  createPage: (body: {
+    path: string
+    title: string
+    content: string
+    description?: string
+    labels?: string[]
+    status?: Page['status']
+    ownerId?: string | null
+    reviewAt?: number | null
+    locale?: string | null
+  }) =>
     call<{ page: Page }>(client().api.pages.post(body)).then((d) => d.page),
-  updatePage: (path: string, body: { title?: string; content?: string; description?: string }) =>
+  updatePage: (path: string, body: {
+    title?: string
+    content?: string
+    description?: string
+    labels?: string[]
+    status?: Page['status']
+    ownerId?: string | null
+    reviewAt?: number | null
+    locale?: string | null
+  }) =>
     call<{ page: Page }>(client().api.page.put(body, { query: { path } })).then((d) => d.page),
+  restoreRevision: (path: string, revisionId: string) =>
+    fetchJson<{ page: Page }>('/api/page/restore-revision', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path, revisionId }),
+    }).then((d) => d.page),
+  archivePage: (path: string) =>
+    fetchJson<{ page: Page }>('/api/page/archive', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }).then((d) => d.page),
+  restorePage: (path: string) =>
+    fetchJson<{ page: Page }>('/api/page/restore', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ path }),
+    }).then((d) => d.page),
+  purgePage: (path: string) =>
+    fetchJson<{ path: string }>(`/api/page/purge?path=${encodeURIComponent(path)}`, { method: 'DELETE' }),
   movePage: (oldPath: string, newPath: string) =>
     call<{ page: Page }>(client().api.page.move.post({ oldPath, newPath })).then((d) => d.page),
   deletePage: (path: string) =>
     call<{ path: string }>(client().api.page.delete(null, { query: { path } })),
   graph: () => call<PageGraph>(client().api.graph.get()),
+  spaces: () => call<{ spaces: PageSpace[] }>(client().api.spaces.get()).then((d) => d.spaces),
   events: () =>
     call<{ events: ExtractedCalendarEvent[] }>(client().api.events.index.get()).then((d) => d.events),
   backlinks: (path: string) =>
@@ -192,22 +283,99 @@ export const Api = {
     call<{ revisions: PageRevision[] }>(client().api.page.history.get({ query: { path } })).then(
       (d) => d.revisions,
     ),
+  comments: (path: string) =>
+    call<{ comments: PageComment[] }>(client().api.page.comments.get({ query: { path } })).then(
+      (d) => d.comments,
+    ),
+  createComment: (path: string, body: string) =>
+    call<{ comment: PageComment }>(client().api.page.comments.post({ path, body })).then(
+      (d) => d.comment,
+    ),
+  updateComment: (id: string, body: string) =>
+    fetchJson<{ comment: PageComment }>(`/api/page/comments/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ body }),
+    }).then((d) => d.comment),
+  resolveComment: (id: string) =>
+    fetchJson<{ comment: PageComment }>(`/api/page/comments/${encodeURIComponent(id)}/resolve`, {
+      method: 'POST',
+    }).then((d) => d.comment),
+  deleteComment: (id: string) =>
+    fetchJson<{ id: string }>(`/api/page/comments/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  exportSite: () => fetchJson<{
+    manifestVersion: number
+    exportedAt: string
+    pages: Array<{
+      path: string
+      title: string
+      description: string
+      content: string
+      labels: string
+      status: Page['status']
+      ownerId: string | null
+      reviewAt: number | null
+      spaceKey: string
+      locale: string
+      createdAt: number
+      updatedAt: number
+    }>
+    assets: AssetView[]
+  }>('/api/export/site', { method: 'GET' }),
+  importMarkdown: (body: {
+    path: string
+    title?: string
+    description?: string
+    content: string
+    labels?: string[]
+    status?: Page['status']
+    locale?: string | null
+  }) =>
+    fetchJson<{ page: Page }>('/api/import/markdown', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((d) => d.page),
   uploadAsset: (file: File) => {
     const form = new FormData()
     form.append('file', file)
     return fetchJson<AssetUpload>('/api/assets', { method: 'POST', body: form })
   },
+  listAssets: () => fetchJson<{ assets: AssetView[] }>('/api/assets', { method: 'GET' }).then((d) => d.assets),
+  deleteAsset: (id: string) =>
+    fetchJson<{ asset: AssetView }>(`/api/assets/${encodeURIComponent(id)}`, { method: 'DELETE' }).then(
+      (d) => d.asset,
+    ),
+  renameAsset: (id: string, filename: string) =>
+    fetchJson<{ asset: AssetView }>(`/api/assets/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ filename }),
+    }).then((d) => d.asset),
 
   // Search
-  search: (q: string, limit = 20) =>
-    call<{ query: string; hits: SearchHit[] }>(client().api.search.get({ query: { q, limit } })),
+  search: (
+    q: string,
+    limit = 20,
+    filters: { pathPrefix?: string; label?: string; status?: string; spaceKey?: string; locale?: string } = {},
+  ) =>
+    call<{ query: string; hits: SearchHit[] }>(
+      client().api.search.get({ query: { q, limit, ...filters } }),
+    ),
 
   // Admin
   adminStats: () => call<AdminStats>(client().api.admin.stats.get()),
+  adminAnalytics: () => fetchJson<AnalyticsSummary>('/api/admin/analytics', { method: 'GET' }),
   adminUsers: () =>
     call<{ users: AdminUserView[] }>(client().api.admin.users.get()).then((d) => d.users),
   adminSetRole: (userId: string, role: 'admin' | 'editor' | 'viewer') =>
     call<{ user: AdminUserView }>(client().api.admin.users.role.put({ userId, role })).then(
       (d) => d.user,
     ),
+  adminUpdateSettings: (body: Partial<PublicSettings>) =>
+    fetchJson<{ settings: PublicSettings }>('/api/admin/settings', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((d) => d.settings),
 }

@@ -8,6 +8,7 @@ import { onWikiEvent } from '@/lib/realtime'
 import { usePresence } from '@/composables/usePresence'
 import EmptyState from '@/components/EmptyState.vue'
 import InteractiveGraph from '@/components/InteractiveGraph.vue'
+import PageComments from '@/components/PageComments.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PageToc from '@/components/PageToc.vue'
 import type { PageGraph } from '@/lib/api'
@@ -126,6 +127,7 @@ onUnmounted(stopRealtime)
           </RouterLink>
         </div>
       </section>
+      <PageComments :path="page.path" />
     </article>
 
     <aside class="hidden xl:block w-72 shrink-0 space-y-6">

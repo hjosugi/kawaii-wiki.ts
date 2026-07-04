@@ -205,6 +205,41 @@ describe('http app authorization', () => {
   }, HTTP_TEST_TIMEOUT_MS)
 })
 
+describe('http app settings', () => {
+  test('exposes safe public settings and lets admins update them', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+
+    const defaults = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(defaults.status).toBe(200)
+    expect(await defaults.json()).toMatchObject({ siteTitle: 'ts-wiki', accentColor: '#7c3aed' })
+
+    const updated = await app.handle(
+      new Request('http://localhost/api/admin/settings', {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          siteTitle: 'Docs',
+          accentColor: '#2563eb',
+          theme: 'system',
+          navLinks: [{ label: 'Home', url: '/' }],
+        }),
+      }),
+    )
+    expect(updated.status).toBe(200)
+
+    const publicSettings = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(await publicSettings.json()).toMatchObject({
+      siteTitle: 'Docs',
+      accentColor: '#2563eb',
+      navLinks: [{ label: 'Home', url: '/' }],
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+})
+
 describe('http app structured logging', () => {
   test('emits structured request and audit events for writes', async () => {
     const { logger, events } = captureLogger()
@@ -311,6 +346,9 @@ describe('http app page utilities', () => {
     )
     expect(update.status).toBe(200)
 
+    const read = await app.handle(new Request('http://localhost/api/page?path=docs/target'))
+    expect(read.status).toBe(200)
+
     const history = await app.handle(new Request('http://localhost/api/page/history?path=docs/target'))
     expect(history.status).toBe(200)
     expect((await history.json()).revisions.length).toBeGreaterThan(1)
@@ -326,6 +364,112 @@ describe('http app page utilities', () => {
     expect((await events.json()).events).toContainEqual(
       expect.objectContaining({ sourcePath: 'docs/source', title: 'Sync' }),
     )
+
+    const comment = await app.handle(
+      jsonRequest('/api/page/comments', { path: 'docs/target', body: 'Looks good @ada' }, token),
+    )
+    expect(comment.status).toBe(200)
+    const commentBody = await comment.json()
+    expect(commentBody.comment.mentions).toEqual(['ada'])
+
+    const resolved = await app.handle(
+      new Request(`http://localhost/api/page/comments/${commentBody.comment.id}/resolve`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(resolved.status).toBe(200)
+
+    const analytics = await app.handle(
+      new Request('http://localhost/api/admin/analytics', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(analytics.status).toBe(200)
+    expect((await analytics.json()).topPages).toContainEqual(
+      expect.objectContaining({ path: 'docs/target', views: 1 }),
+    )
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('moves pages to trash, restores, archives, and purges through HTTP routes', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    await createPage(app, token, 'docs/lifecycle', 'recoverable papaya')
+
+    const deleted = await app.handle(
+      new Request('http://localhost/api/page?path=docs/lifecycle', {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(deleted.status).toBe(200)
+
+    const trash = await app.handle(
+      new Request('http://localhost/api/pages/trash', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(trash.status).toBe(200)
+    expect((await trash.json()).pages).toContainEqual(
+      expect.objectContaining({ path: 'docs/lifecycle', lifecycle: 'deleted' }),
+    )
+
+    const restored = await app.handle(
+      jsonRequest('/api/page/restore', { path: 'docs/lifecycle' }, token),
+    )
+    expect(restored.status).toBe(200)
+
+    const archived = await app.handle(
+      jsonRequest('/api/page/archive', { path: 'docs/lifecycle' }, token),
+    )
+    expect(archived.status).toBe(200)
+
+    const purged = await app.handle(
+      new Request('http://localhost/api/page/purge?path=docs/lifecycle', {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(purged.status).toBe(200)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('exports pages/site data and imports markdown frontmatter', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    await createPage(app, token, 'docs/export', '# Export\n\nbody')
+
+    const markdown = await app.handle(new Request('http://localhost/api/export/page?path=docs/export'))
+    expect(markdown.status).toBe(200)
+    expect(markdown.headers.get('content-type')).toContain('text/markdown')
+    expect(await markdown.text()).toContain('title: docs/export')
+
+    const site = await app.handle(
+      new Request('http://localhost/api/export/site', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(site.status).toBe(200)
+    expect((await site.json()).pages).toContainEqual(expect.objectContaining({ path: 'docs/export' }))
+
+    const imported = await app.handle(
+      jsonRequest(
+        '/api/import/markdown',
+        {
+          path: 'docs/imported',
+          content: '---\ntitle: Imported\ndescription: From file\n---\n\nHello import',
+          labels: ['imported'],
+          status: 'verified',
+        },
+        token,
+      ),
+    )
+    expect(imported.status).toBe(200)
+    expect((await imported.json()).page).toMatchObject({
+      path: 'docs/imported',
+      title: 'Imported',
+      labels: '["imported"]',
+      status: 'verified',
+    })
   }, HTTP_TEST_TIMEOUT_MS)
 })
 
@@ -355,6 +499,37 @@ describe('http app assets', () => {
     expect(assetResponse.headers.get('x-content-type-options')).toBe('nosniff')
     expect(assetResponse.headers.get('content-disposition')).toBe('inline')
     expect((await assetResponse.arrayBuffer()).byteLength).toBe(png1x1.byteLength)
+
+    const assets = await app.handle(
+      new Request('http://localhost/api/assets', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(assets.status).toBe(200)
+    const listed = (await assets.json()) as { assets: Array<{ id: string; filename: string; url: string }> }
+    expect(listed.assets).toContainEqual(expect.objectContaining({ filename: 'avatar.png', url: body.url }))
+
+    const renamed = await app.handle(
+      new Request(`http://localhost/api/assets/${listed.assets[0]!.id}`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ filename: 'renamed.png' }),
+      }),
+    )
+    expect(renamed.status).toBe(200)
+    expect((await renamed.json()).asset).toMatchObject({ filename: 'renamed.png', url: body.url })
+
+    const removed = await app.handle(
+      new Request(`http://localhost/api/assets/${listed.assets[0]!.id}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(removed.status).toBe(200)
+    expect(existsSync(join(dataDir, body.url))).toBe(false)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('rejects disallowed or oversized uploads', async () => {

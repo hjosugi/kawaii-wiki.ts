@@ -1,11 +1,19 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { Api, type PublicSettings } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 
 const router = useRouter()
 const auth = useAuth()
 const q = ref('')
+const settings = ref<PublicSettings>({
+  siteTitle: 'ts-wiki',
+  accentColor: '#7c3aed',
+  theme: 'system',
+  navLinks: [],
+})
+const accentStyle = computed(() => ({ color: settings.value.accentColor }))
 
 function submitSearch(): void {
   const query = q.value.trim()
@@ -15,6 +23,15 @@ function submitSearch(): void {
 function openCommandPalette(): void {
   window.dispatchEvent(new Event('open-command-palette'))
 }
+
+onMounted(async () => {
+  try {
+    settings.value = await Api.publicSettings()
+    document.title = settings.value.siteTitle
+  } catch {
+    /* keep defaults */
+  }
+})
 </script>
 
 <template>
@@ -23,7 +40,8 @@ function openCommandPalette(): void {
   >
     <div class="max-w-7xl mx-auto px-4 h-14 flex items-center gap-4">
       <RouterLink to="/" class="flex items-center gap-1.5 font-bold text-lg shrink-0">
-        <span class="text-violet-600">▲</span> ts<span class="text-violet-600">wiki</span>
+        <span :style="accentStyle">▲</span>
+        <span>{{ settings.siteTitle }}</span>
       </RouterLink>
 
       <form class="flex-1 max-w-md" @submit.prevent="submitSearch">
@@ -34,6 +52,14 @@ function openCommandPalette(): void {
         <button class="btn-ghost hidden sm:inline-flex" type="button" title="Command palette" @click="openCommandPalette">
           Cmd K
         </button>
+        <a
+          v-for="link in settings.navLinks"
+          :key="link.url + link.label"
+          class="btn-ghost hidden lg:inline-flex"
+          :href="link.url"
+        >
+          {{ link.label }}
+        </a>
         <RouterLink to="/_events" class="btn-ghost">Events</RouterLink>
         <RouterLink to="/_graph" class="btn-ghost">Graph</RouterLink>
         <RouterLink v-if="auth.isAdmin" to="/_admin" class="btn-ghost">Admin</RouterLink>

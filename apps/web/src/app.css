@@ -127,6 +127,80 @@ html {
   color: rgb(91 33 182);
 }
 
+.wiki-callout {
+  margin: 1.25rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgb(229 231 235);
+  border-left: 4px solid rgb(59 130 246);
+  border-radius: 0.5rem;
+  background: rgb(249 250 251);
+}
+
+.wiki-callout-title {
+  margin: 0;
+  color: rgb(31 41 55);
+  font-weight: 700;
+  text-transform: capitalize;
+}
+
+.wiki-callout-body > :first-child {
+  margin-top: 0.45rem;
+}
+
+.wiki-callout-body > :last-child {
+  margin-bottom: 0;
+}
+
+.wiki-callout-success {
+  border-left-color: rgb(22 163 74);
+}
+
+.wiki-callout-warning {
+  border-left-color: rgb(217 119 6);
+}
+
+.wiki-callout-danger {
+  border-left-color: rgb(220 38 38);
+}
+
+.wiki-embed {
+  display: block;
+  margin: 1.25rem 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgb(229 231 235);
+  border-radius: 0.5rem;
+  background: rgb(255 255 255);
+  text-decoration: none;
+}
+
+.wiki-embed-title,
+.wiki-embed-description,
+.wiki-embed-url {
+  display: block;
+}
+
+.wiki-embed-title {
+  color: rgb(91 33 182);
+  font-weight: 700;
+}
+
+.wiki-embed-description {
+  margin-top: 0.25rem;
+  color: rgb(75 85 99);
+}
+
+.wiki-embed-url {
+  margin-top: 0.35rem;
+  color: rgb(107 114 128);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.wiki-diagram {
+  border: 1px solid rgb(229 231 235);
+}
+
 @media (max-width: 720px) {
   .wiki-event-card {
     flex-direction: column;
@@ -162,6 +236,33 @@ html {
   .wiki-event-actions a:hover {
     background: rgb(46 16 101);
     color: rgb(237 233 254);
+  }
+
+  .wiki-callout {
+    border-color: rgb(31 41 55);
+    background: rgb(17 24 39);
+  }
+
+  .wiki-callout-title {
+    color: rgb(243 244 246);
+  }
+
+  .wiki-embed {
+    border-color: rgb(31 41 55);
+    background: rgb(17 24 39);
+  }
+
+  .wiki-embed-title {
+    color: rgb(196 181 253);
+  }
+
+  .wiki-embed-description,
+  .wiki-embed-url {
+    color: rgb(156 163 175);
+  }
+
+  .wiki-diagram {
+    border-color: rgb(31 41 55);
   }
 }
 

@@ -20,9 +20,17 @@ const title = ref('')
 const path = ref('')
 const originalPath = ref('')
 const content = ref('')
+const labelsText = ref('')
+const status = ref<'draft' | 'in-review' | 'verified' | 'outdated'>('draft')
+const reviewAtDate = ref('')
+const locale = ref('und')
 const savedTitle = ref('')
 const savedPath = ref('')
 const savedContent = ref('')
+const savedLabelsText = ref('')
+const savedStatus = ref(status.value)
+const savedReviewAtDate = ref('')
+const savedLocale = ref('und')
 const saving = ref(false)
 const error = ref<string | null>(null)
 const selectedTemplate = ref('blank')
@@ -69,7 +77,11 @@ const dirty = computed(
   () =>
     title.value !== savedTitle.value ||
     path.value !== savedPath.value ||
-    content.value !== savedContent.value,
+    content.value !== savedContent.value ||
+    labelsText.value !== savedLabelsText.value ||
+    status.value !== savedStatus.value ||
+    reviewAtDate.value !== savedReviewAtDate.value ||
+    locale.value !== savedLocale.value,
 )
 const saveStatus = computed(() => {
   if (saving.value) return 'Saving...'
@@ -82,7 +94,34 @@ function markSaved(): void {
   savedTitle.value = title.value
   savedPath.value = path.value
   savedContent.value = content.value
+  savedLabelsText.value = labelsText.value
+  savedStatus.value = status.value
+  savedReviewAtDate.value = reviewAtDate.value
+  savedLocale.value = locale.value
 }
+
+const labels = (): string[] =>
+  labelsText.value
+    .split(',')
+    .map((label) => label.trim())
+    .filter(Boolean)
+
+const reviewAt = (): number | null =>
+  reviewAtDate.value ? new Date(`${reviewAtDate.value}T00:00:00`).getTime() : null
+
+const labelTextFromJson = (value: string): string => {
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return Array.isArray(parsed)
+      ? parsed.filter((label): label is string => typeof label === 'string').join(', ')
+      : ''
+  } catch {
+    return ''
+  }
+}
+
+const dateInputValue = (value: number | null): string =>
+  value ? new Date(value).toISOString().slice(0, 10) : ''
 
 function applyTemplate(key: string): void {
   const template = templates.find((item) => item.key === key)
@@ -108,6 +147,10 @@ onMounted(async () => {
       path.value = page.path
       originalPath.value = page.path
       content.value = page.content
+      labelsText.value = labelTextFromJson(page.labels)
+      status.value = page.status
+      reviewAtDate.value = dateInputValue(page.reviewAt)
+      locale.value = page.locale
       markSaved()
     } catch (e) {
       error.value = (e as Error).message
@@ -116,6 +159,10 @@ onMounted(async () => {
     path.value = (route.query.path as string) ?? ''
     title.value = ''
     content.value = templates[0].content
+    labelsText.value = ''
+    status.value = 'draft'
+    reviewAtDate.value = ''
+    locale.value = 'und'
     markSaved()
   }
 })
@@ -141,8 +188,18 @@ async function save(): Promise<void> {
   saving.value = true
   error.value = null
   try {
+    const metadata = {
+      labels: labels(),
+      status: status.value,
+      reviewAt: reviewAt(),
+      locale: locale.value,
+    }
     if (isEdit.value) {
-      const updated = await Api.updatePage(originalPath.value, { title: title.value, content: content.value })
+      const updated = await Api.updatePage(originalPath.value, {
+        title: title.value,
+        content: content.value,
+        ...metadata,
+      })
       if (path.value !== originalPath.value) {
         const moved = await Api.movePage(originalPath.value, path.value)
         path.value = moved.path
@@ -152,7 +209,7 @@ async function save(): Promise<void> {
         originalPath.value = updated.path
       }
     } else {
-      await Api.createPage({ path: path.value, title: title.value, content: content.value })
+      await Api.createPage({ path: path.value, title: title.value, content: content.value, ...metadata })
     }
     await pagesStore.refresh()
     markSaved()
@@ -165,9 +222,20 @@ async function save(): Promise<void> {
 }
 
 async function remove(): Promise<void> {
-  if (!confirm(`Delete "${title.value}"? This cannot be undone.`)) return
+  if (!confirm(`Move "${title.value}" to trash? It can be restored by an admin/editor.`)) return
   try {
     await Api.deletePage(path.value)
+    await pagesStore.refresh()
+    router.push('/')
+  } catch (e) {
+    error.value = (e as Error).message
+  }
+}
+
+async function archive(): Promise<void> {
+  if (!confirm(`Archive "${title.value}"? It will be hidden from search and navigation.`)) return
+  try {
+    await Api.archivePage(path.value)
     await pagesStore.refresh()
     router.push('/')
   } catch (e) {
@@ -190,11 +258,25 @@ async function remove(): Promise<void> {
           {{ template.label }}
         </option>
       </select>
+      <select v-model="status" class="input max-w-40">
+        <option value="draft">draft</option>
+        <option value="in-review">in-review</option>
+        <option value="verified">verified</option>
+        <option value="outdated">outdated</option>
+      </select>
+      <input v-model="reviewAtDate" class="input max-w-42" type="date" title="Review date" />
+      <input v-model="locale" class="input max-w-28" placeholder="locale" title="Locale" />
       <button class="btn-primary" :disabled="saving || !title || !path" @click="save">
         {{ saving ? 'Saving...' : 'Save' }}
       </button>
+      <button v-if="isEdit" class="btn-ghost" @click="archive">Archive</button>
       <button v-if="isEdit" class="btn-danger" @click="remove">Delete</button>
     </div>
+    <input
+      v-model="labelsText"
+      class="input mb-3"
+      placeholder="labels, comma separated"
+    />
     <div class="mb-3 flex flex-wrap items-center gap-3 text-sm">
       <span
         class="font-medium"

@@ -18,6 +18,21 @@ const updated = computed(() =>
 )
 
 const childPath = computed(() => `${props.page.path}/new-page`)
+const markdownExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=markdown`)
+const htmlExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=html`)
+const labels = computed<string[]>(() => {
+  try {
+    const parsed = JSON.parse(props.page.labels) as unknown
+    return Array.isArray(parsed) ? parsed.filter((label): label is string => typeof label === 'string') : []
+  } catch {
+    return []
+  }
+})
+const reviewDate = computed(() =>
+  props.page.reviewAt
+    ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(props.page.reviewAt))
+    : null,
+)
 
 async function copyPath(): Promise<void> {
   await navigator.clipboard?.writeText('/' + props.page.path)
@@ -37,7 +52,23 @@ async function copyPath(): Promise<void> {
         <h1 class="text-3xl font-bold tracking-tight text-gray-950 dark:text-gray-50">{{ page.title }}</h1>
         <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
           <span class="font-mono">/{{ page.path }}</span>
+          <span>Space {{ page.spaceKey }}</span>
+          <span>Locale {{ page.locale }}</span>
           <span>Updated {{ updated }}</span>
+          <span class="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold capitalize text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+            {{ page.status }}
+          </span>
+          <span v-if="reviewDate">Review {{ reviewDate }}</span>
+        </div>
+        <div v-if="labels.length" class="mt-3 flex flex-wrap gap-1.5">
+          <RouterLink
+            v-for="label in labels"
+            :key="label"
+            :to="{ name: 'search', query: { q: label, label } }"
+            class="rounded bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700 hover:bg-violet-100 dark:bg-violet-950 dark:text-violet-200"
+          >
+            #{{ label }}
+          </RouterLink>
         </div>
       </div>
 
@@ -51,6 +82,8 @@ async function copyPath(): Promise<void> {
         <RouterLink :to="'/_history/' + page.path" class="btn-ghost">
           History
         </RouterLink>
+        <a class="btn-ghost" :href="markdownExportUrl">Markdown</a>
+        <a class="btn-ghost" :href="htmlExportUrl">HTML</a>
         <RouterLink v-if="canEdit" :to="'/_edit/' + page.path" class="btn-primary">
           Edit
         </RouterLink>

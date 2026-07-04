@@ -7,6 +7,11 @@ const route = useRoute()
 const router = useRouter()
 
 const q = ref((route.query.q as string) ?? '')
+const pathPrefix = ref((route.query.pathPrefix as string) ?? '')
+const label = ref((route.query.label as string) ?? '')
+const status = ref((route.query.status as string) ?? '')
+const spaceKey = ref((route.query.spaceKey as string) ?? '')
+const locale = ref((route.query.locale as string) ?? '')
 const hits = ref<SearchHit[]>([])
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
@@ -18,14 +23,29 @@ async function run(): Promise<void> {
   }
   loading.value = true
   try {
-    hits.value = (await Api.search(q.value)).hits
+    hits.value = (await Api.search(q.value, 20, {
+      pathPrefix: pathPrefix.value || undefined,
+      label: label.value || undefined,
+      status: status.value || undefined,
+      spaceKey: spaceKey.value || undefined,
+      locale: locale.value || undefined,
+    })).hits
   } finally {
     loading.value = false
   }
 }
 
 function onInput(): void {
-  router.replace({ query: { q: q.value } })
+  router.replace({
+    query: {
+      q: q.value || undefined,
+      pathPrefix: pathPrefix.value || undefined,
+      label: label.value || undefined,
+      status: status.value || undefined,
+      spaceKey: spaceKey.value || undefined,
+      locale: locale.value || undefined,
+    },
+  })
   if (timer) clearTimeout(timer)
   timer = setTimeout(run, 180)
 }
@@ -41,17 +61,44 @@ watch(
   },
 )
 
+watch(
+  () => [route.query.pathPrefix, route.query.label, route.query.status, route.query.spaceKey, route.query.locale],
+  ([nextPath, nextLabel, nextStatus, nextSpace, nextLocale]) => {
+    pathPrefix.value = (nextPath as string) ?? ''
+    label.value = (nextLabel as string) ?? ''
+    status.value = (nextStatus as string) ?? ''
+    spaceKey.value = (nextSpace as string) ?? ''
+    locale.value = (nextLocale as string) ?? ''
+    run()
+  },
+)
+
 run()
 </script>
 
 <template>
   <div class="max-w-2xl">
-    <input
-      v-model="q"
-      class="input text-lg mb-6"
-      placeholder="Search the wiki…"
-      @input="onInput"
-    />
+    <div class="space-y-3 mb-6">
+      <input
+        v-model="q"
+        class="input text-lg"
+        placeholder="Search the wiki…"
+        @input="onInput"
+      />
+      <div class="grid grid-cols-1 sm:grid-cols-5 gap-2">
+        <input v-model="pathPrefix" class="input text-sm" placeholder="path prefix" @input="onInput" />
+        <input v-model="spaceKey" class="input text-sm" placeholder="space" @input="onInput" />
+        <input v-model="locale" class="input text-sm" placeholder="locale" @input="onInput" />
+        <input v-model="label" class="input text-sm" placeholder="label" @input="onInput" />
+        <select v-model="status" class="input text-sm" @change="onInput">
+          <option value="">any status</option>
+          <option value="draft">draft</option>
+          <option value="in-review">in-review</option>
+          <option value="verified">verified</option>
+          <option value="outdated">outdated</option>
+        </select>
+      </div>
+    </div>
 
     <p v-if="loading" class="text-gray-400">Searching…</p>
     <p v-else-if="q && !hits.length" class="text-gray-400">No results for “{{ q }}”.</p>

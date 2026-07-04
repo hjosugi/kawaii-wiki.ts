@@ -10,10 +10,15 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('codemirror', () => ({
   basicSetup: [],
+}))
+
+vi.mock('@codemirror/view', () => ({
   EditorView: class {
     static lineWrapping = []
+    static domEventHandlers = vi.fn(() => [])
     constructor() {}
     destroy() {}
+    focus() {}
   },
 }))
 

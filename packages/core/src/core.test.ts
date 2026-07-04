@@ -116,6 +116,31 @@ END:VCALENDAR`)
     expect(html).toContain('href="/docs/intro"')
     expect(html).toContain('data-wiki-link="docs/intro"')
   })
+  test('renders safe typed blocks for callouts, embeds, and mermaid source', () => {
+    const { html } = renderMarkdown(`\`\`\`callout
+type: warning
+title: Heads up
+**Check** this before deploy.
+\`\`\`
+
+\`\`\`embed
+url: https://example.com/doc
+title: External doc
+description: Reference material
+\`\`\`
+
+\`\`\`mermaid
+flowchart TD
+  A --> B
+\`\`\``)
+
+    expect(html).toContain('wiki-callout-warning')
+    expect(html).toContain('<strong>Check</strong>')
+    expect(html).toContain('wiki-embed')
+    expect(html).toContain('https://example.com/doc')
+    expect(html).toContain('wiki-mermaid')
+    expect(html).toContain('A --&gt; B')
+  })
 })
 
 describe('permissions', () => {
@@ -136,11 +161,21 @@ describe('permissions', () => {
 
 describe('page validation', () => {
   test('accepts and normalizes valid input', () => {
-    const r = validatePageInput({ path: 'Docs/Intro', title: 'Intro', content: 'hello world' })
+    const r = validatePageInput({
+      path: 'Docs/Intro',
+      title: 'Intro',
+      content: 'hello world',
+      labels: ['Ops Notes', 'ops notes', '日本語'],
+      status: 'verified',
+      locale: 'JA-JP',
+    })
     expect(isOk(r)).toBe(true)
     if (isOk(r)) {
       expect(r.value.path).toBe('docs/intro')
       expect(r.value.description).toBe('hello world')
+      expect(r.value.labels).toEqual(['ops-notes', '日本語'])
+      expect(r.value.status).toBe('verified')
+      expect(r.value.locale).toBe('ja-jp')
     }
   })
   test('rejects empty title', () => {
