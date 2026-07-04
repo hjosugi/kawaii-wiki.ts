@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Api } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
-import MarkdownEditor from '@/components/MarkdownEditor.vue'
-import CollabEditor from '@/components/CollabEditor.vue'
 import { usePresence } from '@/composables/usePresence'
+
+const MarkdownEditor = defineAsyncComponent(() => import('@/components/MarkdownEditor.vue'))
+const CollabEditor = defineAsyncComponent(() => import('@/components/CollabEditor.vue'))
 
 const route = useRoute()
 const router = useRouter()

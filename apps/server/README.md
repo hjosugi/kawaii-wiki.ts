@@ -62,6 +62,28 @@ browser clients with a comma-separated allow-list:
 TS_WIKI_CORS_ORIGINS=https://wiki.example.com,https://admin.example.com
 ```
 
+## Backup And Restore
+
+Back up SQLite with its online backup command, then copy uploaded assets:
+
+```bash
+mkdir -p backups
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/ts-wiki-$(date +%F).sqlite'"
+rsync -a data/assets/ backups/assets/
+```
+
+To restore, stop the server, replace `DATABASE_PATH` with the backup file, copy
+the assets directory back under `DATA_DIR`, then start the server. Git mirroring
+is not a full backup because users, roles, assets, revisions, and search state
+live in SQLite.
+
+## Observability
+
+The HTTP app emits one structured JSON request log per handled request and audit
+events for mutating actions such as auth, page writes, admin role changes, asset
+uploads, Git sync, and collaborative autosave. Logs are written to stdout/stderr
+so Docker, systemd, or a hosted log pipeline can collect them without an agent.
+
 ## Useful Commands
 
 ```bash
@@ -78,6 +100,7 @@ bun test apps/server
 | --- | --- |
 | `src/index.ts` | turns env and DB setup into a running server |
 | `src/http/app.ts` | route composition and HTTP error mapping |
+| `src/observability/logging.ts` | structured request/audit logging |
 | `src/services/pages.ts` | transactional page writes and FTS updates |
 | `src/db/schema.ts` | SQLite tables and relationships |
 | `src/db/migrate.ts` | local schema setup, including FTS5 |

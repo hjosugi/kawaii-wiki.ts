@@ -94,6 +94,51 @@ export const createPageService = (db: DB): PageService => {
   const findById = (id: string): Page =>
     db.select().from(pages).where(eq(pages.id, id)).get()!
 
+  const writeExistingPage = (
+    current: Page,
+    next: { title: string; description: string; content: string },
+    principal: Principal | null,
+    revisionAction: 'updated' | null,
+  ): Page => {
+    const { html, toc } = renderMarkdown(next.content)
+    const now = Date.now()
+
+    return db.transaction((tx) => {
+      if (revisionAction) {
+        // Snapshot the pre-update state into history. Collaborative autosave
+        // uses the same write path but passes null to avoid revision spam.
+        tx.insert(pageRevisions)
+          .values({
+            id: crypto.randomUUID(),
+            pageId: current.id,
+            path: current.path,
+            title: current.title,
+            description: current.description,
+            content: current.content,
+            authorId: principal?.id ?? null,
+            action: revisionAction,
+            createdAt: now,
+          })
+          .run()
+      }
+
+      tx.update(pages)
+        .set({
+          title: next.title,
+          description: next.description,
+          content: next.content,
+          renderedHtml: html,
+          toc: JSON.stringify(toc),
+          updatedAt: now,
+        })
+        .where(eq(pages.id, current.id))
+        .run()
+
+      reindex(current.id, next.title, next.description, next.content)
+      return findById(current.id)
+    })
+  }
+
   return {
     list() {
       return db
@@ -209,40 +254,7 @@ export const createPageService = (db: DB): PageService => {
       if (!validated.ok) return validated
       const v = validated.value
 
-      const { html, toc } = renderMarkdown(v.content)
-      const now = Date.now()
-
-      const page = db.transaction((tx) => {
-        // Snapshot the pre-update state into history.
-        tx.insert(pageRevisions)
-          .values({
-            id: crypto.randomUUID(),
-            pageId: current.id,
-            path: current.path,
-            title: current.title,
-            description: current.description,
-            content: current.content,
-            authorId: principal?.id ?? null,
-            action: 'updated',
-            createdAt: now,
-          })
-          .run()
-
-        tx.update(pages)
-          .set({
-            title: v.title,
-            description: v.description,
-            content: v.content,
-            renderedHtml: html,
-            toc: JSON.stringify(toc),
-            updatedAt: now,
-          })
-          .where(eq(pages.id, current.id))
-          .run()
-
-        reindex(current.id, v.title, v.description, v.content)
-        return findById(current.id)
-      })
+      const page = writeExistingPage(current, v, principal, 'updated')
 
       return ok(page)
     },
@@ -258,17 +270,8 @@ export const createPageService = (db: DB): PageService => {
 
       // Lightweight save for collaborative autosave: refresh content + render +
       // search index WITHOUT snapshotting a revision (explicit Save does that).
-      const { html, toc } = renderMarkdown(content)
       const description = toPlainText(content).slice(0, 200)
-      const now = Date.now()
-      const page = db.transaction((tx) => {
-        tx.update(pages)
-          .set({ content, description, renderedHtml: html, toc: JSON.stringify(toc), updatedAt: now })
-          .where(eq(pages.id, current.id))
-          .run()
-        reindex(current.id, current.title, description, content)
-        return findById(current.id)
-      })
+      const page = writeExistingPage(current, { title: current.title, description, content }, principal, null)
       return ok(page)
     },
 

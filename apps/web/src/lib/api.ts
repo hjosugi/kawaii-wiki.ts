@@ -13,13 +13,27 @@ import { treaty } from '@elysiajs/eden'
 import type { App } from '@ts-wiki/server/app'
 import { API_BASE_URL } from './url'
 
-let authToken: string | null = localStorage.getItem('token')
+const memoryStorage = new Map<string, string>()
+const browserStorage = typeof window === 'undefined' ? undefined : window.localStorage
+const tokenStorage = !browserStorage
+  ? {
+      getItem: (key: string): string | null => memoryStorage.get(key) ?? null,
+      setItem: (key: string, value: string): void => {
+        memoryStorage.set(key, value)
+      },
+      removeItem: (key: string): void => {
+        memoryStorage.delete(key)
+      },
+    }
+  : browserStorage
+
+let authToken: string | null = tokenStorage.getItem('token')
 
 export const getToken = (): string | null => authToken
 export const setToken = (token: string | null): void => {
   authToken = token
-  if (token) localStorage.setItem('token', token)
-  else localStorage.removeItem('token')
+  if (token) tokenStorage.setItem('token', token)
+  else tokenStorage.removeItem('token')
 }
 
 /** A fresh treaty instance per call so the current token is always attached. */

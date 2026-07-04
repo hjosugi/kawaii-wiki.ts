@@ -104,6 +104,42 @@ DATABASE_PATH=./data/ts-wiki.sqlite JWT_SECRET=dev PORT=4001 TS_WIKI_INSTANCE_ID
 For single-process tests or very small local runs, `TS_WIKI_EVENT_BUS=memory` restores the old
 in-process-only event bus.
 
+## Realtime, Presence, And Collaboration
+
+- `/api/events` is an authenticated Server-Sent Events stream. It carries
+  `page:changed` events emitted by page writes, Git sync imports, and
+  collaborative autosaves.
+- `/api/presence` is a cosmetic WebSocket channel for "viewing/editing" state.
+  Presence identities are display-only and are deduped server-side by user.
+- `/api/collab/:room` speaks the Yjs websocket protocol. The server seeds each
+  room from the current page content and version, requires an editor token, and
+  persists through `pages.saveContent` with a stale-version check so old rooms
+  cannot overwrite newer API or Git-sync writes.
+
+## Admin, Git Sync, And Audit Logs
+
+The first registered account or seeded admin is the initial admin. Admin-only
+routes use the same pure permission checks as page mutations. Git sync is a
+mirror/import adapter around the page service: DB writes commit Markdown files,
+and external Git commits import through normal page create/update/delete paths.
+
+Every HTTP request and write-side action emits structured JSON logs. Request logs
+record method, path, status, duration, IP, and user id when available. Audit logs
+record auth, page, admin, asset, Git sync, and collab autosave actions.
+
+## Backup Strategy
+
+SQLite is the canonical store. Back it up online with:
+
+```bash
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/ts-wiki-$(date +%F).sqlite'"
+rsync -a data/assets/ backups/assets/
+```
+
+Back up the uploaded assets directory with the database snapshot. Git mirroring
+does not replace SQLite backups because roles, revision metadata, assets, and
+search state are not fully represented by Markdown files.
+
 ## Scripts
 
 | Command | What it does |

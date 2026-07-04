@@ -22,11 +22,17 @@ import {
 import type { Env } from '../env.ts'
 import type { DB } from '../db/client.ts'
 import { createServices } from '../services/index.ts'
-import { createDbEventBus, createEventBus } from '../realtime/bus.ts'
-import { createPresence, dedupeViewers } from '../realtime/presence.ts'
+import { createCollabRuntime, createPresenceRuntime, createRealtimeBus } from '../realtime/runtime.ts'
 import { createGitStorage, type GitConfig } from '../storage/git.ts'
-import { createCollabHub, type CollabConn, type CollabSeed } from '../realtime/collab.ts'
+import { createGitSyncHandlers, startGitSyncScheduler } from '../storage/git-sync.ts'
+import type { CollabSeed } from '../realtime/collab.ts'
 import { verifyPassword } from '../services/auth.ts'
+import {
+  audit,
+  consoleStructuredLogger,
+  requestLog,
+  type StructuredLogger,
+} from '../observability/logging.ts'
 import {
   ALLOWED_ASSET_MIME_TYPES,
   ASSET_MAX_BYTES,
@@ -40,6 +46,7 @@ import { HttpError, unwrap, toErrorResponse } from './errors.ts'
 export interface AppDeps {
   readonly db: DB
   readonly env: Env
+  readonly logger?: StructuredLogger
 }
 
 const publicUser = (user: User) => ({
@@ -104,64 +111,50 @@ const clientIp = (request: Request): string =>
   request.headers.get('cf-connecting-ip') ||
   'local'
 
-export const createApp = ({ db, env }: AppDeps) => {
+export const createApp = ({ db, env, logger = consoleStructuredLogger }: AppDeps) => {
   const services = createServices(db)
   const corsOrigin = env.cors.origins === null ? true : [...env.cors.origins]
   const authLimiter = createRateLimiter(10, 60_000)
   const webIndex = join(env.webDistDir, 'index.html')
   const hasWebDist = existsSync(webIndex)
-  const bus =
-    env.realtime.eventBus === 'db'
-      ? createDbEventBus(db, {
-          sourceId: env.realtime.instanceId,
-          pollIntervalMs: env.realtime.pollIntervalMs,
-        })
-      : createEventBus()
-  const presence = createPresence()
-  // connId → live socket, for broadcasting presence updates per page.
-  const sockets = new Map<string, { send: (data: string) => unknown }>()
-  const broadcastPresence = (path: string) => {
-    const viewers = presence.list(path)
-    const message = JSON.stringify({ type: 'presence', path, viewers: dedupeViewers(viewers) })
-    for (const viewer of viewers) sockets.get(viewer.id)?.send(message)
+  const requestStartedAt = new WeakMap<Request, number>()
+  const logRequest = (
+    request: Request,
+    status: number,
+    principal: Principal | null = null,
+    error?: string,
+  ): void => {
+    const startedAt = requestStartedAt.get(request) ?? Date.now()
+    const url = new URL(request.url)
+    requestLog(logger, {
+      method: request.method,
+      path: url.pathname,
+      status,
+      durationMs: Date.now() - startedAt,
+      ip: clientIp(request),
+      userId: principal?.id ?? null,
+      ...(error ? { error } : {}),
+    })
   }
+  const bus = createRealtimeBus(db, env.realtime)
+  const presenceRuntime = createPresenceRuntime()
 
   // ── Git storage (DB stays canonical; Git is a mirror + import source) ──────
   const gitConfig: GitConfig = { ...env.git, markerFile: join(env.dataDir, 'git-sync.json') }
   const git = createGitStorage(gitConfig)
-  if (git.enabled) void git.init().catch((e) => console.warn('[git] init failed', e))
+  if (git.enabled) {
+    void git.init().catch((error) => logger.warn({ type: 'git', action: 'init_failed', error }))
+  }
 
-  const SYSTEM: Principal = { id: 'git-sync', role: 'admin' }
   const gitAuthor = (id: string | undefined): { name: string; email: string } | null => {
     if (!id) return null
     const u = services.users.findById(id)
     return u ? { name: u.name, email: u.email } : null
   }
-  // Git → DB: apply imported files through the normal service (system principal).
-  const gitSyncHandlers = {
-    upsert: (path: string, file: { title: string; description: string; content: string }) => {
-      const title = file.title || path.split('/').pop() || path
-      const existing = services.pages.getByPath(path)
-      const result = existing.ok
-        ? services.pages.update(path, { title, description: file.description, content: file.content }, SYSTEM)
-        : services.pages.create({ path, title, content: file.content, description: file.description }, SYSTEM)
-      if (result.ok) {
-        bus.emit({ type: 'page:changed', action: existing.ok ? 'updated' : 'created', path: result.value.path })
-      }
-    },
-    remove: (path: string) => {
-      if (services.pages.remove(path, SYSTEM).ok) bus.emit({ type: 'page:changed', action: 'deleted', path })
-    },
-  }
-
-  // Periodic background sync (pull external commits → DB, push local → remote).
-  // Opt-in via TS_WIKI_GIT_SYNC_INTERVAL_MS; only meaningful with a remote set.
-  if (git.enabled && env.git.remote && env.git.syncIntervalMs > 0) {
-    setInterval(() => {
-      void git.sync(gitSyncHandlers).catch((e) => console.warn('[git] auto-sync failed', e))
-    }, env.git.syncIntervalMs)
-    console.log(`[git] auto-sync every ${env.git.syncIntervalMs}ms → ${env.git.remote}`)
-  }
+  const gitSyncHandlers = createGitSyncHandlers({ services, bus })
+  startGitSyncScheduler(git, env.git, gitSyncHandlers, (error) =>
+    logger.warn({ type: 'git', action: 'auto_sync_failed', error }),
+  )
 
   const enforceAuthLimit = (request: Request, scope: string): void => {
     if (!authLimiter(`${scope}:${clientIp(request)}`)) {
@@ -169,7 +162,7 @@ export const createApp = ({ db, env }: AppDeps) => {
     }
   }
 
-  const collab = createCollabHub({
+  const collab = createCollabRuntime({
     // Debounced autosave: persist the live doc WITHOUT a revision (an explicit
     // Save still snapshots history + commits to Git). Readers get page:changed.
     persist: (room, text, expectedUpdatedAt, principal) => {
@@ -177,25 +170,15 @@ export const createApp = ({ db, env }: AppDeps) => {
       if (result.ok) {
         bus.emit({ type: 'page:changed', action: 'updated', path: result.value.path })
         void git.savePage(result.value, gitAuthor(principal?.id))
+        audit(logger, 'collab.autosave', { userId: principal?.id ?? null, path: result.value.path })
         return result.value.updatedAt
       }
       if (result.error.kind === 'conflict') {
-        console.warn(`[collab] skipped stale autosave for ${room}: ${result.error.message}`)
+        logger.warn({ type: 'collab', action: 'stale_autosave_skipped', room, error: result.error.message })
       }
       return null
     },
   })
-  const collabConns = new Map<string, { room: string; conn: CollabConn; principal: Principal }>()
-  const toBytes = (m: unknown): Uint8Array | null => {
-    if (m instanceof Uint8Array) return m
-    if (m instanceof ArrayBuffer) return new Uint8Array(m)
-    if (ArrayBuffer.isView(m)) {
-      const v = m as ArrayBufferView
-      return new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
-    }
-    return null
-  }
-
   return (
     new Elysia()
       .use(cors({ origin: corsOrigin }))
@@ -212,18 +195,26 @@ export const createApp = ({ db, env }: AppDeps) => {
         }),
       )
       .decorate('services', services)
+      .onRequest(({ request }) => {
+        requestStartedAt.set(request, Date.now())
+      })
       // Resolve the current principal from a Bearer token on every request.
       .resolve(async ({ jwt, headers }): Promise<{ principal: Principal | null }> => {
         return { principal: await verifyPrincipal(jwt, bearerToken(headers.authorization)) }
       })
-      .onError(({ error, set }) => {
+      .onAfterHandle(({ request, set, principal }) => {
+        const status = typeof set.status === 'number' ? set.status : 200
+        logRequest(request, status, principal)
+      })
+      .onError(({ error, set, request }) => {
         const { status, body } = toErrorResponse(error)
         set.status = status
+        logRequest(request, status, null, body.error.kind)
         return body
       })
 
       // ── Health ────────────────────────────────────────────────────────────
-      .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.1.1' }))
+      .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.1.2' }))
 
       // ── Auth ──────────────────────────────────────────────────────────────
       .post(
@@ -234,6 +225,7 @@ export const createApp = ({ db, env }: AppDeps) => {
           const role: Role = services.users.count() === 0 ? 'admin' : 'viewer'
           const user = unwrap(await services.users.create({ ...body, role }))
           const token = await jwt.sign({ sub: user.id, role: user.role })
+          audit(logger, 'auth.register', { userId: user.id, role: user.role })
           return { token, user: publicUser(user) }
         },
         {
@@ -253,6 +245,7 @@ export const createApp = ({ db, env }: AppDeps) => {
             throw new HttpError(unauthorized('Invalid email or password'))
           }
           const token = await jwt.sign({ sub: user.id, role: user.role })
+          audit(logger, 'auth.login', { userId: user.id, role: user.role })
           return { token, user: publicUser(user) }
         },
         { body: t.Object({ email: t.String(), password: t.String() }) },
@@ -273,6 +266,7 @@ export const createApp = ({ db, env }: AppDeps) => {
           const page = unwrap(services.pages.create(body, principal))
           bus.emit({ type: 'page:changed', action: 'created', path: page.path })
           void git.savePage(page, gitAuthor(principal?.id))
+          audit(logger, 'page.create', { userId: principal?.id ?? null, path: page.path })
           return { page }
         },
         {
@@ -297,6 +291,7 @@ export const createApp = ({ db, env }: AppDeps) => {
           const page = unwrap(services.pages.update(query.path, body, principal))
           bus.emit({ type: 'page:changed', action: 'updated', path: page.path })
           void git.savePage(page, gitAuthor(principal?.id))
+          audit(logger, 'page.update', { userId: principal?.id ?? null, path: page.path })
           return { page }
         },
         {
@@ -314,6 +309,7 @@ export const createApp = ({ db, env }: AppDeps) => {
           const page = unwrap(services.pages.move(body.oldPath, body.newPath, principal))
           bus.emit({ type: 'page:changed', action: 'moved', path: page.path, from: body.oldPath })
           void git.movePage(body.oldPath, page, gitAuthor(principal?.id))
+          audit(logger, 'page.move', { userId: principal?.id ?? null, from: body.oldPath, path: page.path })
           return { page }
         },
         {
@@ -329,6 +325,7 @@ export const createApp = ({ db, env }: AppDeps) => {
           const result = unwrap(services.pages.remove(query.path, principal))
           bus.emit({ type: 'page:changed', action: 'deleted', path: result.path })
           void git.deletePage(result.path, gitAuthor(principal?.id))
+          audit(logger, 'page.delete', { userId: principal?.id ?? null, path: result.path })
           return result
         },
         { query: t.Object({ path: t.String() }) },
@@ -401,18 +398,10 @@ export const createApp = ({ db, env }: AppDeps) => {
         }),
         open(ws) {
           const { path, name, userId, mode } = ws.data.query
-          sockets.set(ws.id, ws)
-          presence.join(path, ws.id, {
-            userId: userId ?? null,
-            name: (name ?? '').trim() || 'Anonymous',
-            mode: mode ?? 'viewing',
-          })
-          broadcastPresence(path)
+          presenceRuntime.open(ws.id, ws, path, { name, userId, mode })
         },
         close(ws) {
-          sockets.delete(ws.id)
-          const path = presence.leave(ws.id)
-          if (path) broadcastPresence(path)
+          presenceRuntime.close(ws.id)
         },
       })
 
@@ -434,24 +423,15 @@ export const createApp = ({ db, env }: AppDeps) => {
               text: current.ok ? current.value.content : '',
               updatedAt: current.ok ? current.value.updatedAt : null,
             })
-            // ws.raw is the Bun socket — Elysia's ws.send() coerces binary to text.
-            const conn: CollabConn = { send: (data) => void ws.raw.send(data) }
-            collabConns.set(ws.id, { room, conn, principal })
-            collab.open(room, conn, seed, principal)
+            // ws.raw is the Bun socket; Elysia's ws.send() coerces binary to text.
+            collab.open(ws.id, room, (data) => ws.raw.send(data), seed, principal)
           })().catch(() => ws.close(1011, 'Collab authentication failed'))
         },
         message(ws, message) {
-          const entry = collabConns.get(ws.id)
-          if (!entry) return
-          const bytes = toBytes(message)
-          if (bytes) collab.message(entry.room, entry.conn, bytes)
+          collab.message(ws.id, message)
         },
         close(ws) {
-          const entry = collabConns.get(ws.id)
-          if (entry) {
-            collab.close(entry.room, entry.conn)
-            collabConns.delete(ws.id)
-          }
+          collab.close(ws.id)
         },
       })
 
@@ -462,9 +442,15 @@ export const createApp = ({ db, env }: AppDeps) => {
       }))
       .put(
         '/api/admin/users/role',
-        ({ body, services, principal }) => ({
-          user: unwrap(services.admin.setUserRole(principal, body.userId, body.role)),
-        }),
+        ({ body, services, principal }) => {
+          const user = unwrap(services.admin.setUserRole(principal, body.userId, body.role))
+          audit(logger, 'admin.user_role.update', {
+            userId: principal?.id ?? null,
+            targetUserId: body.userId,
+            role: body.role,
+          })
+          return { user }
+        },
         {
           body: t.Object({
             userId: t.String(),
@@ -478,9 +464,16 @@ export const createApp = ({ db, env }: AppDeps) => {
         if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
         return git.status()
       })
-      .post('/api/git/sync', ({ principal }) => {
+      .post('/api/git/sync', async ({ principal }) => {
         if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
-        return git.sync(gitSyncHandlers)
+        const result = await git.sync(gitSyncHandlers)
+        audit(logger, 'git.sync', {
+          userId: principal?.id ?? null,
+          upserted: result.upserted.length,
+          deleted: result.deleted.length,
+          pushed: result.pushed,
+        })
+        return result
       })
 
       // ── Assets ────────────────────────────────────────────────────────────
@@ -502,6 +495,12 @@ export const createApp = ({ db, env }: AppDeps) => {
             mime: file.type,
             size: file.size,
             authorId: principal?.id ?? null,
+          })
+          audit(logger, 'asset.upload', {
+            userId: principal?.id ?? null,
+            assetId: asset.id,
+            filename: asset.filename,
+            size: asset.size,
           })
           return { id: asset.id, filename: asset.filename, url: `/assets/${safeName}` }
         },

@@ -1,5 +1,5 @@
 import { fileURLToPath, URL } from 'node:url'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import UnoCSS from 'unocss/vite'
 import unoConfig from './uno.config'
@@ -19,5 +19,10 @@ export default defineConfig({
     // servers; strictPort:false so it falls back to the next free port anyway.
     port: 5180,
     strictPort: false,
+  },
+  test: {
+    environment: 'happy-dom',
+    setupFiles: ['./src/test/setup.ts'],
+    restoreMocks: true,
   },
 })

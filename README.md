@@ -48,22 +48,38 @@ volume. No hosted database is required because ts-wiki uses SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.1.1
+docker pull ghcr.io/hjosugi/ts-wiki:v0.1.2
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run --rm -v ts-wiki-data:/data \
   -e JWT_SECRET="$JWT_SECRET" \
   -e TS_WIKI_SEED_ADMIN_PASSWORD="change-me-before-first-seed" \
-  ghcr.io/hjosugi/ts-wiki:v0.1.1 bun --filter '@ts-wiki/server' db:seed
+  ghcr.io/hjosugi/ts-wiki:v0.1.2 bun --filter '@ts-wiki/server' db:seed
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.1.1
+  ghcr.io/hjosugi/ts-wiki:v0.1.2
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS
 and a public domain.
+
+## Backup
+
+ts-wiki stores the canonical wiki state in SQLite and uploaded files under
+`DATA_DIR` (`./data` locally, `/data` in Docker). Use SQLite's online backup
+command and copy uploads in the same maintenance window:
+
+```bash
+mkdir -p backups
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/ts-wiki-$(date +%F).sqlite'"
+rsync -a data/assets/ backups/assets/
+```
+
+If Git mirroring is enabled, the Git repo is a useful content mirror, but SQLite
+remains the source of truth for users, permissions, assets, search, and revision
+metadata.
 
 ## What makes it different
 
@@ -71,6 +87,7 @@ and a public domain.
 - **Atomic save** — render + revision + FTS5 index happen in one transaction, so a saved page is instantly rendered *and* searchable.
 - **Zero-codegen type safety** — the Drizzle schema flows through Elysia to the Vue client via Eden Treaty; the server's type *is* the API contract.
 - **One search backend, done well** — SQLite FTS5 with BM25 and weighted columns; reader bundle ~43 KB gzip.
+- **Realtime without extra infrastructure** — DB-backed page-change events, presence, and Yjs collaboration run from the Bun/Elysia server.
 
 ## Docs
 

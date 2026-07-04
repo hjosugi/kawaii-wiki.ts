@@ -26,15 +26,16 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Elysia HTTP app + Eden type | ✅ | exports `App`; error mapping centralised |
 | Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, tree sidebar, graph view, empty states |
 | Markdown editor (CodeMirror) | ✅ | split editor + live preview; event snippet button; same core renderer |
-| Tests / typecheck / build | ✅ | 28 tests pass; all 3 packages typecheck; web builds |
-| Auth route guards in router | ⚠️ basic | `PageEdit` redirects if not editor; no global nav guard |
+| Tests / typecheck / build | ✅ | core/server Bun tests + web Vitest tests; all 3 packages typecheck; web builds |
+| Auth route guards in router | ✅ | global router guard gates editor/admin routes |
 
-### Verified during the build (evidence)
-- `bun run test` → **28 pass / 0 fail** (`packages/core/src/core.test.ts`, `apps/server/src/server.test.ts`, `apps/server/src/admin.test.ts`).
-- Live API via curl: register/login, 403 for anon writes, path normalization, render-on-save,
-  search ranking+snippets, reindex-on-update, move, delete → 404.
-- Eden Treaty client: every call shape (`get`/`post` body/`put` body+query/`move` body/`delete` body+query/`search`/`graph`) hit the live server successfully.
-- `bun --filter '@ts-wiki/web' build` → clean; `vue-tsc`, core & server `tsc` → 0 errors.
+### Verified during release batches (evidence)
+- `bun run test` runs core/server Bun tests and web Vitest component/composable tests.
+- Live API smoke has covered register/login, permission failures, path normalization,
+  render-on-save, search, reindex-on-update, move, delete, SSE, WebSocket auth, and assets.
+- Eden Treaty client keeps every request shape (`get`/`post`/`put`/`delete` + query/body)
+  checked against the real server `App` type.
+- `bun run typecheck`, `bun run build`, Docker build, and Docker smoke are part of release checks.
 
 ---
 
@@ -94,8 +95,9 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
    `res.data.page` won't narrow. We localise this in `api.ts` by stating the success shape per
    call via `call<T>()`. The *request* (path/query/body) is still fully type-checked — that's the
    safety that matters.
-3. **`bun test` from the root picks up the reference repos' tests.** The root `test` script is
-   scoped to `bun test packages apps` for this reason. Don't change it back to bare `bun test`.
+3. **`bun test` from the root picks up unrelated tests.** The root `test` script is scoped to
+   `bun test packages apps/server && bun --filter '@ts-wiki/web' test`; keep web SFC tests on
+   Vitest and don't change the root script back to bare `bun test`.
 4. **Auto-descriptions must be re-derived on update.** Carrying the old auto-summary forward left
    stale words in the search index. `pages.update` passes `description: patch.description`
    (undefined → re-summarise from new content). See the comment there.
@@ -108,6 +110,12 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 8. **No drizzle-kit.** The DDL (incl. the FTS5 virtual table, which drizzle-kit can't express) is
    hand-written in `migrate.ts` and must be kept in sync with `schema.ts`. Adopting drizzle-kit
    later is fine, but FTS5 will still need a manual migration step.
+9. **Backups are SQLite-first.** Use `.backup` for `data/ts-wiki.sqlite` and copy `data/assets/`.
+   Git mirroring is a content mirror, not a full system backup.
+10. **Structured logs are stdout JSON.** Request logs cover method/path/status/duration/IP/user;
+   audit logs cover auth, page/admin mutations, asset uploads, Git sync, and collab autosave.
+11. **Realtime auth split.** SSE and Yjs collab require tokens; presence remains cosmetic and
+   unauthenticated display state.
 
 ---
 

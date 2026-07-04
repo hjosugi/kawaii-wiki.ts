@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import type { Env } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { ASSET_MAX_BYTES } from '../services/assets.ts'
+import type { LogEvent, StructuredLogger } from '../observability/logging.ts'
 import { createApp, type App } from './app.ts'
 
 const fixtures: Array<{ db: DB; dataDir: string; app: App }> = []
@@ -42,9 +43,27 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
   },
 })
 
+const noopLogger: StructuredLogger = {
+  info: () => {},
+  warn: () => {},
+  error: () => {},
+}
+
+const captureLogger = (): { logger: StructuredLogger; events: LogEvent[] } => {
+  const events: LogEvent[] = []
+  return {
+    events,
+    logger: {
+      info: (event) => events.push(event),
+      warn: (event) => events.push(event),
+      error: (event) => events.push(event),
+    },
+  }
+}
+
 const createFixture = (
   cors?: Env['cors'],
-  options: { webDist?: boolean } = {},
+  options: { webDist?: boolean; logger?: StructuredLogger } = {},
 ): { app: App; db: DB; dataDir: string } => {
   const dataDir = mkdtempSync(join(tmpdir(), 'ts-wiki-test-'))
   mkdirSync(join(dataDir, 'assets'), { recursive: true })
@@ -54,7 +73,7 @@ const createFixture = (
     writeFileSync(join(dataDir, 'web-dist', 'assets', 'app.js'), 'console.log("ts-wiki")')
   }
   const db = createDb(':memory:')
-  const app = createApp({ db, env: testEnv(dataDir, cors) })
+  const app = createApp({ db, env: testEnv(dataDir, cors), logger: options.logger ?? noopLogger })
   fixtures.push({ db, dataDir, app })
   return { app, db, dataDir }
 }
@@ -183,6 +202,22 @@ describe('http app authorization', () => {
 
     expect(anonymous.status).toBe(403)
     expect(viewed.status).toBe(403)
+  }, HTTP_TEST_TIMEOUT_MS)
+})
+
+describe('http app structured logging', () => {
+  test('emits structured request and audit events for writes', async () => {
+    const { logger, events } = captureLogger()
+    const { app } = createFixture(undefined, { logger })
+    const { token } = await register(app, 'admin@example.com')
+
+    await createPage(app, token, 'docs/logs', 'hello')
+
+    expect(events).toContainEqual(expect.objectContaining({ type: 'audit', action: 'auth.register' }))
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: 'audit', action: 'page.create', path: 'docs/logs' }),
+    )
+    expect(events).toContainEqual(expect.objectContaining({ type: 'request', method: 'POST', path: '/api/pages', status: 200 }))
   }, HTTP_TEST_TIMEOUT_MS)
 })
 

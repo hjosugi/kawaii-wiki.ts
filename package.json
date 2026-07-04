@@ -1,6 +1,6 @@
 {
   "name": "ts-wiki",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -18,7 +18,7 @@
     "db:seed": "bun --filter '@ts-wiki/server' db:seed",
     "db:reset": "bun --filter '@ts-wiki/server' db:reset",
     "typecheck": "bun --filter '*' typecheck",
-    "test": "bun test packages apps"
+    "test": "bun test packages apps/server && bun --filter '@ts-wiki/web' test"
   },
   "devDependencies": {
     "typescript": "^5.8.3"
