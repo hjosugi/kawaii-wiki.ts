@@ -91,6 +91,19 @@ export interface PageBacklink {
   readonly kind: 'wikilink' | 'markdown'
 }
 
+export interface LabelCount {
+  readonly label: string
+  readonly count: number
+}
+
+export interface BrokenLink {
+  readonly path: string
+  readonly title: string
+  readonly target: string
+  readonly label: string
+  readonly kind: 'wikilink' | 'markdown'
+}
+
 export interface PageRevisionSummary {
   readonly id: string
   readonly path: string
@@ -141,6 +154,8 @@ export interface PageService {
   spaces(): PageSpace[]
   graph(): PageGraph
   backlinks(path: string): PageBacklink[]
+  labels(): LabelCount[]
+  brokenLinks(): BrokenLink[]
   events(): ExtractedCalendarEvent[]
   history(path: string): Result<PageRevisionSummary[], AppError>
   getByPath(path: string): Result<Page, AppError>
@@ -389,6 +404,35 @@ export const createPageService = (db: DB): PageService => {
           if (seen.has(key)) continue
           seen.add(key)
           out.push({ path: page.path, title: page.title, label: link.label, kind: link.kind })
+        }
+      }
+      return out
+    },
+
+    labels() {
+      const counts = new Map<string, number>()
+      for (const page of db.select({ labels: pages.labels }).from(pages).where(eq(pages.lifecycle, 'active')).all()) {
+        for (const label of parseLabels(page.labels)) {
+          counts.set(label, (counts.get(label) ?? 0) + 1)
+        }
+      }
+      return [...counts.entries()]
+        .map(([label, count]) => ({ label, count }))
+        .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label))
+    },
+
+    brokenLinks() {
+      const allPages = db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()
+      const existing = new Set(allPages.map((page) => page.path))
+      const out: BrokenLink[] = []
+      const seen = new Set<string>()
+      for (const page of allPages) {
+        for (const link of extractPageLinks(page.content)) {
+          if (link.path === page.path || existing.has(link.path)) continue
+          const key = `${page.path} ${link.path} ${link.kind}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          out.push({ path: page.path, title: page.title, target: link.path, label: link.label, kind: link.kind })
         }
       }
       return out

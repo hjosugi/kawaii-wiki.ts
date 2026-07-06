@@ -70,6 +70,18 @@ const items = computed<CommandItem[]>(() => {
     detail: 'Open map',
     run: () => router.push('/_graph'),
   })
+  out.push({
+    key: 'tags',
+    label: 'Tags',
+    detail: 'Browse by label',
+    run: () => router.push('/_tags'),
+  })
+  out.push({
+    key: 'links',
+    label: 'Broken links',
+    detail: 'Find missing pages',
+    run: () => router.push('/_links'),
+  })
   if (auth.canEdit) {
     out.push({
       key: 'new',
