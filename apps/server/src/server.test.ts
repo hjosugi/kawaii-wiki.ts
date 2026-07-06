@@ -381,6 +381,33 @@ describe('page + search slice (in-memory db)', () => {
     expect(orphan.ok).toBe(true)
   })
 
+  test('labels() aggregates distinct labels with counts', () => {
+    const db = createDb(':memory:')
+    const { pages } = createServices(db)
+    pages.create({ path: 'a', title: 'A', content: 'x', labels: ['guide', 'api'] }, admin)
+    pages.create({ path: 'b', title: 'B', content: 'y', labels: ['guide'] }, admin)
+
+    const labels = pages.labels()
+    expect(labels.find((l) => l.label === 'guide')?.count).toBe(2)
+    expect(labels.find((l) => l.label === 'api')?.count).toBe(1)
+    // Sorted most-used first.
+    expect(labels[0]?.label).toBe('guide')
+  })
+
+  test('brokenLinks() reports links to non-existent pages', () => {
+    const db = createDb(':memory:')
+    const { pages } = createServices(db)
+    pages.create({ path: 'docs/start', title: 'Start', content: 'see [[Docs/Intro]] and [[Docs/Ghost]]' }, admin)
+    pages.create({ path: 'docs/intro', title: 'Intro', content: 'hi' }, admin)
+
+    const broken = pages.brokenLinks()
+    expect(broken.length).toBe(1)
+    expect(broken[0]?.path).toBe('docs/start')
+    expect(broken[0]?.target).toBe('docs/ghost')
+    // The resolvable link is not reported.
+    expect(broken.some((b) => b.target === 'docs/intro')).toBe(false)
+  })
+
   test('history stays newest-first even when revisions share a timestamp', () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)

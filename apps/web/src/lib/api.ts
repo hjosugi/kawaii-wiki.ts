@@ -148,6 +148,17 @@ export interface PageBacklink {
   label: string
   kind: 'wikilink' | 'markdown'
 }
+export interface LabelCount {
+  label: string
+  count: number
+}
+export interface BrokenLink {
+  path: string
+  title: string
+  target: string
+  label: string
+  kind: 'wikilink' | 'markdown'
+}
 export interface PageRevision {
   id: string
   path: string
@@ -355,6 +366,9 @@ export const Api = {
   spaces: () => call<{ spaces: PageSpace[] }>(client().api.spaces.get()).then((d) => d.spaces),
   events: () =>
     call<{ events: ExtractedCalendarEvent[] }>(client().api.events.index.get()).then((d) => d.events),
+  labels: () => call<{ labels: LabelCount[] }>(client().api.labels.get()).then((d) => d.labels),
+  brokenLinks: () =>
+    call<{ links: BrokenLink[] }>(client().api.links.broken.get()).then((d) => d.links),
   backlinks: (path: string) =>
     call<{ backlinks: PageBacklink[] }>(client().api.page.backlinks.get({ query: { path } })).then(
       (d) => d.backlinks,

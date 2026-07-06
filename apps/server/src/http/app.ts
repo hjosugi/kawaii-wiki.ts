@@ -633,6 +633,14 @@ export const createApp = ({
         requirePageRead(principal)
         return { events: services.pages.events() }
       })
+      .get('/api/labels', ({ services, principal }) => {
+        requirePageRead(principal)
+        return { labels: services.pages.labels() }
+      })
+      .get('/api/links/broken', ({ services, principal }) => {
+        requirePageRead(principal)
+        return { links: services.pages.brokenLinks() }
+      })
       .post(
         '/api/pages',
         async ({ body, services, principal }) => {
