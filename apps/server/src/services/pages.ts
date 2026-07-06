@@ -413,7 +413,10 @@ export const createPageService = (db: DB): PageService => {
         })
         .from(pageRevisions)
         .where(eq(pageRevisions.pageId, page.id))
-        .orderBy(desc(pageRevisions.createdAt))
+        // Tie-break equal timestamps by insertion order (SQLite rowid) so
+        // revisions created in the same millisecond still sort deterministically
+        // newest-first.
+        .orderBy(desc(pageRevisions.createdAt), sql`rowid desc`)
         .all()
       return ok(revisions)
     },

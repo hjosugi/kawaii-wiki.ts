@@ -350,6 +350,24 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
+  test('history stays newest-first even when revisions share a timestamp', () => {
+    const db = createDb(':memory:')
+    const { pages } = createServices(db)
+    pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
+    pages.update('docs/history', { content: 'two' }, admin)
+    // Force both revisions onto the same created_at so ordering can't rely on
+    // the clock — the rowid tie-break must still put the newer one first.
+    db.$client.prepare('UPDATE page_revisions SET created_at = 1000').run()
+
+    const history = pages.history('docs/history')
+    expect(history.ok).toBe(true)
+    if (history.ok) {
+      expect(history.value.length).toBe(2)
+      expect(history.value[0]?.action).toBe('updated')
+      expect(history.value[1]?.action).toBe('created')
+    }
+  })
+
   test('restoreRevision applies an old revision as a new update', () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
