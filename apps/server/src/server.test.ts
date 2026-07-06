@@ -350,6 +350,37 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
+  test('history and comments include the author display name', async () => {
+    const db = createDb(':memory:')
+    const { pages, comments, users } = createServices(db)
+    const created = await users.create({
+      email: 'alice@example.com',
+      name: 'Alice',
+      password: 'secret1',
+      role: 'editor',
+    })
+    expect(created.ok).toBe(true)
+    if (!created.ok) return
+    const alice: Principal = { id: created.value.id, role: 'editor' }
+
+    pages.create({ path: 'docs/a', title: 'A', content: 'one' }, alice)
+    pages.update('docs/a', { content: 'two' }, alice)
+    const history = pages.history('docs/a')
+    expect(history.ok).toBe(true)
+    if (history.ok) expect(history.value[0]?.authorName).toBe('Alice')
+
+    const added = comments.create('docs/a', 'first!', alice)
+    expect(added.ok).toBe(true)
+    if (added.ok) expect(added.value.authorName).toBe('Alice')
+    const list = comments.list('docs/a')
+    expect(list.ok).toBe(true)
+    if (list.ok) expect(list.value[0]?.authorName).toBe('Alice')
+
+    // A revision with no matching user row resolves to a null name, not a crash.
+    const orphan = pages.history('docs/a')
+    expect(orphan.ok).toBe(true)
+  })
+
   test('history stays newest-first even when revisions share a timestamp', () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)

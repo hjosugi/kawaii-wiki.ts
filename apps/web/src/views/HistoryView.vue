@@ -111,7 +111,9 @@ watch(path, load, { immediate: true })
           @click="selectedId = revision.id"
         >
           <div class="font-semibold capitalize">{{ revision.action }}</div>
-          <div class="text-xs text-gray-500">{{ formatDate(revision.createdAt) }}</div>
+          <div class="text-xs text-gray-500">
+            {{ formatDate(revision.createdAt) }}<span v-if="revision.authorName"> · {{ revision.authorName }}</span>
+          </div>
           <div class="mt-1 text-xs font-mono text-gray-400 truncate">/{{ revision.path }}</div>
         </button>
         <p v-if="!revisions.length" class="p-3 text-sm text-gray-500">No revisions yet.</p>
@@ -122,7 +124,7 @@ watch(path, load, { immediate: true })
           <div class="min-w-0">
             <h2 class="font-semibold truncate">{{ selectedRevision?.title ?? page?.title ?? 'Current page' }}</h2>
             <p v-if="selectedRevision" class="text-xs text-gray-500">
-              {{ formatDate(selectedRevision.createdAt) }}
+              {{ formatDate(selectedRevision.createdAt) }}<span v-if="selectedRevision.authorName"> · by {{ selectedRevision.authorName }}</span>
             </p>
           </div>
           <div class="flex items-center gap-3 text-xs">

@@ -155,6 +155,7 @@ export interface PageRevision {
   description: string
   content: string
   authorId: string | null
+  authorName: string | null
   action: 'created' | 'updated' | 'moved' | 'deleted' | 'archived' | 'restored' | 'purged'
   createdAt: number
 }
@@ -178,6 +179,7 @@ export interface PageComment {
   path: string
   body: string
   authorId: string | null
+  authorName: string | null
   mentions: string[]
   resolvedAt: number | null
   createdAt: number
