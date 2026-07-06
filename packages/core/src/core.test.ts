@@ -151,6 +151,112 @@ flowchart TD
     expect(html).toContain('wiki-mermaid')
     expect(html).toContain('A --&gt; B')
   })
+
+  test('renders a generic infobox with title, media, fields, and body', () => {
+    const { html } = renderMarkdown(`\`\`\`infobox
+title: Hoshino Meguru
+image: /assets/hoshino.png
+caption: Hoshinoi Production
+Debut: 2023-04-01
+Fan name: Stargazers
+Links: [YouTube](https://youtube.com/@x)
+
+First stream was a **karaoke** night.
+\`\`\``)
+
+    expect(html).toContain('wiki-infobox')
+    expect(html).toContain('wiki-infobox-title')
+    expect(html).toContain('Hoshino Meguru')
+    expect(html).toContain('src="/assets/hoshino.png"')
+    expect(html).toContain('wiki-infobox-caption')
+    // Arbitrary field labels are preserved in source order...
+    expect(html).toContain('<dt>Debut</dt>')
+    expect(html).toContain('<dt>Fan name</dt>')
+    // ...and values render inline Markdown (links, emphasis).
+    expect(html).toContain('href="https://youtube.com/@x"')
+    // The free-form body renders block Markdown.
+    expect(html).toContain('<strong>karaoke</strong>')
+  })
+
+  test('infobox drops unsafe image URLs; `profile` is an alias', () => {
+    const { html } = renderMarkdown(`\`\`\`profile
+title: Test
+image: javascript:alert(1)
+Role: Tester
+\`\`\``)
+
+    expect(html).toContain('wiki-infobox')
+    expect(html).not.toContain('<img')
+    expect(html).not.toContain('javascript:alert(1)')
+    expect(html).toContain('<dt>Role</dt>')
+  })
+
+  test('callout types are open-ended (custom type keeps its class)', () => {
+    const { html } = renderMarkdown(`\`\`\`callout
+type: spoiler
+title: Ending
+It was all a dream.
+\`\`\``)
+
+    expect(html).toContain('wiki-callout-spoiler')
+    expect(html).toContain('Ending')
+  })
+
+  test('renders a links/social row with provider detection and labels', () => {
+    const { html } = renderMarkdown(`\`\`\`links
+[Watch](https://www.youtube.com/@handle)
+https://x.com/handle
+https://booth.pm/en/items/1
+https://example.com/guide
+javascript:alert(1)
+\`\`\``)
+
+    expect(html).toContain('wiki-links')
+    // Explicit label kept; provider class applied from the host.
+    expect(html).toContain('wiki-links-youtube')
+    expect(html).toContain('>Watch<')
+    // Bare URL uses the provider's default label.
+    expect(html).toContain('wiki-links-x')
+    expect(html).toContain('>X<')
+    expect(html).toContain('wiki-links-booth')
+    // Unknown host, bare URL → neutral item labelled by hostname.
+    expect(html).toContain('>example.com<')
+    // Non-http(s) URLs are dropped.
+    expect(html).not.toContain('javascript:alert(1)')
+  })
+
+  test('`social` is an alias and an all-invalid block renders nothing', () => {
+    const withProvider = renderMarkdown('```social\nhttps://twitch.tv/handle\n```').html
+    expect(withProvider).toContain('wiki-links-twitch')
+
+    const empty = renderMarkdown('```links\nnot a url\nftp://x\n```').html
+    expect(empty).not.toContain('wiki-links')
+  })
+
+  test('renders footnotes', () => {
+    const { html } = renderMarkdown('Cats are great.[^1]\n\n[^1]: Especially calicos.')
+    expect(html).toContain('footnote-ref')
+    expect(html).toContain('footnotes')
+    expect(html).toContain('Especially calicos')
+  })
+
+  test('renders task-list checkboxes with checked state', () => {
+    const { html } = renderMarkdown('- [ ] todo\n- [x] done')
+    expect(html).toContain('task-list-item')
+    expect(html).toContain('type="checkbox"')
+    expect(html).toContain('checked')
+  })
+
+  test('supports image size syntax and still rejects unsafe URLs', () => {
+    const sized = renderMarkdown('![cat](/cat.png =120x80)').html
+    expect(sized).toContain('src="/cat.png"')
+    expect(sized).toContain('width="120"')
+    expect(sized).toContain('height="80"')
+
+    // Width-only is allowed; javascript: URLs never become an <img>.
+    expect(renderMarkdown('![c](/c.png =50x)').html).toContain('width="50"')
+    expect(renderMarkdown('![x](javascript:alert(1) =10x10)').html).not.toContain('<img')
+  })
 })
 
 describe('permissions', () => {
