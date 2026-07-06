@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { Api, type Page } from '@/lib/api'
+import { Api, type AssetView, type Page } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
+import { attachmentsForPage } from '@/lib/assets'
 import { useI18n } from '@/lib/i18n'
 
 const MarkdownEditor = defineAsyncComponent(() => import('@/components/MarkdownEditor.vue'))
 const CollabEditor = defineAsyncComponent(() => import('@/components/CollabEditor.vue'))
 const VisualEditor = defineAsyncComponent(() => import('@/components/VisualEditor.vue'))
+const PageAttachments = defineAsyncComponent(() => import('@/components/PageAttachments.vue'))
 
 const route = useRoute()
 const router = useRouter()
@@ -41,6 +43,9 @@ const conflictDraft = ref<DraftSnapshot | null>(null)
 const selectedTemplate = ref('blank')
 const editorMode = ref<'markdown' | 'visual'>('markdown')
 const collabDisabledForSession = ref(false)
+const attachments = ref<AssetView[]>([])
+const attachmentsLoading = ref(false)
+const attachmentsLoaded = ref(false)
 
 const templates = [
   {
@@ -190,6 +195,19 @@ function setEditorMode(mode: 'markdown' | 'visual'): void {
   editorMode.value = mode
 }
 
+async function loadAttachments(pagePath: string): Promise<void> {
+  attachmentsLoading.value = true
+  attachmentsLoaded.value = false
+  try {
+    attachments.value = attachmentsForPage(await Api.assetUsage(pagePath), pagePath)
+  } catch {
+    attachments.value = []
+  } finally {
+    attachmentsLoading.value = false
+    attachmentsLoaded.value = true
+  }
+}
+
 // Announce "editing" presence so readers of this page see "… is editing".
 usePresence(originalPath, 'editing')
 
@@ -204,6 +222,7 @@ onMounted(async () => {
       const page = await Api.getPage(target)
       applyPage(page)
       markSaved()
+      void loadAttachments(page.path)
     } catch (e) {
       error.value = (e as Error).message
     }
@@ -216,6 +235,8 @@ onMounted(async () => {
     reviewAtDate.value = ''
     locale.value = 'und'
     originalUpdatedAt.value = null
+    attachments.value = []
+    attachmentsLoaded.value = false
     markSaved()
   }
 })
@@ -404,6 +425,12 @@ async function archive(): Promise<void> {
         readonly
       ></textarea>
     </section>
+    <PageAttachments
+      v-if="isEdit && (attachmentsLoading || attachmentsLoaded)"
+      :assets="attachments"
+      :loading="attachmentsLoading"
+      show-empty
+    />
     <VisualEditor v-if="editorMode === 'visual'" v-model="content" />
     <template v-else-if="isEdit">
       <CollabEditor v-if="useCollaborativeMarkdown" :room="originalPath" @update:modelValue="content = $event" />

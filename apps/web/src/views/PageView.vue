@@ -1,16 +1,18 @@
 <script setup lang="ts">
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Api, type Page, type PageBacklink } from '@/lib/api'
+import { Api, type AssetView, type Page, type PageBacklink } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { onWikiEvent } from '@/lib/realtime'
 import { vCodeCopy } from '@/lib/codeCopy'
 import { usePresence } from '@/composables/usePresence'
+import { attachmentsForPage } from '@/lib/assets'
 import EmptyState from '@/components/EmptyState.vue'
 import InteractiveGraph from '@/components/InteractiveGraph.vue'
 import PageComments from '@/components/PageComments.vue'
 import PageHeader from '@/components/PageHeader.vue'
+import PageAttachments from '@/components/PageAttachments.vue'
 import PageToc from '@/components/PageToc.vue'
 import type { PageGraph } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
@@ -23,6 +25,7 @@ const { t } = useI18n()
 const page = ref<Page | null>(null)
 const graph = ref<PageGraph>({ nodes: [], edges: [] })
 const backlinks = ref<PageBacklink[]>([])
+const attachments = ref<AssetView[]>([])
 const error = ref<string | null>(null)
 const loading = ref(false)
 const redirectedFrom = ref<string[]>([])
@@ -50,6 +53,7 @@ async function load(): Promise<void> {
   error.value = null
   page.value = null
   backlinks.value = []
+  attachments.value = []
   redirectedFrom.value = routeRedirectedFrom.value ? [routeRedirectedFrom.value] : []
   try {
     const result = await Api.getPageResult(path.value)
@@ -59,15 +63,18 @@ async function load(): Promise<void> {
       await router.replace({ path: `/${result.page.path}`, query: { redirectedFrom: result.redirectedFrom[0] } })
     }
     try {
-      const [nextGraph, nextBacklinks] = await Promise.all([
+      const [nextGraph, nextBacklinks, nextUsage] = await Promise.all([
         Api.graph(),
         Api.backlinks(path.value),
+        Api.assetUsage(result.page.path),
       ])
       graph.value = nextGraph
       backlinks.value = nextBacklinks
+      attachments.value = attachmentsForPage(nextUsage, result.page.path)
     } catch {
       graph.value = { nodes: [], edges: [] }
       backlinks.value = []
+      attachments.value = []
     }
   } catch (e) {
     error.value = (e as Error).message
@@ -85,12 +92,15 @@ async function reloadInPlace(): Promise<void> {
       Api.getPageResult(path.value),
       Api.backlinks(path.value),
     ])
+    const nextUsage = await Api.assetUsage(nextPage.page.path)
     page.value = nextPage.page
     redirectedFrom.value = nextPage.redirectedFrom
     backlinks.value = nextBacklinks
+    attachments.value = attachmentsForPage(nextUsage, nextPage.page.path)
   } catch {
     page.value = null // deleted or moved away → show the empty state
     backlinks.value = []
+    attachments.value = []
   }
 }
 const stopRealtime = onWikiEvent((event) => {
@@ -129,6 +139,7 @@ onUnmounted(stopRealtime)
         </span>
       </div>
       <div v-code-copy class="prose dark:prose-invert max-w-none" v-html="page.renderedHtml"></div>
+      <PageAttachments :assets="attachments" />
       <section v-if="backlinks.length" class="mt-10 border-t border-gray-200 dark:border-gray-800 pt-5">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Linked from</h2>
         <div class="mt-3 flex flex-wrap gap-2">

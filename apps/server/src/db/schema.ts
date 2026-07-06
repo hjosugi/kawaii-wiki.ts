@@ -214,6 +214,29 @@ export const assets = sqliteTable('assets', {
   createdAt: integer('created_at').notNull(),
 })
 
+export const rateLimitHits = sqliteTable(
+  'rate_limit_hits',
+  {
+    bucketKey: text('bucket_key').notNull(),
+    hitAt: integer('hit_at').notNull(),
+  },
+  (t) => [
+    index('rate_limit_hits_bucket_idx').on(t.bucketKey, t.hitAt),
+    index('rate_limit_hits_time_idx').on(t.hitAt),
+  ],
+)
+
+export const realtimeTickets = sqliteTable(
+  'realtime_tickets',
+  {
+    ticket: text('ticket').primaryKey(),
+    userId: text('user_id').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('realtime_tickets_expires_idx').on(t.expiresAt)],
+)
+
 export const webhookSubscriptions = sqliteTable(
   'webhook_subscriptions',
   {
@@ -286,6 +309,8 @@ export type PageAnalytics = typeof pageAnalytics.$inferSelect
 export type PageRedirect = typeof pageRedirects.$inferSelect
 export type SiteSetting = typeof siteSettings.$inferSelect
 export type Asset = typeof assets.$inferSelect
+export type RateLimitHit = typeof rateLimitHits.$inferSelect
+export type RealtimeTicket = typeof realtimeTickets.$inferSelect
 export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect
 export type AutomationRule = typeof automationRules.$inferSelect

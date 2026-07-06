@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { Elysia, t } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import { jwt } from '@elysiajs/jwt'
-import { eq } from 'drizzle-orm'
+import { eq, lte } from 'drizzle-orm'
 import {
   type Principal,
   type Role,
@@ -37,16 +37,23 @@ import {
   type StructuredLogger,
 } from '../observability/logging.ts'
 import {
-  ALLOWED_ASSET_MIME_TYPES,
   ASSET_HARD_MAX_SIZE,
-  assetExtensionForMime,
+  validateAssetUpload,
   type AssetView,
 } from '../services/assets.ts'
 import type { CommentView } from '../services/comments.ts'
-import type { AutomationEvent, WebhookFetcher } from '../services/webhooks.ts'
-import { users, type Page, type User } from '../db/schema.ts'
+import type { AutomationEvent, WebhookFetcher, WebhookHostnameResolver } from '../services/webhooks.ts'
+import { realtimeTickets, users, type Page, type User } from '../db/schema.ts'
 import { HttpError, unwrap, toErrorResponse } from './errors.ts'
-import { authRateLimitError, clientIp, createRateLimiter, type RequestIpServer } from './rate-limit.ts'
+import {
+  authRateLimitError,
+  clientIp,
+  createDbRateLimiter,
+  createRateLimiter,
+  rateLimitError,
+  type RateLimiter,
+  type RequestIpServer,
+} from './rate-limit.ts'
 
 export interface AppDeps {
   readonly db: DB
@@ -54,6 +61,7 @@ export interface AppDeps {
   readonly logger?: StructuredLogger
   readonly assetStorage?: AssetStorage
   readonly webhookFetcher?: WebhookFetcher
+  readonly webhookResolver?: WebhookHostnameResolver
 }
 
 const publicUser = (
@@ -81,6 +89,13 @@ interface TokenPrincipal {
   readonly id: string
   readonly issuedAtMs: number
 }
+
+const AUTH_RATE_LIMIT_ATTEMPTS = 10
+const CREDENTIAL_RATE_LIMIT_ATTEMPTS = 10
+const ASSET_UPLOAD_RATE_LIMIT_ATTEMPTS = 20
+const PRIVATE_ANON_READ_RATE_LIMIT_ATTEMPTS = 120
+const RATE_LIMIT_WINDOW_MS = 60_000
+const REALTIME_TICKET_TTL_MS = 30_000
 
 const tokenPrincipalFromPayload = (payload: unknown): TokenPrincipal | null => {
   const data = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : null
@@ -191,6 +206,7 @@ const assetSnapshot = (asset: AssetView) => ({
   url: asset.url,
   authorId: asset.authorId,
   createdAt: asset.createdAt,
+  deletedAt: asset.deletedAt,
 })
 
 export const createApp = ({
@@ -199,11 +215,25 @@ export const createApp = ({
   logger = consoleStructuredLogger,
   assetStorage: suppliedAssetStorage,
   webhookFetcher,
+  webhookResolver,
 }: AppDeps) => {
   const assetStorage = suppliedAssetStorage ?? createAssetStorage(env.assetStorage)
-  const services = createServices(db, { assetUrl: assetStorage.url, auth: env.auth, webhookFetcher })
+  const services = createServices(db, {
+    assetUrl: assetStorage.url,
+    auth: env.auth,
+    webhookFetcher,
+    webhookResolver,
+    allowPrivateWebhookTargets: env.webhooks.allowPrivateTargets,
+  })
   const corsOrigin = env.cors.origins === null ? true : [...env.cors.origins]
-  const authLimiter = createRateLimiter(10, 60_000)
+  const createAppRateLimiter = (limit: number): RateLimiter =>
+    env.realtime.eventBus === 'db'
+      ? createDbRateLimiter(db.$client, limit, RATE_LIMIT_WINDOW_MS)
+      : createRateLimiter(limit, RATE_LIMIT_WINDOW_MS)
+  const authLimiter = createAppRateLimiter(AUTH_RATE_LIMIT_ATTEMPTS)
+  const credentialLimiter = createAppRateLimiter(CREDENTIAL_RATE_LIMIT_ATTEMPTS)
+  const assetUploadLimiter = createAppRateLimiter(ASSET_UPLOAD_RATE_LIMIT_ATTEMPTS)
+  const privateAnonReadLimiter = createAppRateLimiter(PRIVATE_ANON_READ_RATE_LIMIT_ATTEMPTS)
   const webIndex = join(env.webDistDir, 'index.html')
   const hasWebDist = existsSync(webIndex)
   const requestStartedAt = new WeakMap<Request, number>()
@@ -242,6 +272,11 @@ export const createApp = ({
     privateWiki: env.auth.privateWiki,
     registration: env.auth.registration,
   })
+  const principalForUserId = (userId: string): Principal | null => {
+    const user = services.users.findById(userId)
+    if (!isUserActive(user)) return null
+    return services.authz.principalForUser(user)
+  }
   const principalForToken = async (jwt: JwtVerifier, token: string | null | undefined): Promise<Principal | null> => {
     const tokenPrincipal = await verifyTokenPrincipal(jwt, token)
     if (!tokenPrincipal) return null
@@ -249,6 +284,30 @@ export const createApp = ({
     if (!isUserActive(user)) return null
     if (user.tokenInvalidBefore > tokenPrincipal.issuedAtMs) return null
     return services.authz.principalForUser(user)
+  }
+  const cleanupRealtimeTickets = (): void => {
+    db.delete(realtimeTickets).where(lte(realtimeTickets.expiresAt, Date.now())).run()
+  }
+  const mintRealtimeTicket = (principal: Principal | null): { ticket: string; expiresAt: number } => {
+    if (!principal) throw new HttpError(unauthorized())
+    cleanupRealtimeTickets()
+    const createdAt = Date.now()
+    const ticket = `${crypto.randomUUID()}-${crypto.randomUUID()}`
+    const expiresAt = createdAt + REALTIME_TICKET_TTL_MS
+    db.insert(realtimeTickets).values({ ticket, userId: principal.id, expiresAt, createdAt }).run()
+    return { ticket, expiresAt }
+  }
+  const consumeRealtimeTicket = (ticket: string | null | undefined): Principal | null => {
+    if (!ticket) return null
+    const row = db.$client.prepare(`
+      DELETE FROM realtime_tickets
+      WHERE ticket = ?
+      RETURNING user_id AS userId, expires_at AS expiresAt
+    `).get(ticket) as { userId?: unknown; expiresAt?: unknown } | null
+    const userId = typeof row?.userId === 'string' ? row.userId : null
+    const expiresAt = typeof row?.expiresAt === 'number' ? row.expiresAt : Number(row?.expiresAt ?? 0)
+    if (!userId || expiresAt <= Date.now()) return null
+    return principalForUserId(userId)
   }
   const requirePageRead = (principal: Principal | null, path?: string): void => {
     if (env.auth.privateWiki && !principal) throw new HttpError(unauthorized())
@@ -261,6 +320,12 @@ export const createApp = ({
   const requireAssetRead = (principal: Principal | null): void => {
     if (env.auth.privateWiki && !principal) throw new HttpError(unauthorized())
     if (!can(principal, 'asset:read')) throw new HttpError(forbidden())
+  }
+  const isAdminRoute = (pathname: string): boolean =>
+    pathname === '/api/admin' || pathname.startsWith('/api/admin/')
+  const requireAdminRoute = (request: Request, principal: Principal | null): void => {
+    if (!isAdminRoute(new URL(request.url).pathname)) return
+    if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
   }
 
   // ── Git storage (DB stays canonical; Git is a mirror + import source) ──────
@@ -276,14 +341,98 @@ export const createApp = ({
     return u ? { name: u.name, email: u.email } : null
   }
 
+  const rateLimitKey = (
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    scope: string,
+    principal: Principal | null = null,
+  ): string => {
+    const subject = principal?.id ?? 'anonymous'
+    return `${scope}:${subject}:${clientIp(request, server, env.trustProxyHeaders)}`
+  }
+
+  const enforceRateLimit = (
+    limiter: RateLimiter,
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    scope: string,
+    principal: Principal | null,
+    message: string,
+  ): void => {
+    if (!limiter.check(rateLimitKey(request, server, scope, principal))) {
+      throw new HttpError(rateLimitError(message))
+    }
+  }
+
   const enforceAuthLimit = (
     request: Request,
     server: RequestIpServer | null | undefined,
     scope: string,
   ): void => {
-    if (!authLimiter.check(`${scope}:${clientIp(request, server, env.trustProxyHeaders)}`)) {
+    if (!authLimiter.check(rateLimitKey(request, server, scope))) {
       throw new HttpError(authRateLimitError())
     }
+  }
+
+  const enforceCredentialLimit = (
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    scope: string,
+    principal: Principal | null = null,
+  ): void => {
+    enforceRateLimit(
+      credentialLimiter,
+      request,
+      server,
+      `credential:${scope}`,
+      principal,
+      'Too many credential attempts; try again later',
+    )
+  }
+
+  const enforceAssetUploadLimit = (
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    principal: Principal | null,
+  ): void => {
+    enforceRateLimit(
+      assetUploadLimiter,
+      request,
+      server,
+      'asset:upload',
+      principal,
+      'Too many asset uploads; try again later',
+    )
+  }
+
+  const privateAnonymousReadPaths = new Set([
+    '/api/pages',
+    '/api/page',
+    '/api/search',
+    '/api/spaces',
+    '/api/graph',
+    '/api/events/index',
+    '/api/assets',
+  ])
+  const isPrivateAnonymousReadPath = (pathname: string): boolean =>
+    privateAnonymousReadPaths.has(pathname) || pathname.startsWith('/assets/')
+
+  const enforcePrivateAnonymousReadLimit = (
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    principal: Principal | null,
+  ): void => {
+    if (!env.auth.privateWiki || principal || request.method !== 'GET') return
+    const pathname = new URL(request.url).pathname
+    if (!isPrivateAnonymousReadPath(pathname)) return
+    enforceRateLimit(
+      privateAnonReadLimiter,
+      request,
+      server,
+      'private:anonymous-read',
+      null,
+      'Too many anonymous read attempts; try again later',
+    )
   }
 
   const publishAutomation = async (event: AutomationEvent): Promise<void> => {
@@ -408,6 +557,10 @@ export const createApp = ({
       .resolve(async ({ jwt, headers }): Promise<{ principal: Principal | null }> => {
         return { principal: await principalForToken(jwt, bearerToken(headers.authorization)) }
       })
+      .onBeforeHandle(({ request, server, principal }) => {
+        enforcePrivateAnonymousReadLimit(request, server, principal)
+        requireAdminRoute(request, principal)
+      })
       .onAfterHandle(({ request, server, set, principal }) => {
         const status = typeof set.status === 'number' ? set.status : 200
         logRequest(request, server, status, principal)
@@ -492,7 +645,8 @@ export const createApp = ({
       )
       .put(
         '/api/auth/password',
-        async ({ body, principal, services }) => {
+        async ({ body, principal, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'password-change', principal)
           const user = unwrap(await services.users.changePassword(principal, body))
           audit(logger, 'auth.password.change', { userId: user.id })
           return { user: publicUser(user) }
@@ -500,7 +654,8 @@ export const createApp = ({
         { body: t.Object({ currentPassword: t.String(), newPassword: t.String({ minLength: 6 }) }) },
       )
       .get('/api/auth/providers', ({ services }) => ({ providers: services.oidc.publicProviders() }))
-      .post('/api/auth/totp/setup', ({ principal, services }) => {
+      .post('/api/auth/totp/setup', ({ principal, services, request, server }) => {
+        enforceCredentialLimit(request, server, 'totp-setup', principal)
         if (!principal) throw new HttpError(unauthorized())
         const user = services.users.findById(principal.id)
         if (!user) throw new HttpError(unauthorized())
@@ -513,7 +668,8 @@ export const createApp = ({
       })
       .post(
         '/api/auth/totp/enable',
-        ({ body, principal, services }) => {
+        ({ body, principal, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'totp-enable', principal)
           if (!principal) throw new HttpError(unauthorized())
           const user = services.users.findById(principal.id)
           if (!user?.totpSecret || !verifyTotpCode(user.totpSecret, body.code)) {
@@ -526,7 +682,8 @@ export const createApp = ({
       )
       .post(
         '/api/auth/totp/disable',
-        ({ body, principal, services }) => {
+        ({ body, principal, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'totp-disable', principal)
           if (!principal) throw new HttpError(unauthorized())
           const user = services.users.findById(principal.id)
           if (!user) throw new HttpError(unauthorized())
@@ -541,14 +698,16 @@ export const createApp = ({
       .get('/api/auth/passkeys', ({ principal, services }) => ({
         passkeys: unwrap(services.passkeys.list(principal)),
       }))
-      .post('/api/auth/passkeys/register/options', async ({ principal, services }) =>
-        unwrap(await services.passkeys.registrationOptions(principal)),
-      )
+      .post('/api/auth/passkeys/register/options', async ({ principal, services, request, server }) => {
+        enforceCredentialLimit(request, server, 'passkey-register-options', principal)
+        return unwrap(await services.passkeys.registrationOptions(principal))
+      })
       .post(
         '/api/auth/passkeys/register/verify',
-        async ({ body, principal, services }) => ({
-          passkey: unwrap(await services.passkeys.verifyRegistration(principal, body)),
-        }),
+        async ({ body, principal, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'passkey-register-verify', principal)
+          return { passkey: unwrap(await services.passkeys.verifyRegistration(principal, body)) }
+        },
         {
           body: t.Object({
             name: t.Optional(t.String()),
@@ -558,17 +717,24 @@ export const createApp = ({
       )
       .delete(
         '/api/auth/passkeys/:id',
-        ({ params, principal, services }) => unwrap(services.passkeys.delete(principal, params.id)),
+        ({ params, principal, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'passkey-delete', principal)
+          return unwrap(services.passkeys.delete(principal, params.id))
+        },
         { params: t.Object({ id: t.String() }) },
       )
       .post(
         '/api/auth/passkeys/login/options',
-        async ({ body, services }) => unwrap(await services.passkeys.authenticationOptions(body)),
+        async ({ body, services, request, server }) => {
+          enforceCredentialLimit(request, server, 'passkey-login-options')
+          return unwrap(await services.passkeys.authenticationOptions(body))
+        },
         { body: t.Object({ email: t.Optional(t.String()) }) },
       )
       .post(
         '/api/auth/passkeys/login/verify',
-        async ({ body, services, jwt }) => {
+        async ({ body, services, jwt, request, server }) => {
+          enforceCredentialLimit(request, server, 'passkey-login-verify')
           const result = unwrap(await services.passkeys.verifyAuthentication(body))
           const token = await signAuthToken(jwt, result.user)
           audit(logger, 'auth.passkey.login', {
@@ -581,7 +747,8 @@ export const createApp = ({
       )
       .get(
         '/api/auth/oidc/:provider/start',
-        async ({ params, query, services }) => {
+        async ({ params, query, services, request, server }) => {
+          enforceCredentialLimit(request, server, `oidc-start:${params.provider}`)
           const started = unwrap(await services.oidc.start(params.provider, query.redirect))
           return Response.redirect(started.url, 302)
         },
@@ -589,7 +756,8 @@ export const createApp = ({
       )
       .get(
         '/api/auth/oidc/:provider/callback',
-        async ({ params, query, services, jwt }) => {
+        async ({ params, query, services, jwt, request, server }) => {
+          enforceCredentialLimit(request, server, `oidc-callback:${params.provider}`)
           const result = unwrap(await services.oidc.callback(params.provider, query.code, query.state))
           const token = await signAuthToken(jwt, result.user)
           audit(logger, 'auth.oidc.login', {
@@ -1090,7 +1258,7 @@ export const createApp = ({
       )
 
       // ── Search ────────────────────────────────────────────────────────────
-      .get('/api/search', ({ query, services, principal }) => {
+      .get('/api/search', ({ query, principal }) => {
         requireSearchRead(principal)
         return services.search.search(
           query.q ?? '',
@@ -1119,10 +1287,11 @@ export const createApp = ({
       })
 
       // ── Realtime (Server-Sent Events; any transport subscribes to the bus) ─
-      .get('/api/events', async ({ request, query, jwt }) => {
-        const principal = await principalForToken(jwt, query.token)
-        if (!principal) throw new HttpError(unauthorized())
-        if (!can(principal, 'page:read')) throw new HttpError(forbidden())
+      .post('/api/realtime/ticket', ({ principal }) => mintRealtimeTicket(principal))
+      .get('/api/events', async ({ request, query, principal }) => {
+        const realtimePrincipal = principal ?? consumeRealtimeTicket(query.ticket)
+        if (!realtimePrincipal) throw new HttpError(unauthorized())
+        if (!can(realtimePrincipal, 'page:read')) throw new HttpError(forbidden())
 
         const encoder = new TextEncoder()
         let unsubscribe: (() => void) | null = null
@@ -1163,23 +1332,23 @@ export const createApp = ({
             connection: 'keep-alive',
           },
         })
-      }, { query: t.Object({ token: t.Optional(t.String()) }) })
+      }, { query: t.Object({ ticket: t.Optional(t.String()) }) })
 
       // ── Presence (WebSocket; one connection per open page) ────────────────
-      // Identity (name/userId) comes from the query for v0 — presence is
-      // cosmetic, so we don't verify a token over the socket here.
+      // Identity (name/userId) is display-only; authenticated sockets use a
+      // short-lived ticket so bearer tokens never travel in WebSocket URLs.
       .ws('/api/presence', {
         query: t.Object({
           path: t.String(),
-          token: t.Optional(t.String()),
+          ticket: t.Optional(t.String()),
           name: t.Optional(t.String()),
           userId: t.Optional(t.String()),
           mode: t.Optional(t.Union([t.Literal('viewing'), t.Literal('editing')])),
         }),
         open(ws) {
           void (async () => {
-            const { path, token, name, userId, mode } = ws.data.query
-            const principal = await principalForToken(ws.data.jwt, token)
+            const { path, ticket, name, userId, mode } = ws.data.query
+            const principal = consumeRealtimeTicket(ticket)
             if (env.auth.privateWiki && !principal) {
               ws.close(1008, 'Authentication required')
               return
@@ -1199,11 +1368,11 @@ export const createApp = ({
       // ── Collaborative editing (Yjs over WebSocket; room = page path) ───────
       .ws('/api/collab/:room', {
         query: t.Object({
-          token: t.Optional(t.String()),
+          ticket: t.Optional(t.String()),
         }),
         open(ws) {
           void (async () => {
-            const principal = await principalForToken(ws.data.jwt, ws.data.query.token)
+            const principal = consumeRealtimeTicket(ws.data.query.ticket)
             const room = decodeURIComponent(ws.data.params.room)
             if (!principal || !can(principal, 'page:write', { path: room })) {
               ws.close(1008, 'Authentication required')
@@ -1249,7 +1418,8 @@ export const createApp = ({
       }))
       .put(
         '/api/admin/users/password',
-        async ({ body, services, principal }) => {
+        async ({ body, services, principal, request, server }) => {
+          enforceCredentialLimit(request, server, 'admin-password-reset', principal)
           const user = unwrap(await services.admin.setUserPassword(principal, body.userId, body.password))
           audit(logger, 'admin.user.password.reset', { userId: principal?.id ?? null, targetUserId: user.id })
           return { user }
@@ -1488,25 +1658,70 @@ export const createApp = ({
         if (!can(principal, 'asset:read')) throw new HttpError(forbidden())
         return { assets: unwrap(services.assets.list(principal)) }
       })
+      .get('/api/assets/trash', ({ services, principal }) => {
+        if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+        return { assets: unwrap(services.assets.trash(principal)) }
+      })
+      .get(
+        '/api/assets/usage',
+        ({ query, services, principal }) => {
+          if (!can(principal, 'asset:read')) throw new HttpError(forbidden())
+          return { usage: unwrap(services.assets.usage(principal, query.path)) }
+        },
+        { query: t.Object({ path: t.Optional(t.String()) }) },
+      )
+      .get('/api/assets/orphans', ({ services, principal }) => {
+        if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+        return { assets: unwrap(services.assets.orphans(principal)) }
+      })
+      .post(
+        '/api/assets/orphans/delete',
+        async ({ body, services, principal }) => {
+          if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+          const requestedIds = new Set(body.ids)
+          const currentOrphans = unwrap(services.assets.orphans(principal))
+          const currentOrphanIds = new Set(currentOrphans.map((asset) => asset.id))
+          const targets = currentOrphans.filter((asset) => requestedIds.has(asset.id))
+          const removed: AssetView[] = []
+          for (const asset of targets) {
+            const removedAsset = unwrap(services.assets.remove(asset.id, principal))
+            if (!removedAsset) continue
+            removed.push(removedAsset)
+            await publishAutomation({
+              type: 'asset.deleted',
+              actorId: principal?.id ?? null,
+              data: { asset: assetSnapshot(removedAsset) },
+            })
+          }
+          const skipped = [...requestedIds].filter((id) => !currentOrphanIds.has(id)).length
+          audit(logger, 'asset.orphans.delete', {
+            userId: principal?.id ?? null,
+            requested: requestedIds.size,
+            deleted: removed.length,
+            skipped,
+          })
+          return { assets: removed, skipped }
+        },
+        { body: t.Object({ ids: t.Array(t.String()) }) },
+      )
       .post(
         '/api/assets',
-        async ({ body, services, principal }) => {
+        async ({ body, services, principal, request, server }) => {
+          enforceAssetUploadLimit(request, server, principal)
           if (!can(principal, 'asset:write')) throw new HttpError(forbidden())
           const file = body.file
-          if (!assetExtensionForMime(file.type)) {
-            throw new HttpError(validationError('Unsupported asset type', 'file'))
-          }
           if (file.size > env.assetUpload.maxBytes) {
             throw new HttpError(validationError(`Asset must be ${formatBytes(env.assetUpload.maxBytes)} or smaller`, 'file'))
           }
+          const mime = unwrap(await validateAssetUpload(file))
           const id = crypto.randomUUID()
-          const storageName = assetStorage.storageNameForUpload(id, file)
-          await assetStorage.put({ storageName, file })
+          const storageName = assetStorage.storageNameForUpload(id, file, mime)
+          await assetStorage.put({ storageName, file, contentType: mime })
           const asset = unwrap(services.assets.record({
             id,
             filename: file.name,
             storageName,
-            mime: file.type,
+            mime,
             size: file.size,
             authorId: principal?.id ?? null,
           }, principal))
@@ -1529,13 +1744,54 @@ export const createApp = ({
           }),
         },
       )
+      .post(
+        '/api/assets/:id/restore',
+        async ({ params, services, principal }) => {
+          if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+          const asset = unwrap(services.assets.restore(params.id, principal))
+          if (!asset) throw new HttpError(validationError('Asset not found in trash', 'id'))
+          audit(logger, 'asset.restore', {
+            userId: principal?.id ?? null,
+            assetId: asset.id,
+            filename: asset.filename,
+          })
+          await publishAutomation({
+            type: 'asset.restored',
+            actorId: principal?.id ?? null,
+            data: { asset: assetSnapshot(asset) },
+          })
+          return { asset }
+        },
+        { params: t.Object({ id: t.String() }) },
+      )
+      .delete(
+        '/api/assets/:id/purge',
+        async ({ params, services, principal }) => {
+          if (!can(principal, 'admin:access')) throw new HttpError(forbidden())
+          const asset = unwrap(services.assets.findDeletedById(params.id, principal))
+          if (!asset) throw new HttpError(validationError('Asset not found in trash', 'id'))
+          await assetStorage.delete(asset.storageName)
+          const purged = unwrap(services.assets.purge(params.id, principal)) ?? asset
+          audit(logger, 'asset.purge', {
+            userId: principal?.id ?? null,
+            assetId: purged.id,
+            filename: purged.filename,
+          })
+          await publishAutomation({
+            type: 'asset.purged',
+            actorId: principal?.id ?? null,
+            data: { asset: assetSnapshot(purged) },
+          })
+          return { asset: purged }
+        },
+        { params: t.Object({ id: t.String() }) },
+      )
       .delete(
         '/api/assets/:id',
         async ({ params, services, principal }) => {
           if (!can(principal, 'asset:delete')) throw new HttpError(forbidden())
           const asset = unwrap(services.assets.findById(params.id, principal))
           if (!asset) throw new HttpError(validationError('Asset not found', 'id'))
-          await assetStorage.delete(asset.storageName)
           const removed = unwrap(services.assets.remove(params.id, principal)) ?? asset
           audit(logger, 'asset.delete', {
             userId: principal?.id ?? null,

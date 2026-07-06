@@ -35,11 +35,12 @@ export interface AssetObject {
 export interface AssetStoragePutInput {
   readonly storageName: string
   readonly file: File
+  readonly contentType?: string
 }
 
 export interface AssetStorage {
   readonly type: AssetStorageType
-  storageNameForUpload(id: string, file: File): string
+  storageNameForUpload(id: string, file: File, contentType?: string): string
   url(storageName: string): string
   put(input: AssetStoragePutInput): Promise<void>
   get(storageName: string): Promise<AssetObject | null>
@@ -87,7 +88,7 @@ export const createLocalAssetStorage = (config: LocalAssetStorageConfig): AssetS
 
   return {
     type: 'local',
-    storageNameForUpload: (id, file) => safeAssetStorageName(file, id),
+    storageNameForUpload: (id, file, contentType) => safeAssetStorageName(file, id, contentType),
     url: (storageName) => storageUrl(config.publicBaseUrl, storageName),
     async put({ storageName, file }) {
       if (!isSafeLocalStorageName(storageName)) {
@@ -222,11 +223,11 @@ export const createR2AssetStorage = (
 
   return {
     type: 'r2',
-    storageNameForUpload: (id, file) => `assets/${id}/${safeAssetFilename(file)}`,
+    storageNameForUpload: (id, file, contentType) => `assets/${id}/${safeAssetFilename(file, contentType)}`,
     url: (storageName) => storageUrl(config.publicBaseUrl, storageName),
-    async put({ storageName, file }) {
+    async put({ storageName, file, contentType }) {
       const body = new Uint8Array(await file.arrayBuffer())
-      const response = await request('PUT', storageName, { body, contentType: file.type })
+      const response = await request('PUT', storageName, { body, contentType: contentType ?? file.type })
       await assertR2Response(response, 'PUT', storageName)
     },
     async get(storageName) {

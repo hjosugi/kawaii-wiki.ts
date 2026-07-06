@@ -2,7 +2,7 @@ import { mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
 import { useAuth } from '@/stores/auth'
-import { setToken } from '@/lib/api'
+import { Api, setToken } from '@/lib/api'
 
 const mocks = vi.hoisted(() => ({
   providers: [] as Array<{ url: string; room: string; options: { params?: Record<string, string> } }>,
@@ -44,7 +44,9 @@ describe('CollabEditor', () => {
   let pinia: ReturnType<typeof createPinia>
 
   beforeEach(() => {
+    vi.restoreAllMocks()
     mocks.providers.splice(0)
+    vi.spyOn(Api, 'realtimeTicket').mockResolvedValue({ ticket: 'ticket-123', expiresAt: Date.now() + 30_000 })
     setToken('token-123')
     pinia = createPinia()
     setActivePinia(pinia)
@@ -60,10 +62,11 @@ describe('CollabEditor', () => {
       attachTo: document.body,
     })
 
+    await vi.waitFor(() => expect(mocks.providers).toHaveLength(1))
     expect(mocks.providers[0]).toMatchObject({
       url: 'ws://localhost:3000/api/collab',
       room: 'docs%2Fa%20page',
-      options: { params: { token: 'token-123' } },
+      options: { params: { ticket: 'ticket-123' } },
     })
   })
 })

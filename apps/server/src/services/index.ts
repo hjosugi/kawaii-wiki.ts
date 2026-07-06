@@ -15,12 +15,19 @@ import { createSettingsService, type SettingsService } from './settings.ts'
 import { createAuthzService, type AuthzService } from './authz.ts'
 import { createOidcService, type OidcService } from './oidc.ts'
 import { createPasskeyService, type PasskeyService } from './passkeys.ts'
-import { createWebhookService, type WebhookFetcher, type WebhookService } from './webhooks.ts'
+import {
+  createWebhookService,
+  type WebhookFetcher,
+  type WebhookHostnameResolver,
+  type WebhookService,
+} from './webhooks.ts'
 
 export interface ServiceOptions {
   readonly assetUrl?: (storageName: string) => string
   readonly auth?: AuthEnv
   readonly webhookFetcher?: WebhookFetcher
+  readonly webhookResolver?: WebhookHostnameResolver
+  readonly allowPrivateWebhookTargets?: boolean
 }
 
 export interface Services {
@@ -64,8 +71,12 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     authz,
     oidc: createOidcService(db, auth, authz),
     passkeys: createPasskeyService(db, auth),
-    webhooks: createWebhookService(db, { fetcher: options.webhookFetcher }),
+    webhooks: createWebhookService(db, {
+      fetcher: options.webhookFetcher,
+      resolver: options.webhookResolver,
+      allowPrivateTargets: options.allowPrivateWebhookTargets,
+    }),
   }
 }
 
-export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, OidcService, PasskeyService, WebhookService, WebhookFetcher }
+export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, OidcService, PasskeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }

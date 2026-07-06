@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { clientIp, createRateLimiter } from './rate-limit.ts'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createDb } from '../db/client.ts'
+import { clientIp, createDbRateLimiter, createRateLimiter } from './rate-limit.ts'
 
 const server = (address: string) => ({
   requestIP: () => ({ address }),
@@ -26,5 +30,33 @@ describe('rate limiter', () => {
 
     expect(clientIp(request, server('127.0.0.1'), false)).toBe('127.0.0.1')
     expect(clientIp(request, server('127.0.0.1'), true)).toBe('198.51.100.10')
+  })
+
+  test('shares DB-backed buckets across limiter instances', () => {
+    let now = 1_000
+    const dir = mkdtempSync(join(tmpdir(), 'ts-wiki-rate-limit-'))
+    const path = join(dir, 'rate-limit.sqlite')
+    const db1 = createDb(path)
+    const db2 = createDb(path)
+    try {
+      const first = createDbRateLimiter(db1.$client, 2, 100, 10, () => now)
+      const second = createDbRateLimiter(db2.$client, 2, 100, 10, () => now)
+
+      expect(first.check('login:local')).toBe(true)
+      expect(second.check('login:local')).toBe(true)
+      expect(first.check('login:local')).toBe(false)
+      expect(first.size()).toBe(1)
+      expect(second.size()).toBe(1)
+
+      now += 101
+      first.sweep(now)
+
+      expect(second.size()).toBe(0)
+      expect(second.check('login:local')).toBe(true)
+    } finally {
+      db1.$client.close()
+      db2.$client.close()
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

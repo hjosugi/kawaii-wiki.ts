@@ -236,6 +236,21 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     );
     CREATE INDEX IF NOT EXISTS wiki_events_id_idx ON wiki_events(id);
 
+    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+      bucket_key TEXT NOT NULL,
+      hit_at     INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS rate_limit_hits_bucket_idx ON rate_limit_hits(bucket_key, hit_at);
+    CREATE INDEX IF NOT EXISTS rate_limit_hits_time_idx ON rate_limit_hits(hit_at);
+
+    CREATE TABLE IF NOT EXISTS realtime_tickets (
+      ticket     TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS realtime_tickets_expires_idx ON realtime_tickets(expires_at);
+
     CREATE TABLE IF NOT EXISTS webhook_subscriptions (
       id          TEXT PRIMARY KEY,
       name        TEXT NOT NULL,

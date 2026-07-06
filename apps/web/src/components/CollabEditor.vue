@@ -30,6 +30,7 @@ const auth = useAuth()
 let view: EditorView | null = null
 let provider: WebsocketProvider | null = null
 let ydoc: Y.Doc | null = null
+let disposed = false
 
 /** Deterministic per-user colour so remote cursors are stable & distinct. */
 function userColor(seed: string): string {
@@ -134,14 +135,17 @@ function insertAsset(markdown: string): void {
   showAssets.value = false
 }
 
-onMounted(() => {
+onMounted(async () => {
+  disposed = false
   ydoc = new Y.Doc()
   const ytext = ydoc.getText('content')
   // WebsocketProvider connects to `${WS_BASE_URL}/api/collab/<room>` and speaks the
   // y-websocket protocol our server implements.
   const token = getToken()
+  const ticket = token ? await Api.realtimeTicket().catch(() => null) : null
+  if (disposed || (token && !ticket)) return
   provider = new WebsocketProvider(`${WS_BASE_URL}/api/collab`, encodeURIComponent(props.room), ydoc, {
-    params: token ? { token } : {},
+    params: ticket ? { ticket: ticket.ticket } : {},
   })
 
   const name = auth.user?.name ?? 'Anonymous'
@@ -192,6 +196,7 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
   view?.destroy()
   provider?.destroy()
   ydoc?.destroy()

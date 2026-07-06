@@ -1,10 +1,9 @@
 /**
  * Realtime client — subscribes to the server's SSE stream (`/api/events`) and
- * fans `page:changed` events out to in-app listeners. EventSource reconnects
- * automatically, so this is fire-and-forget. (Transport is intentionally hidden
- * behind `onWikiEvent`, so we can swap SSE → WebSocket without touching callers.)
+ * fans `page:changed` events out to in-app listeners. Reconnects mint fresh
+ * realtime tickets, so consumed one-time ticket URLs are never retried.
  */
-import { getToken } from './api'
+import { Api, getToken } from './api'
 import { API_BASE_URL } from './url'
 
 export interface WikiEvent {
@@ -18,14 +17,55 @@ type Listener = (event: WikiEvent) => void
 
 const listeners = new Set<Listener>()
 let source: EventSource | null = null
+let opening = false
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+const clearReconnect = (): void => {
+  if (!reconnectTimer) return
+  clearTimeout(reconnectTimer)
+  reconnectTimer = null
+}
+
+const scheduleReconnect = (): void => {
+  if (reconnectTimer) return
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    void openRealtime()
+  }, 2000)
+}
 
 export function connectRealtime(): void {
-  if (source) return
+  if (source || opening) return
+  clearReconnect()
+  void openRealtime()
+}
+
+const realtimeUrl = async (): Promise<string | null> => {
   const token = getToken()
   const url = new URL('/api/events', API_BASE_URL)
-  if (token) url.searchParams.set('token', token)
-  source = new EventSource(url.toString())
-  source.onmessage = (msg) => {
+  if (!token) return url.toString()
+  try {
+    const ticket = await Api.realtimeTicket()
+    url.searchParams.set('ticket', ticket.ticket)
+    return url.toString()
+  } catch {
+    return null
+  }
+}
+
+const openRealtime = async (): Promise<void> => {
+  if (source || opening) return
+  opening = true
+  const url = await realtimeUrl()
+  opening = false
+  if (!url) {
+    scheduleReconnect()
+    return
+  }
+  if (source) return
+  const next = new EventSource(url)
+  source = next
+  next.onmessage = (msg) => {
     try {
       const event = JSON.parse(msg.data) as WikiEvent
       if (event?.type === 'page:changed') {
@@ -35,7 +75,12 @@ export function connectRealtime(): void {
       /* ignore malformed frames */
     }
   }
-  // On error EventSource retries on its own; nothing to do here.
+  next.onerror = () => {
+    if (source !== next) return
+    next.close()
+    source = null
+    scheduleReconnect()
+  }
 }
 
 export function onWikiEvent(listener: Listener): () => void {

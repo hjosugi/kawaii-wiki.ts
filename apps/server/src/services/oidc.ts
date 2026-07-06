@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { and, eq, lt } from 'drizzle-orm'
+import { and, eq, lte } from 'drizzle-orm'
 import {
   type AppError,
   type Result,
@@ -38,6 +38,10 @@ export interface OidcService {
   publicProviders(): PublicAuthProvider[]
   start(providerId: string, redirectAfter?: string | null): Promise<Result<OidcStart, AppError>>
   callback(providerId: string, code: string, state: string): Promise<Result<OidcCallbackResult, AppError>>
+}
+
+export interface OidcServiceOptions {
+  readonly now?: () => number
 }
 
 interface OidcDiscovery {
@@ -131,11 +135,12 @@ const validateClaims = (
   provider: OidcProviderEnv,
   claims: IdTokenClaims,
   nonce: string,
+  now: number,
 ): Result<{ subject: string; email: string; name: string }, AppError> => {
   if (claims.iss !== provider.issuer) return err(unauthorized('OIDC issuer mismatch'))
   const aud = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
   if (!aud.includes(provider.clientId)) return err(unauthorized('OIDC audience mismatch'))
-  if (!claims.exp || claims.exp * 1000 < Date.now()) return err(unauthorized('OIDC token expired'))
+  if (!claims.exp || claims.exp * 1000 <= now) return err(unauthorized('OIDC token expired'))
   if (claims.nonce !== nonce) return err(unauthorized('OIDC nonce mismatch'))
   if (!claims.sub) return err(unauthorized('OIDC subject missing'))
   const email = claims.email?.trim().toLowerCase()
@@ -151,7 +156,20 @@ const validateClaims = (
 const safeRedirectAfter = (value: string | null | undefined): string | null =>
   value && value.startsWith('/') && !value.startsWith('//') ? value.slice(0, 500) : null
 
-export const createOidcService = (db: DB, auth: AuthEnv, authz: AuthzService): OidcService => {
+const OIDC_STATE_TTL_MS = 10 * 60_000
+
+export const createOidcService = (
+  db: DB,
+  auth: AuthEnv,
+  authz: AuthzService,
+  options: OidcServiceOptions = {},
+): OidcService => {
+  const now = options.now ?? (() => Date.now())
+
+  const cleanupStates = (): void => {
+    db.delete(oauthStates).where(lte(oauthStates.expiresAt, now())).run()
+  }
+
   const findUserByEmail = (email: string): User | undefined =>
     db.select().from(users).where(eq(users.email, email)).get()
 
@@ -223,15 +241,12 @@ export const createOidcService = (db: DB, auth: AuthEnv, authz: AuthzService): O
     async start(providerId, redirectAfter = null) {
       const provider = providerById(auth, providerId)
       if (!provider) return err(notFoundProvider())
+      cleanupStates()
       const discovery = await discover(provider)
       const state = randomUrlToken()
       const nonce = randomUrlToken()
       const codeVerifier = randomUrlToken(48)
-      const now = Date.now()
-      // Sweep abandoned OIDC starts so the table can't grow unbounded (rows are
-      // otherwise only deleted on a successful callback). Mirrors the WebAuthn
-      // challenge cleanup.
-      db.delete(oauthStates).where(lt(oauthStates.expiresAt, now)).run()
+      const createdAt = now()
       db.insert(oauthStates)
         .values({
           state,
@@ -239,8 +254,8 @@ export const createOidcService = (db: DB, auth: AuthEnv, authz: AuthzService): O
           nonce,
           codeVerifier,
           redirectAfter: safeRedirectAfter(redirectAfter),
-          expiresAt: now + 10 * 60_000,
-          createdAt: now,
+          expiresAt: createdAt + OIDC_STATE_TTL_MS,
+          createdAt,
         })
         .run()
       const url = new URL(discovery.authorization_endpoint)
@@ -259,7 +274,12 @@ export const createOidcService = (db: DB, auth: AuthEnv, authz: AuthzService): O
       const provider = providerById(auth, providerId)
       if (!provider) return err(notFoundProvider())
       const stored = db.select().from(oauthStates).where(eq(oauthStates.state, state)).get()
-      if (!stored || stored.provider !== provider.id || stored.expiresAt < Date.now()) {
+      if (!stored || stored.provider !== provider.id) {
+        return err(unauthorized('OIDC state is invalid or expired'))
+      }
+      const nowMs = now()
+      if (stored.expiresAt <= nowMs) {
+        db.delete(oauthStates).where(eq(oauthStates.state, state)).run()
         return err(unauthorized('OIDC state is invalid or expired'))
       }
       db.delete(oauthStates).where(eq(oauthStates.state, state)).run()
@@ -283,7 +303,7 @@ export const createOidcService = (db: DB, auth: AuthEnv, authz: AuthzService): O
 
       const verified = await verifyJwtSignature(token.id_token, discovery.jwks_uri)
       if (!verified) return err(unauthorized('OIDC ID token signature is invalid'))
-      const claims = validateClaims(provider, verified.claims, stored.nonce)
+      const claims = validateClaims(provider, verified.claims, stored.nonce, now())
       if (!claims.ok) return claims
 
       const existingByAccount = findAccount(provider.id, claims.value.subject)

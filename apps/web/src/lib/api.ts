@@ -194,6 +194,14 @@ export interface AssetView {
   createdAt: number
   url: string
 }
+export interface AssetUsagePage {
+  path: string
+  title: string
+}
+export interface AssetUsage {
+  asset: AssetView
+  pages: AssetUsagePage[]
+}
 export interface PageComment {
   id: string
   path: string
@@ -288,6 +296,10 @@ export interface PublicSettings {
   privateWiki: boolean
   registration: 'open' | 'off'
 }
+export interface RealtimeTicket {
+  ticket: string
+  expiresAt: number
+}
 interface AuthResult {
   token: string
   user: PublicUser
@@ -296,6 +308,7 @@ interface AuthResult {
 export const Api = {
   health: () => call<{ ok: true; name: string; version: string }>(client().api.health.get()),
   publicSettings: () => call<PublicSettings>(client().api.settings.public.get()),
+  realtimeTicket: () => call<RealtimeTicket>(client().api.realtime.ticket.post()),
 
   // Auth
   register: (body: { email: string; name: string; password: string }) =>
@@ -437,6 +450,14 @@ export const Api = {
     return call<AssetUpload>(client().api.assets.post({ file }))
   },
   listAssets: () => call<{ assets: AssetView[] }>(client().api.assets.get()).then((d) => d.assets),
+  assetUsage: (path?: string) =>
+    call<{ usage: AssetUsage[] }>(client().api.assets.usage.get({ query: path ? { path } : {} })).then(
+      (d) => d.usage,
+    ),
+  orphanAssets: () =>
+    call<{ assets: AssetView[] }>(client().api.assets.orphans.get()).then((d) => d.assets),
+  deleteOrphanAssets: (ids: string[]) =>
+    call<{ assets: AssetView[]; skipped: number }>(client().api.assets.orphans.delete.post({ ids })),
   deleteAsset: (id: string) =>
     call<{ asset: AssetView }>(client().api.assets({ id }).delete()).then((d) => d.asset),
   renameAsset: (id: string, filename: string) =>

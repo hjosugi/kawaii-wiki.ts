@@ -8,7 +8,7 @@ import type { Env } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { ASSET_MAX_BYTES, safeAssetFilename } from '../services/assets.ts'
 import { totpCode } from '../services/auth.ts'
-import type { WebhookFetcher, WebhookPayload } from '../services/webhooks.ts'
+import type { WebhookFetcher, WebhookHostnameResolver, WebhookPayload } from '../services/webhooks.ts'
 import type { AssetStorage } from '../storage/assets.ts'
 import type { LogEvent, StructuredLogger } from '../observability/logging.ts'
 import { createApp, type App } from './app.ts'
@@ -46,6 +46,9 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
   },
   assetUpload: {
     maxBytes: ASSET_MAX_BYTES,
+  },
+  webhooks: {
+    allowPrivateTargets: false,
   },
   assetStorage: {
     type: 'local',
@@ -87,6 +90,8 @@ const captureLogger = (): { logger: StructuredLogger; events: LogEvent[] } => {
   }
 }
 
+const publicWebhookResolver: WebhookHostnameResolver = async () => ['93.184.216.34']
+
 const createFixture = (
   cors?: Env['cors'],
   options: {
@@ -94,6 +99,7 @@ const createFixture = (
     logger?: StructuredLogger
     assetStorage?: AssetStorage
     webhookFetcher?: WebhookFetcher
+    webhookResolver?: WebhookHostnameResolver
     env?: (env: Env) => Env
   } = {},
 ): { app: App; db: DB; dataDir: string } => {
@@ -112,6 +118,7 @@ const createFixture = (
     logger: options.logger ?? noopLogger,
     assetStorage: options.assetStorage,
     webhookFetcher: options.webhookFetcher,
+    webhookResolver: options.webhookResolver ?? (options.webhookFetcher ? publicWebhookResolver : undefined),
   })
   fixtures.push({ db, dataDir, app })
   return { app, db, dataDir }
@@ -140,6 +147,33 @@ const createPage = async (app: App, token: string, path: string, content = 'hell
     jsonRequest('/api/pages', { path, title: path, content }, token),
   )
   expect(response.status).toBe(200)
+}
+
+const uploadPngAsset = async (app: App, token: string, filename: string): Promise<{ id: string; filename: string; url: string }> => {
+  const form = new FormData()
+  form.set('file', new File([png1x1], filename, { type: 'image/png' }))
+  const response = await app.handle(
+    new Request('http://localhost/api/assets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: form,
+    }),
+  )
+  expect(response.status).toBe(200)
+  return response.json()
+}
+
+const realtimeTicket = async (app: App, token: string): Promise<string> => {
+  const response = await app.handle(
+    new Request('http://localhost/api/realtime/ticket', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+    }),
+  )
+  expect(response.status).toBe(200)
+  const body = await response.json() as { ticket?: unknown }
+  expect(typeof body.ticket).toBe('string')
+  return body.ticket as string
 }
 
 const tableCount = (db: DB, table: string): number =>
@@ -223,6 +257,108 @@ describe('http app auth', () => {
         body: JSON.stringify({ email: 'nobody@example.com', password: 'wrong' }),
       }),
     )
+    expect(limited.status).toBe(429)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rate limits credential-adjacent auth routes by surface', async () => {
+    const { app } = createFixture()
+
+    const passkeyVerifyBody = {
+      response: {
+        id: 'missing',
+        response: {
+          clientDataJSON: Buffer.from(JSON.stringify({ challenge: 'missing' })).toString('base64url'),
+        },
+      },
+    }
+    for (let i = 0; i < 10; i += 1) {
+      const response = await app.handle(jsonRequest('/api/auth/passkeys/login/verify', passkeyVerifyBody))
+      expect(response.status).toBe(401)
+    }
+    expect((await app.handle(jsonRequest('/api/auth/passkeys/login/verify', passkeyVerifyBody))).status).toBe(429)
+
+    const passwordChangeRequest = () =>
+      new Request('http://localhost/api/auth/password', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ currentPassword: 'password', newPassword: 'new-password' }),
+      })
+    for (let i = 0; i < 10; i += 1) {
+      const response = await app.handle(passwordChangeRequest())
+      expect(response.status).toBe(401)
+    }
+    expect((await app.handle(passwordChangeRequest())).status).toBe(429)
+
+    for (let i = 0; i < 10; i += 1) {
+      const response = await app.handle(
+        new Request('http://localhost/api/auth/oidc/unknown/callback?code=x&state=y'),
+      )
+      expect(response.status).toBe(422)
+    }
+    expect((await app.handle(
+      new Request('http://localhost/api/auth/oidc/unknown/callback?code=x&state=y'),
+    )).status).toBe(429)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rate limits TOTP enable and disable attempts', async () => {
+    const enableFixture = createFixture()
+    const { token } = await register(enableFixture.app, 'admin@example.com')
+
+    const setup = await enableFixture.app.handle(
+      new Request('http://localhost/api/auth/totp/setup', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(setup.status).toBe(200)
+    const secret = ((await setup.json()) as { secret: string }).secret
+    const code = totpCode(secret)
+    const invalidCode = code === '000000' ? '000001' : '000000'
+
+    for (let i = 0; i < 10; i += 1) {
+      const response = await enableFixture.app.handle(jsonRequest('/api/auth/totp/enable', { code: invalidCode }, token))
+      expect(response.status).toBe(401)
+    }
+    expect((await enableFixture.app.handle(jsonRequest('/api/auth/totp/enable', { code: invalidCode }, token))).status).toBe(429)
+
+    const disableFixture = createFixture()
+    const disableAdmin = await register(disableFixture.app, 'admin@example.com')
+    const disableSetup = await disableFixture.app.handle(
+      new Request('http://localhost/api/auth/totp/setup', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${disableAdmin.token}` },
+      }),
+    )
+    expect(disableSetup.status).toBe(200)
+    const disableSecret = ((await disableSetup.json()) as { secret: string }).secret
+    const disableCode = totpCode(disableSecret)
+    const invalidDisableCode = disableCode === '000000' ? '000001' : '000000'
+
+    const enabled = await disableFixture.app.handle(jsonRequest('/api/auth/totp/enable', { code: disableCode }, disableAdmin.token))
+    expect(enabled.status).toBe(200)
+
+    for (let i = 0; i < 10; i += 1) {
+      const response = await disableFixture.app.handle(
+        jsonRequest('/api/auth/totp/disable', { code: invalidDisableCode }, disableAdmin.token),
+      )
+      expect(response.status).toBe(401)
+    }
+    expect((await disableFixture.app.handle(
+      jsonRequest('/api/auth/totp/disable', { code: invalidDisableCode }, disableAdmin.token),
+    )).status).toBe(429)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rate limits anonymous private-mode read attempts', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+
+    for (let i = 0; i < 120; i += 1) {
+      const response = await app.handle(new Request('http://localhost/api/search?q=docs'))
+      expect(response.status).toBe(401)
+    }
+
+    const limited = await app.handle(new Request('http://localhost/api/search?q=docs'))
     expect(limited.status).toBe(429)
   }, HTTP_TEST_TIMEOUT_MS)
 
@@ -486,9 +622,17 @@ describe('http app authorization', () => {
         headers: { authorization: `Bearer ${viewer.token}` },
       }),
     )
+    const anonymousWebhook = await app.handle(new Request('http://localhost/api/admin/webhooks'))
+    const viewedAutomation = await app.handle(
+      new Request('http://localhost/api/admin/automation-rules', {
+        headers: { authorization: `Bearer ${viewer.token}` },
+      }),
+    )
 
     expect(anonymous.status).toBe(403)
     expect(viewed.status).toBe(403)
+    expect(anonymousWebhook.status).toBe(403)
+    expect(viewedAutomation.status).toBe(403)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('group page rules can grant a viewer write access only under a prefix', async () => {
@@ -529,6 +673,47 @@ describe('http app authorization', () => {
       jsonRequest('/api/pages', { path: 'team-b/runbook', title: 'Runbook', content: 'no' }, viewer.token),
     )
     expect(denied.status).toBe(403)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('search results respect page read deny rules', async () => {
+    const { app } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+
+    await createPage(app, admin.token, 'docs/public', 'shared-acl-token public body')
+    await createPage(app, admin.token, 'secret/roadmap', 'shared-acl-token secret body')
+
+    const rule = await app.handle(
+      jsonRequest('/api/admin/page-rules', {
+        subjectType: 'user',
+        subjectId: viewer.user.id,
+        action: 'page:read',
+        effect: 'deny',
+        matcher: 'prefix',
+        pattern: 'secret',
+      }, admin.token),
+    )
+    expect(rule.status).toBe(200)
+
+    const directRead = await app.handle(new Request('http://localhost/api/page?path=secret/roadmap', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(directRead.status).toBe(403)
+
+    const viewerSearch = await app.handle(new Request('http://localhost/api/search?q=shared-acl-token&limit=10', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(viewerSearch.status).toBe(200)
+    const viewerBody = await viewerSearch.json() as { hits: Array<{ path: string; title: string; snippet: string }> }
+    expect(viewerBody.hits.map((hit) => hit.path)).toEqual(['docs/public'])
+    expect(JSON.stringify(viewerBody.hits)).not.toContain('secret')
+
+    const adminSearch = await app.handle(new Request('http://localhost/api/search?q=shared-acl-token&limit=10', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(adminSearch.status).toBe(200)
+    const adminBody = await adminSearch.json() as { hits: Array<{ path: string }> }
+    expect(adminBody.hits.map((hit) => hit.path).sort()).toEqual(['docs/public', 'secret/roadmap'])
   }, HTTP_TEST_TIMEOUT_MS)
 })
 
@@ -677,6 +862,155 @@ describe('http app automations and webhooks', () => {
     })
   }, HTTP_TEST_TIMEOUT_MS)
 
+  test('webhook subscriptions reject private literal targets unless explicitly allowed', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    const blockedTargets = [
+      'http://127.0.0.1:4000/hook',
+      'http://169.254.169.254/latest/meta-data',
+      'http://[::1]/hook',
+      'http://localhost/hook',
+    ]
+
+    for (const targetUrl of blockedTargets) {
+      const blocked = await app.handle(
+        jsonRequest('/api/admin/webhooks', {
+          targetUrl,
+          secret: 'blocked-secret',
+          eventTypes: ['page.created'],
+        }, token),
+      )
+      expect(blocked.status).toBe(422)
+      expect(await blocked.json()).toMatchObject({
+        error: { kind: 'validation', field: 'targetUrl' },
+      })
+    }
+
+    const allowedFixture = createFixture(undefined, {
+      env: (env) => ({ ...env, webhooks: { allowPrivateTargets: true } }),
+    })
+    const allowedAdmin = await register(allowedFixture.app, 'admin@example.com')
+    const allowed = await allowedFixture.app.handle(
+      jsonRequest('/api/admin/webhooks', {
+        targetUrl: 'http://127.0.0.1:4000/hook',
+        secret: 'local-secret',
+        eventTypes: ['page.created'],
+      }, allowedAdmin.token),
+    )
+    expect(allowed.status).toBe(200)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('webhook delivery blocks DNS-rebound private targets before fetch', async () => {
+    let calls = 0
+    const fetcher: WebhookFetcher = async () => {
+      calls += 1
+      return new Response('should not be called', { status: 200 })
+    }
+    const { app } = createFixture(undefined, {
+      webhookFetcher: fetcher,
+      webhookResolver: async () => ['10.0.0.9'],
+    })
+    const { token } = await register(app, 'admin@example.com')
+
+    const webhook = await app.handle(
+      jsonRequest('/api/admin/webhooks', {
+        targetUrl: 'https://hooks.example.com/private',
+        secret: 'rebind-secret',
+        eventTypes: ['page.created'],
+      }, token),
+    )
+    expect(webhook.status).toBe(200)
+
+    await createPage(app, token, 'docs/rebound', 'blocked before delivery')
+
+    expect(calls).toBe(0)
+    const history = await app.handle(
+      new Request('http://localhost/api/admin/webhooks/deliveries', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(history.status).toBe(200)
+    expect((await history.json()).deliveries[0]).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      responseStatus: null,
+      responseBody: null,
+      error: expect.stringContaining('resolved to blocked address 10.0.0.9'),
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('webhook delivery validates redirect hops and caps redirect chains', async () => {
+    const privateRedirectCalls: string[] = []
+    const privateRedirectFetcher: WebhookFetcher = async (url) => {
+      privateRedirectCalls.push(url)
+      return new Response('', {
+        status: 307,
+        headers: { location: 'http://169.254.169.254/latest/meta-data' },
+      })
+    }
+    const privateRedirectFixture = createFixture(undefined, {
+      webhookFetcher: privateRedirectFetcher,
+      webhookResolver: publicWebhookResolver,
+    })
+    const privateRedirectAdmin = await register(privateRedirectFixture.app, 'admin@example.com')
+    const privateRedirectWebhook = await privateRedirectFixture.app.handle(
+      jsonRequest('/api/admin/webhooks', {
+        targetUrl: 'https://hooks.example.com/start',
+        secret: 'redirect-secret',
+        eventTypes: ['page.created'],
+      }, privateRedirectAdmin.token),
+    )
+    expect(privateRedirectWebhook.status).toBe(200)
+
+    await createPage(privateRedirectFixture.app, privateRedirectAdmin.token, 'docs/redirect-private', 'private redirect')
+
+    expect(privateRedirectCalls).toEqual(['https://hooks.example.com/start'])
+    const privateRedirectHistory = await privateRedirectFixture.app.handle(
+      new Request('http://localhost/api/admin/webhooks/deliveries', {
+        headers: { authorization: `Bearer ${privateRedirectAdmin.token}` },
+      }),
+    )
+    expect((await privateRedirectHistory.json()).deliveries[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('private'),
+    })
+
+    const redirectLoopCalls: string[] = []
+    const redirectLoopFetcher: WebhookFetcher = async (url) => {
+      redirectLoopCalls.push(url)
+      return new Response('', {
+        status: 307,
+        headers: { location: '/again' },
+      })
+    }
+    const redirectLoopFixture = createFixture(undefined, {
+      webhookFetcher: redirectLoopFetcher,
+      webhookResolver: publicWebhookResolver,
+    })
+    const redirectLoopAdmin = await register(redirectLoopFixture.app, 'admin@example.com')
+    const redirectLoopWebhook = await redirectLoopFixture.app.handle(
+      jsonRequest('/api/admin/webhooks', {
+        targetUrl: 'https://hooks.example.com/loop',
+        secret: 'loop-secret',
+        eventTypes: ['page.created'],
+      }, redirectLoopAdmin.token),
+    )
+    expect(redirectLoopWebhook.status).toBe(200)
+
+    await createPage(redirectLoopFixture.app, redirectLoopAdmin.token, 'docs/redirect-loop', 'loop redirect')
+
+    expect(redirectLoopCalls).toHaveLength(6)
+    const redirectLoopHistory = await redirectLoopFixture.app.handle(
+      new Request('http://localhost/api/admin/webhooks/deliveries', {
+        headers: { authorization: `Bearer ${redirectLoopAdmin.token}` },
+      }),
+    )
+    expect((await redirectLoopHistory.json()).deliveries[0]).toMatchObject({
+      status: 'failed',
+      error: expect.stringContaining('exceeded 5 redirects'),
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
   test('enabled automation rules can add page metadata on matching updates', async () => {
     const { app } = createFixture()
     const { token } = await register(app, 'admin@example.com')
@@ -751,20 +1085,35 @@ describe('http app structured logging', () => {
 })
 
 describe('http app realtime', () => {
-  test('SSE events require a readable principal token', async () => {
+  test('SSE events require a readable principal or one-time realtime ticket', async () => {
     const { app } = createFixture()
     const { token } = await register(app, 'admin@example.com')
 
     const anonymous = await app.handle(new Request('http://localhost/api/events'))
     expect(anonymous.status).toBe(401)
 
-    const response = await app.handle(new Request(`http://localhost/api/events?token=${token}`))
+    const queryToken = await app.handle(new Request(`http://localhost/api/events?token=${token}`))
+    expect(queryToken.status).toBe(401)
+
+    const headerResponse = await app.handle(
+      new Request('http://localhost/api/events', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(headerResponse.status).toBe(200)
+    await headerResponse.body?.cancel()
+
+    const ticket = await realtimeTicket(app, token)
+    const response = await app.handle(new Request(`http://localhost/api/events?ticket=${encodeURIComponent(ticket)}`))
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toContain('text/event-stream')
     const reader = response.body!.getReader()
     const first = await reader.read()
     expect(new TextDecoder().decode(first.value)).toContain('connected')
     await reader.cancel()
+
+    const reused = await app.handle(new Request(`http://localhost/api/events?ticket=${encodeURIComponent(ticket)}`))
+    expect(reused.status).toBe(401)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('presence WebSocket opens and broadcasts the current viewer list', async () => {
@@ -793,6 +1142,8 @@ describe('http app realtime', () => {
     const { token } = await register(app, 'admin@example.com')
     const viewer = await register(app, 'viewer@example.com')
     await createPage(app, token, 'docs/ws', 'seed')
+    const viewerTicket = await realtimeTicket(app, viewer.token)
+    const editorTicket = await realtimeTicket(app, token)
     app.listen(0)
     const base = app.server!.url.href.replace(/^http/, 'ws')
 
@@ -803,12 +1154,12 @@ describe('http app realtime', () => {
     expect(closed.code).toBe(1008)
 
     const viewerClosed = await new Promise<CloseEvent>((resolve) => {
-      const ws = new WebSocket(`${base}api/collab/${encodeURIComponent('docs/ws')}?token=${viewer.token}`)
+      const ws = new WebSocket(`${base}api/collab/${encodeURIComponent('docs/ws')}?ticket=${encodeURIComponent(viewerTicket)}`)
       ws.onclose = (event) => resolve(event)
     })
     expect(viewerClosed.code).toBe(1008)
 
-    const authed = new WebSocket(`${base}api/collab/${encodeURIComponent('docs/ws')}?token=${token}`)
+    const authed = new WebSocket(`${base}api/collab/${encodeURIComponent('docs/ws')}?ticket=${encodeURIComponent(editorTicket)}`)
     await new Promise<void>((resolve, reject) => {
       authed.onopen = () => resolve()
       authed.onerror = () => reject(new Error('authenticated collab socket failed'))
@@ -825,8 +1176,9 @@ describe('http app realtime', () => {
     const { token } = await register(app, 'admin@example.com')
     await createPage(app, token, 'docs/load', 'seed')
 
+    const tickets = await Promise.all(Array.from({ length: 8 }, () => realtimeTicket(app, token)))
     const streams = await Promise.all(
-      Array.from({ length: 8 }, () => app.handle(new Request(`http://localhost/api/events?token=${token}`))),
+      tickets.map((ticket) => app.handle(new Request(`http://localhost/api/events?ticket=${encodeURIComponent(ticket)}`))),
     )
     for (const response of streams) expect(response.status).toBe(200)
 
@@ -1251,6 +1603,105 @@ describe('http app assets', () => {
     expect(stored.has(uploads[0]!.storageName)).toBe(false)
   }, HTTP_TEST_TIMEOUT_MS)
 
+  test('reports page usage for uploaded assets without leaking denied pages', async () => {
+    const { app } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+    const used = await uploadPngAsset(app, admin.token, 'used.png')
+    const hidden = await uploadPngAsset(app, admin.token, 'hidden.png')
+
+    await createPage(app, admin.token, 'docs/asset-usage', `![Used](${used.url})\n[Download](${used.url}?download=1)`)
+    await createPage(app, admin.token, 'secret/asset-usage', `![Hidden](${hidden.url})`)
+
+    const denySecret = await app.handle(
+      jsonRequest('/api/admin/page-rules', {
+        subjectType: 'user',
+        subjectId: viewer.user.id,
+        action: 'page:read',
+        effect: 'deny',
+        matcher: 'prefix',
+        pattern: 'secret',
+      }, admin.token),
+    )
+    expect(denySecret.status).toBe(200)
+
+    type UsageBody = {
+      usage: Array<{
+        asset: { id: string; filename: string; url: string }
+        pages: Array<{ path: string; title: string }>
+      }>
+    }
+    const pagesFor = (body: UsageBody, assetId: string): Array<{ path: string; title: string }> =>
+      body.usage.find((entry) => entry.asset.id === assetId)?.pages ?? []
+
+    const pageUsage = await app.handle(new Request('http://localhost/api/assets/usage?path=docs/asset-usage', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(pageUsage.status).toBe(200)
+    const pageUsageBody = await pageUsage.json() as UsageBody
+    expect(pagesFor(pageUsageBody, used.id)).toEqual([{ path: 'docs/asset-usage', title: 'docs/asset-usage' }])
+    expect(pagesFor(pageUsageBody, hidden.id)).toEqual([])
+
+    const adminUsage = await app.handle(new Request('http://localhost/api/assets/usage', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(adminUsage.status).toBe(200)
+    const adminUsageBody = await adminUsage.json() as UsageBody
+    expect(pagesFor(adminUsageBody, hidden.id)).toEqual([{ path: 'secret/asset-usage', title: 'secret/asset-usage' }])
+
+    const viewerUsage = await app.handle(new Request('http://localhost/api/assets/usage', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(viewerUsage.status).toBe(200)
+    const viewerUsageBody = await viewerUsage.json() as UsageBody
+    expect(pagesFor(viewerUsageBody, used.id)).toEqual([{ path: 'docs/asset-usage', title: 'docs/asset-usage' }])
+    expect(pagesFor(viewerUsageBody, hidden.id)).toEqual([])
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('lists orphaned assets and bulk-deletes only assets that are still orphaned', async () => {
+    const { app, dataDir } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+    const used = await uploadPngAsset(app, admin.token, 'used.png')
+    const orphan = await uploadPngAsset(app, admin.token, 'orphan.png')
+    const laterUsed = await uploadPngAsset(app, admin.token, 'later-used.png')
+
+    await createPage(app, admin.token, 'docs/kept-asset', `![Used](${used.url})`)
+
+    const forbiddenOrphans = await app.handle(new Request('http://localhost/api/assets/orphans', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(forbiddenOrphans.status).toBe(403)
+
+    const orphanList = await app.handle(new Request('http://localhost/api/assets/orphans', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(orphanList.status).toBe(200)
+    const orphanListBody = await orphanList.json() as { assets: Array<{ id: string; filename: string; url: string }> }
+    expect(orphanListBody.assets.map((asset) => asset.id).sort()).toEqual([laterUsed.id, orphan.id].sort())
+
+    await createPage(app, admin.token, 'docs/race-asset', `![Later used](${laterUsed.url})`)
+    expect(existsSync(join(dataDir, orphan.url))).toBe(true)
+
+    const cleanup = await app.handle(
+      new Request('http://localhost/api/assets/orphans/delete', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${admin.token}`,
+        },
+        body: JSON.stringify({ ids: [orphan.id, laterUsed.id, used.id] }),
+      }),
+    )
+    expect(cleanup.status).toBe(200)
+    const cleanupBody = await cleanup.json() as { assets: Array<{ id: string }>; skipped: number }
+    expect(cleanupBody.assets.map((asset) => asset.id)).toEqual([orphan.id])
+    expect(cleanupBody.skipped).toBe(2)
+    expect(existsSync(join(dataDir, orphan.url))).toBe(false)
+    expect(existsSync(join(dataDir, used.url))).toBe(true)
+    expect(existsSync(join(dataDir, laterUsed.url))).toBe(true)
+  }, HTTP_TEST_TIMEOUT_MS)
+
   test('encoded traversal asset paths return 404', async () => {
     const { app } = createFixture()
 
@@ -1282,6 +1733,57 @@ describe('http app assets', () => {
     const served = await app.handle(new Request(`http://localhost${body.url}`))
     expect(served.status).toBe(200)
     expect(served.headers.get('content-disposition')).toBe('attachment')
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rejects asset uploads whose bytes do not match the declared MIME', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    const disguisedHtml = new FormData()
+    disguisedHtml.set('file', new File(['<!doctype html><script>alert(1)</script>'], 'avatar.png', {
+      type: 'image/png',
+    }))
+
+    const response = await app.handle(
+      new Request('http://localhost/api/assets', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: disguisedHtml,
+      }),
+    )
+
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({
+      error: { kind: 'validation', field: 'file', message: 'Asset contents do not match the declared type' },
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rate limits repeated asset upload attempts', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+
+    for (let i = 0; i < 20; i += 1) {
+      const form = new FormData()
+      form.set('file', new File(['<script>alert(1)</script>'], `x-${i}.html`, { type: 'text/html' }))
+      const response = await app.handle(
+        new Request('http://localhost/api/assets', {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}` },
+          body: form,
+        }),
+      )
+      expect(response.status).toBe(422)
+    }
+
+    const limitedForm = new FormData()
+    limitedForm.set('file', new File(['<script>alert(1)</script>'], 'x-limited.html', { type: 'text/html' }))
+    const limited = await app.handle(
+      new Request('http://localhost/api/assets', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: limitedForm,
+      }),
+    )
+    expect(limited.status).toBe(429)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('honors the configured upload byte limit', async () => {

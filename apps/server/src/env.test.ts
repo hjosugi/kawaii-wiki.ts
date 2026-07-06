@@ -12,6 +12,7 @@ describe('loadEnv', () => {
     expect(env.cors.origins).toBeNull()
     expect(env.search).toEqual({ ftsTokenizer: 'unicode61' })
     expect(env.assetUpload).toEqual({ maxBytes: 25 * 1024 * 1024 })
+    expect(env.webhooks).toEqual({ allowPrivateTargets: false })
     expect(env.assetStorage).toEqual({
       type: 'local',
       dataDir: './data',
@@ -120,6 +121,13 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ TS_WIKI_REGISTRATION: 'closed' })).toThrow(/TS_WIKI_REGISTRATION/)
     expect(() => loadEnv({ TS_WIKI_JWT_TTL_SECONDS: '0' })).toThrow(/TS_WIKI_JWT_TTL_SECONDS/)
     expect(() => loadEnv({ ASSET_MAX_BYTES: '-1' })).toThrow(/ASSET_MAX_BYTES/)
+  })
+
+  test('parses webhook private-target escape hatch', () => {
+    expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'true' }).webhooks.allowPrivateTargets).toBe(true)
+    expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: '1' }).webhooks.allowPrivateTargets).toBe(true)
+    expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'yes' }).webhooks.allowPrivateTargets).toBe(true)
+    expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'false' }).webhooks.allowPrivateTargets).toBe(false)
   })
 
   test('parses R2 asset storage with the official account endpoint', () => {

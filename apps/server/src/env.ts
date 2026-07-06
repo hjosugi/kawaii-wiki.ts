@@ -71,6 +71,10 @@ export interface AssetUploadEnv {
   readonly maxBytes: number
 }
 
+export interface WebhookEnv {
+  readonly allowPrivateTargets: boolean
+}
+
 export interface Env {
   readonly port: number
   readonly database: DatabaseConfig
@@ -84,6 +88,7 @@ export interface Env {
   readonly auth: AuthEnv
   readonly search: SearchEnv
   readonly assetUpload: AssetUploadEnv
+  readonly webhooks: WebhookEnv
   readonly assetStorage: AssetStorageConfig
   readonly git: GitEnv
   readonly realtime: RealtimeEnv
@@ -302,6 +307,9 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
     },
     assetUpload: {
       maxBytes: parsePositiveInteger(source.ASSET_MAX_BYTES, 25 * 1024 * 1024, 'ASSET_MAX_BYTES'),
+    },
+    webhooks: {
+      allowPrivateTargets: parseBoolean(source.TS_WIKI_WEBHOOK_ALLOW_PRIVATE),
     },
     assetStorage: loadAssetStorage(source, dataDir),
     git: {

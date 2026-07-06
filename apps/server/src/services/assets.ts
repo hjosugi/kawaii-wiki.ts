@@ -2,10 +2,11 @@
  * Asset service — records uploaded-file metadata. The bytes live behind the
  * configured asset storage boundary; this just tracks them.
  */
-import { eq, desc } from 'drizzle-orm'
-import { type AppError, type Principal, type Result, can, err, forbidden, ok } from '@ts-wiki/core'
+import { asc, eq, desc } from 'drizzle-orm'
+import { fileTypeFromBlob } from 'file-type'
+import { type AppError, type Principal, type Result, can, err, forbidden, normalizePath, ok, validationError } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
-import { assets, type Asset } from '../db/schema.ts'
+import { assets, pages, type Asset } from '../db/schema.ts'
 
 export const ASSET_MAX_SIZE = '25m' as const
 export const ASSET_MAX_BYTES = 25 * 1024 * 1024
@@ -31,7 +32,7 @@ export const ALLOWED_ASSET_MIME_TYPES = [
   'application/vnd.oasis.opendocument.presentation',
 ] as const
 
-type AllowedAssetMime = (typeof ALLOWED_ASSET_MIME_TYPES)[number]
+export type AllowedAssetMime = (typeof ALLOWED_ASSET_MIME_TYPES)[number]
 
 const ASSET_EXTENSIONS: Record<AllowedAssetMime, string> = {
   'image/png': '.png',
@@ -54,24 +55,91 @@ const ASSET_EXTENSIONS: Record<AllowedAssetMime, string> = {
   'application/vnd.oasis.opendocument.presentation': '.odp',
 }
 
-export const assetExtensionForMime = (mime: string): string | null =>
-  ALLOWED_ASSET_MIME_TYPES.includes(mime as AllowedAssetMime)
-    ? ASSET_EXTENSIONS[mime as AllowedAssetMime]
-    : null
+const normalizeAssetMime = (mime: string): string => mime.split(';', 1)[0]!.trim().toLowerCase()
 
-export const safeAssetFilename = (file: File): string => {
+const isAllowedAssetMime = (mime: string): mime is AllowedAssetMime =>
+  ALLOWED_ASSET_MIME_TYPES.includes(mime as AllowedAssetMime)
+
+export const assetExtensionForMime = (mime: string): string | null => {
+  const normalized = normalizeAssetMime(mime)
+  return isAllowedAssetMime(normalized) ? ASSET_EXTENSIONS[normalized] : null
+}
+
+const TEXT_ASSET_MIME_TYPES = new Set<AllowedAssetMime>([
+  'text/plain',
+  'text/markdown',
+  'text/csv',
+])
+
+const ZIP_ASSET_MIME_TYPES = new Set<AllowedAssetMime>([
+  'application/zip',
+  'application/x-zip-compressed',
+])
+
+const fileBytes = async (file: File): Promise<Uint8Array> => new Uint8Array(await file.arrayBuffer())
+
+const decodeUtf8 = (bytes: Uint8Array): string | null => {
+  if (bytes.includes(0)) return null
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+  } catch {
+    return null
+  }
+}
+
+const validateTextAsset = async (file: File, mime: AllowedAssetMime): Promise<boolean> => {
+  const text = decodeUtf8(await fileBytes(file))
+  if (text === null) return false
+  if (mime !== 'application/json') return true
+  try {
+    JSON.parse(text)
+    return true
+  } catch {
+    return false
+  }
+}
+
+const assetMimeMatches = (declared: AllowedAssetMime, detected: string): boolean =>
+  declared === detected ||
+  (ZIP_ASSET_MIME_TYPES.has(declared) && detected === 'application/zip')
+
+export const validateAssetUpload = async (file: File): Promise<Result<AllowedAssetMime, AppError>> => {
+  const declared = normalizeAssetMime(file.type)
+  if (!isAllowedAssetMime(declared)) {
+    return err(validationError('Unsupported asset type', 'file'))
+  }
+
+  if (TEXT_ASSET_MIME_TYPES.has(declared) || declared === 'application/json') {
+    return (await validateTextAsset(file, declared))
+      ? ok(declared)
+      : err(validationError('Asset contents do not match the declared type', 'file'))
+  }
+
+  const detected = await fileTypeFromBlob(file).catch(() => undefined)
+  if (!detected || !assetMimeMatches(declared, detected.mime)) {
+    return err(validationError('Asset contents do not match the declared type', 'file'))
+  }
+
+  return ok(declared)
+}
+
+export const safeAssetFilename = (file: File, mime: string = file.type): string => {
   const stem =
     file.name
       .replace(/\.[^.]*$/, '')
       .replace(/[^\w.\-]+/g, '_')
       .replace(/^_+|_+$/g, '')
       .slice(0, 80) || 'upload'
-  const extension = assetExtensionForMime(file.type) ?? '.bin'
+  const extension = assetExtensionForMime(mime) ?? '.bin'
   return `${stem}${extension}`
 }
 
-export const safeAssetStorageName = (file: File, id: string = crypto.randomUUID()): string =>
-  `${id}-${safeAssetFilename(file)}`
+export const safeAssetStorageName = (
+  file: File,
+  id: string = crypto.randomUUID(),
+  mime: string = file.type,
+): string =>
+  `${id}-${safeAssetFilename(file, mime)}`
 
 export interface RecordAssetInput {
   readonly id?: string
@@ -93,9 +161,21 @@ export interface AssetView {
   readonly url: string
 }
 
+export interface AssetUsagePage {
+  readonly path: string
+  readonly title: string
+}
+
+export interface AssetUsageView {
+  readonly asset: AssetView
+  readonly pages: AssetUsagePage[]
+}
+
 export interface AssetService {
   record(input: RecordAssetInput, principal: Principal | null): Result<AssetView, AppError>
   list(principal: Principal | null): Result<AssetView[], AppError>
+  usage(principal: Principal | null, path?: string): Result<AssetUsageView[], AppError>
+  orphans(principal: Principal | null): Result<AssetView[], AppError>
   findById(id: string, principal: Principal | null): Result<AssetView | null, AppError>
   rename(id: string, filename: string, principal: Principal | null): Result<AssetView | null, AppError>
   remove(id: string, principal: Principal | null): Result<AssetView | null, AppError>
@@ -115,8 +195,53 @@ const toView = (asset: Asset, urlForStorageName: (storageName: string) => string
   url: urlForStorageName(asset.storageName),
 })
 
+const assetReferenceAliases = (asset: AssetView): string[] => {
+  const aliases = new Set<string>([
+    asset.url,
+    defaultAssetUrl(asset.storageName),
+    `/assets/${asset.storageName}`,
+  ])
+  for (const value of [...aliases]) {
+    try {
+      aliases.add(decodeURI(value))
+    } catch {
+      /* keep the encoded value only */
+    }
+  }
+  return [...aliases].filter(Boolean)
+}
+
+const contentReferencesAsset = (content: string, asset: AssetView): boolean =>
+  assetReferenceAliases(asset).some((alias) => content.includes(alias))
+
 export const createAssetService = (db: DB, options: AssetServiceOptions = {}): AssetService => {
   const urlForStorageName = options.urlForStorageName ?? defaultAssetUrl
+  const listRecords = (): Asset[] => db.select().from(assets).orderBy(desc(assets.createdAt)).all()
+  const usageFor = (principal: Principal | null, path?: string): AssetUsageView[] => {
+    const targetPath = path ? normalizePath(path) : null
+    const visiblePages = db
+      .select({
+        path: pages.path,
+        title: pages.title,
+        content: pages.content,
+      })
+      .from(pages)
+      .where(eq(pages.lifecycle, 'active'))
+      .orderBy(asc(pages.path))
+      .all()
+      .filter((page) => (!targetPath || page.path === targetPath) && can(principal, 'page:read', { path: page.path }))
+
+    return listRecords().map((asset) => {
+      const view = toView(asset, urlForStorageName)
+      return {
+        asset: view,
+        pages: visiblePages
+          .filter((page) => contentReferencesAsset(page.content, view))
+          .map(({ path, title }) => ({ path, title })),
+      }
+    })
+  }
+
   return {
     record(input, principal) {
       if (!can(principal, 'asset:write')) return err(forbidden())
@@ -134,9 +259,18 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
     },
     list(principal) {
       if (!can(principal, 'asset:read')) return err(forbidden())
-      return ok(db.select().from(assets).orderBy(desc(assets.createdAt)).all().map((asset) =>
-        toView(asset, urlForStorageName)
-      ))
+      return ok(listRecords().map((asset) => toView(asset, urlForStorageName)))
+    },
+    usage(principal, path) {
+      if (!can(principal, 'asset:read')) return err(forbidden())
+      const targetPath = path ? normalizePath(path) : null
+      if (targetPath && !can(principal, 'page:read', { path: targetPath })) return err(forbidden())
+
+      return ok(usageFor(principal, path))
+    },
+    orphans(principal) {
+      if (!can(principal, 'asset:read')) return err(forbidden())
+      return ok(usageFor(principal).filter((entry) => entry.pages.length === 0).map((entry) => entry.asset))
     },
     findById(id, principal) {
       if (!can(principal, 'asset:read')) return err(forbidden())
