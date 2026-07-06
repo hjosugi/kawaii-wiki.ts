@@ -90,6 +90,7 @@ watch(() => props.path, load, { immediate: true })
           <div class="min-w-0">
             <div class="whitespace-pre-wrap text-sm">{{ comment.body }}</div>
             <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+              <span v-if="comment.authorName" class="font-medium text-gray-700 dark:text-gray-300">{{ comment.authorName }}</span>
               <span>{{ formatDate(comment.createdAt) }}</span>
               <span v-if="comment.mentions.length">Mentions {{ comment.mentions.map((m) => '@' + m).join(', ') }}</span>
               <span v-if="comment.resolvedAt">Resolved {{ formatDate(comment.resolvedAt) }}</span>

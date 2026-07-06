@@ -36,7 +36,16 @@ import {
   type ExtractedCalendarEvent,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
-import { pageAnalytics, pageComments, pageRedirects, pages, pageRevisions, type Page, type PageRevision } from '../db/schema.ts'
+import {
+  pageAnalytics,
+  pageComments,
+  pageRedirects,
+  pages,
+  pageRevisions,
+  users,
+  type Page,
+  type PageRevision,
+} from '../db/schema.ts'
 
 export interface PageSummary {
   readonly path: string
@@ -89,6 +98,8 @@ export interface PageRevisionSummary {
   readonly description: string
   readonly content: string
   readonly authorId: string | null
+  /** Display name of the author, or null if unknown/deleted. */
+  readonly authorName: string | null
   readonly action: PageRevision['action']
   readonly createdAt: number
 }
@@ -408,17 +419,19 @@ export const createPageService = (db: DB): PageService => {
           description: pageRevisions.description,
           content: pageRevisions.content,
           authorId: pageRevisions.authorId,
+          authorName: users.name,
           action: pageRevisions.action,
           createdAt: pageRevisions.createdAt,
         })
         .from(pageRevisions)
+        .leftJoin(users, eq(users.id, pageRevisions.authorId))
         .where(eq(pageRevisions.pageId, page.id))
         // Tie-break equal timestamps by insertion order (SQLite rowid) so
         // revisions created in the same millisecond still sort deterministically
-        // newest-first.
-        .orderBy(desc(pageRevisions.createdAt), sql`rowid desc`)
+        // newest-first. Qualify rowid — the users join makes a bare `rowid` ambiguous.
+        .orderBy(desc(pageRevisions.createdAt), sql`page_revisions.rowid desc`)
         .all()
-      return ok(revisions)
+      return ok(revisions.map((r) => ({ ...r, authorName: r.authorName ?? null })))
     },
 
     getByPath(path) {
