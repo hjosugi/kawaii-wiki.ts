@@ -15,11 +15,11 @@ import {
   type AppError,
   type Principal,
   type Result,
-  can,
   err,
   forbidden,
   notFound,
   ok,
+  requirePermission,
   unauthorized,
   validationError,
 } from '@ts-wiki/core'
@@ -53,6 +53,7 @@ export interface PasskeyLoginResult {
 
 export interface PasskeyService {
   list(principal: Principal | null): Result<PasskeyView[], AppError>
+  hasForUser(userId: string): boolean
   delete(principal: Principal | null, id: string): Result<{ id: string }, AppError>
   registrationOptions(principal: Principal | null): Promise<Result<PasskeyRegistrationOptions, AppError>>
   verifyRegistration(
@@ -167,12 +168,19 @@ export const createPasskeyService = (db: DB, auth: AuthEnv): PasskeyService => {
       return ok(passkeysForUser(user.id).map(toView))
     },
 
+    hasForUser(userId) {
+      return passkeysForUser(userId).length > 0
+    },
+
     delete(principal, id) {
       const user = findUser(principal)
       if (!user) return err(unauthorized())
       const row = db.select().from(passkeys).where(eq(passkeys.id, id)).get()
       if (!row) return err(notFound('Passkey not found'))
-      if (row.userId !== user.id && !can(principal, 'admin:access')) return err(forbidden())
+      if (row.userId !== user.id) {
+        const allowed = requirePermission(principal, 'admin:access')
+        if (!allowed.ok) return allowed
+      }
       db.delete(passkeys).where(eq(passkeys.id, id)).run()
       return ok({ id })
     },

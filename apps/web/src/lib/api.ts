@@ -10,8 +10,9 @@
  * success shape once per method via `call<T>()` and unwrap Eden's envelope here.
  */
 import { treaty } from '@elysiajs/eden'
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/browser'
 import type { App } from '@ts-wiki/server/app'
-import type { Action, ExtractedCalendarEvent } from '@ts-wiki/core'
+import type { Action, ExtractedCalendarEvent, Role } from '@ts-wiki/core'
 import { API_BASE_URL } from './url'
 
 const memoryStorage = new Map<string, string>()
@@ -128,6 +129,26 @@ export interface SearchHit {
   snippet: string
   rank: number
 }
+export type FtsTokenizer = 'unicode61' | 'trigram'
+export interface SearchTokenizerHint {
+  kind: 'cjk-tokenizer'
+  tokenizer: FtsTokenizer
+  recommendedTokenizer: 'trigram'
+  message: string
+}
+export interface SearchShortQueryHint {
+  kind: 'trigram-short-query'
+  tokenizer: 'trigram'
+  terms: string[]
+  message: string
+}
+export interface SearchResponse {
+  query: string
+  hits: SearchHit[]
+  tokenizerHint?: SearchTokenizerHint
+  shortQueryHint?: SearchShortQueryHint
+  truncatedTerms?: string[]
+}
 export interface PageGraphNode {
   path: string
   title: string
@@ -168,6 +189,11 @@ export interface RecentChange {
   authorName: string | null
   createdAt: number
 }
+export interface PageRedirectView {
+  fromPath: string
+  toPath: string
+  createdAt: number
+}
 export interface PageRevision {
   id: string
   path: string
@@ -182,17 +208,21 @@ export interface PageRevision {
 export interface AssetUpload {
   id: string
   filename: string
+  folder: string
   url: string
 }
 export interface AssetView {
   id: string
   filename: string
   storageName: string
+  folder: string
   mime: string
   size: number
   authorId: string | null
   createdAt: number
+  deletedAt: number | null
   url: string
+  thumbUrl: string | null
 }
 export interface AssetUsagePage {
   path: string
@@ -213,6 +243,18 @@ export interface PageComment {
   createdAt: number
   updatedAt: number
 }
+export interface PageShareView {
+  token: string
+  path: string
+  createdBy: string
+  expiresAt: number | null
+  revokedAt: number | null
+  createdAt: number
+}
+export interface SharedPage {
+  share: PageShareView
+  page: Page
+}
 export interface AdminUserView {
   id: string
   email: string
@@ -227,6 +269,45 @@ export interface AdminStats {
   users: number
   pages: number
   revisions: number
+}
+export interface SearchIndexStatus {
+  tokenizer: FtsTokenizer
+  configuredTokenizer: FtsTokenizer
+  totalPages: number
+  cjkPages: number
+  cjkPageRatio: number
+  indexedCharacters: number
+  cjkCharacters: number
+  cjkCharacterRatio: number
+  recommendedTokenizer: FtsTokenizer
+  needsTrigram: boolean
+}
+export interface AdminHistoryStats {
+  revisions: number
+  historyBytes: number
+}
+export interface PurgeHistoryResult extends AdminHistoryStats {
+  deleted: number
+  olderThan: number
+  keepLatest: number
+}
+export interface AdminPageView {
+  path: string
+  title: string
+  status: Page['status']
+  labels: string
+  ownerId: string | null
+  authorId: string | null
+  authorName: string | null
+  spaceKey: string
+  locale: string
+  updatedAt: number
+}
+export interface AdminPageList {
+  pages: AdminPageView[]
+  total: number
+  limit: number
+  offset: number
 }
 export interface AuthzGroupView {
   id: string
@@ -244,6 +325,15 @@ export interface PageRuleView {
   effect: 'allow' | 'deny'
   matcher: 'exact' | 'prefix' | 'suffix' | 'regex'
   pattern: string
+  createdAt: number
+}
+export interface ApiKeyView {
+  id: string
+  name: string
+  role: Role
+  expiresAt: number | null
+  lastUsedAt: number | null
+  revokedAt: number | null
   createdAt: number
 }
 export interface WebhookSubscriptionView {
@@ -295,6 +385,9 @@ export interface PublicSettings {
   navLinks: Array<{ label: string; url: string }>
   privateWiki: boolean
   registration: 'open' | 'off'
+  mailConfigured: boolean
+  requireEmailVerification: boolean
+  requireTwoFactor: boolean
 }
 export interface RealtimeTicket {
   ticket: string
@@ -302,6 +395,14 @@ export interface RealtimeTicket {
 }
 interface AuthResult {
   token: string
+  user: PublicUser
+}
+export interface VerificationRequiredResult {
+  verificationRequired: true
+}
+export interface TwoFactorSetupRequiredResult {
+  twoFactorSetupRequired: true
+  setupToken: string
   user: PublicUser
 }
 
@@ -312,9 +413,17 @@ export const Api = {
 
   // Auth
   register: (body: { email: string; name: string; password: string }) =>
-    call<AuthResult>(client().api.auth.register.post(body)),
+    call<AuthResult | VerificationRequiredResult>(client().api.auth.register.post(body)),
   login: (body: { email: string; password: string; totpCode?: string }) =>
-    call<AuthResult>(client().api.auth.login.post(body)),
+    call<AuthResult | TwoFactorSetupRequiredResult>(client().api.auth.login.post(body)),
+  forgotPassword: (email: string) =>
+    call<{ ok: true }>(client().api.auth.forgot.post({ email })),
+  resetPassword: (token: string, password: string) =>
+    call<{ userId: string }>(client().api.auth.reset.post({ token, password })),
+  verifyEmail: (token: string) =>
+    call<{ userId: string }>(client().api.auth.email.verify.post({ token })),
+  requestEmailVerification: () =>
+    call<{ sent: boolean }>(client().api.auth.email.verification.post()),
   me: () => call<{ user: PublicUser }>(client().api.auth.me.get()).then((d) => d.user),
   updateProfile: (body: { name?: string }) =>
     call<{ user: PublicUser }>(client().api.auth.profile.put(body)).then((d) => d.user),
@@ -322,23 +431,23 @@ export const Api = {
     call<{ user: PublicUser }>(client().api.auth.password.put(body)).then((d) => d.user),
   authProviders: () =>
     call<{ providers: PublicAuthProvider[] }>(client().api.auth.providers.get()).then((d) => d.providers),
-  totpSetup: () =>
-    call<{ secret: string; otpauthUrl: string }>(client().api.auth.totp.setup.post()),
-  totpEnable: (code: string) =>
-    call<{ user: PublicUser }>(client().api.auth.totp.enable.post({ code })).then((d) => d.user),
+  totpSetup: (setupToken?: string) =>
+    call<{ secret: string; otpauthUrl: string }>(client().api.auth.totp.setup.post(setupToken ? { setupToken } : undefined)),
+  totpEnable: (code: string, setupToken?: string) =>
+    call<{ user: PublicUser } | AuthResult>(client().api.auth.totp.enable.post(setupToken ? { code, setupToken } : { code })),
   totpDisable: (code?: string) =>
     call<{ user: PublicUser }>(client().api.auth.totp.disable.post({ code })).then((d) => d.user),
   passkeys: () =>
     call<{ passkeys: PasskeyView[] }>(client().api.auth.passkeys.get()).then((d) => d.passkeys),
   passkeyRegistrationOptions: () =>
     call<{ options: unknown }>(client().api.auth.passkeys.register.options.post()).then((d) => d.options),
-  passkeyVerifyRegistration: (response: unknown, name?: string) =>
+  passkeyVerifyRegistration: (response: RegistrationResponseJSON, name?: string) =>
     call<{ passkey: PasskeyView }>(client().api.auth.passkeys.register.verify.post({ response, name })).then((d) => d.passkey),
   passkeyDelete: (id: string) =>
     call<{ id: string }>(client().api.auth.passkeys({ id }).delete()),
   passkeyLoginOptions: (email?: string) =>
     call<{ options: unknown }>(client().api.auth.passkeys.login.options.post({ email })).then((d) => d.options),
-  passkeyLoginVerify: (response: unknown) =>
+  passkeyLoginVerify: (response: AuthenticationResponseJSON) =>
     call<AuthResult & { passkey: PasskeyView }>(client().api.auth.passkeys.login.verify.post({ response })),
 
   // Pages
@@ -348,6 +457,14 @@ export const Api = {
     call<PageLookup>(client().api.page.get({ query: { path } })),
   getPage: (path: string) =>
     Api.getPageResult(path).then((d) => d.page),
+  sharedPage: (token: string) =>
+    call<SharedPage>(client().api.shared({ token }).get()),
+  currentPageShare: (path: string) =>
+    call<{ share: PageShareView | null }>(client().api.page.share.get({ query: { path } })).then((d) => d.share),
+  createPageShare: (path: string, expiresAt?: number | null) =>
+    call<{ share: PageShareView }>(client().api.page.share.post({ path, expiresAt })).then((d) => d.share),
+  revokePageShare: (token: string) =>
+    call<{ share: PageShareView }>(client().api.page.share({ token }).delete()).then((d) => d.share),
   createPage: (body: {
     path: string
     title: string
@@ -391,10 +508,16 @@ export const Api = {
   labels: () => call<{ labels: LabelCount[] }>(client().api.labels.get()).then((d) => d.labels),
   brokenLinks: () =>
     call<{ links: BrokenLink[] }>(client().api.links.broken.get()).then((d) => d.links),
-  recentChanges: (limit?: number) =>
-    call<{ changes: RecentChange[] }>(client().api.changes.get({ query: limit ? { limit } : {} })).then(
+  recentChanges: (limit?: number, before?: number) =>
+    call<{ changes: RecentChange[] }>(client().api.changes.get({ query: { ...(limit ? { limit } : {}), ...(before ? { before } : {}) } })).then(
       (d) => d.changes,
     ),
+  redirects: () =>
+    call<{ redirects: PageRedirectView[] }>(client().api.redirects.get()).then((d) => d.redirects),
+  createRedirect: (fromPath: string, toPath: string) =>
+    call<{ redirect: PageRedirectView }>(client().api.redirects.post({ fromPath, toPath })).then((d) => d.redirect),
+  deleteRedirect: (fromPath: string) =>
+    call<{ fromPath: string }>(client().api.redirects.delete(null, { query: { fromPath } })),
   backlinks: (path: string) =>
     call<{ backlinks: PageBacklink[] }>(client().api.page.backlinks.get({ query: { path } })).then(
       (d) => d.backlinks,
@@ -446,10 +569,14 @@ export const Api = {
     locale?: string | null
   }) =>
     call<{ page: Page }>(client().api.import.markdown.post(body)).then((d) => d.page),
-  uploadAsset: (file: File) => {
-    return call<AssetUpload>(client().api.assets.post({ file }))
+  uploadAsset: (file: File, folder?: string) => {
+    return call<AssetUpload>(client().api.assets.post({ file, folder }))
   },
-  listAssets: () => call<{ assets: AssetView[] }>(client().api.assets.get()).then((d) => d.assets),
+  listAssets: (folder?: string) =>
+    call<{ assets: AssetView[] }>(client().api.assets.get({ query: folder ? { folder } : {} })).then((d) => d.assets),
+  assetFolders: () =>
+    call<{ folders: string[] }>(client().api.assets.folders.get()).then((d) => d.folders),
+  trashAssets: () => call<{ assets: AssetView[] }>(client().api.assets.trash.get()).then((d) => d.assets),
   assetUsage: (path?: string) =>
     call<{ usage: AssetUsage[] }>(client().api.assets.usage.get({ query: path ? { path } : {} })).then(
       (d) => d.usage,
@@ -460,8 +587,14 @@ export const Api = {
     call<{ assets: AssetView[]; skipped: number }>(client().api.assets.orphans.delete.post({ ids })),
   deleteAsset: (id: string) =>
     call<{ asset: AssetView }>(client().api.assets({ id }).delete()).then((d) => d.asset),
+  restoreAsset: (id: string) =>
+    call<{ asset: AssetView }>(client().api.assets({ id }).restore.post()).then((d) => d.asset),
+  purgeAsset: (id: string) =>
+    call<{ asset: AssetView }>(client().api.assets({ id }).purge.delete()).then((d) => d.asset),
+  updateAsset: (id: string, body: { filename?: string; folder?: string }) =>
+    call<{ asset: AssetView }>(client().api.assets({ id }).patch(body)).then((d) => d.asset),
   renameAsset: (id: string, filename: string) =>
-    call<{ asset: AssetView }>(client().api.assets({ id }).put({ filename })).then((d) => d.asset),
+    Api.updateAsset(id, { filename }),
 
   // Search
   search: (
@@ -469,12 +602,30 @@ export const Api = {
     limit = 20,
     filters: { pathPrefix?: string; label?: string; status?: string; spaceKey?: string; locale?: string } = {},
   ) =>
-    call<{ query: string; hits: SearchHit[] }>(
+    call<SearchResponse>(
       client().api.search.get({ query: { q, limit, ...filters } }),
     ),
 
   // Admin
   adminStats: () => call<AdminStats>(client().api.admin.stats.get()),
+  adminSearchIndex: () =>
+    call<{ searchIndex: SearchIndexStatus }>(client().api.admin['search-index'].get()).then((d) => d.searchIndex),
+  adminRebuildSearchIndex: (tokenizer: FtsTokenizer = 'trigram') =>
+    call<{ searchIndex: SearchIndexStatus }>(
+      client().api.admin['search-index'].rebuild.post({ tokenizer }),
+    ).then((d) => d.searchIndex),
+  adminHistoryStats: () => call<AdminHistoryStats>(client().api.admin.history.get()),
+  adminPurgeHistory: (body: { olderThanDays: number; keepLatest: number }) =>
+    call<PurgeHistoryResult>(client().api.admin.history.purge.post(body)),
+  adminPages: (query: {
+    limit?: number
+    offset?: number
+    status?: string
+    label?: string
+    spaceKey?: string
+    authorId?: string
+  } = {}) =>
+    call<AdminPageList>(client().api.admin.pages.get({ query })),
   adminAnalytics: () => call<AnalyticsSummary>(client().api.admin.analytics.get()),
   adminUsers: () =>
     call<{ users: AdminUserView[] }>(client().api.admin.users.get()).then((d) => d.users),
@@ -501,6 +652,12 @@ export const Api = {
     call<{ rule: PageRuleView }>(client().api.admin['page-rules'].post(body)).then((d) => d.rule),
   adminDeletePageRule: (id: string) =>
     call<{ id: string }>(client().api.admin['page-rules']({ id }).delete()),
+  adminApiKeys: () =>
+    call<{ apiKeys: ApiKeyView[] }>(client().api.admin['api-keys'].get()).then((d) => d.apiKeys),
+  adminCreateApiKey: (body: { name: string; role?: Role; expiresAt?: number | null }) =>
+    call<{ apiKey: ApiKeyView; secret: string }>(client().api.admin['api-keys'].post(body)),
+  adminRevokeApiKey: (id: string) =>
+    call<{ apiKey: ApiKeyView }>(client().api.admin['api-keys']({ id }).delete()).then((d) => d.apiKey),
   adminWebhooks: () =>
     call<{ webhooks: WebhookSubscriptionView[] }>(client().api.admin.webhooks.get()).then((d) => d.webhooks),
   adminCreateWebhook: (body: {

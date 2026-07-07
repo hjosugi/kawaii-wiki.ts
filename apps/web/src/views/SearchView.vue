@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Api, type SearchHit } from '@/lib/api'
+import { Api, type SearchHit, type SearchShortQueryHint, type SearchTokenizerHint } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
 const route = useRoute()
@@ -15,23 +15,30 @@ const status = ref((route.query.status as string) ?? '')
 const spaceKey = ref((route.query.spaceKey as string) ?? '')
 const locale = ref((route.query.locale as string) ?? '')
 const hits = ref<SearchHit[]>([])
+const tokenizerHint = ref<SearchTokenizerHint | null>(null)
+const shortQueryHint = ref<SearchShortQueryHint | null>(null)
 const loading = ref(false)
 let timer: ReturnType<typeof setTimeout> | null = null
 
 async function run(): Promise<void> {
   if (!q.value.trim()) {
     hits.value = []
+    tokenizerHint.value = null
+    shortQueryHint.value = null
     return
   }
   loading.value = true
   try {
-    hits.value = (await Api.search(q.value, 20, {
+    const result = await Api.search(q.value, 20, {
       pathPrefix: pathPrefix.value || undefined,
       label: label.value || undefined,
       status: status.value || undefined,
       spaceKey: spaceKey.value || undefined,
       locale: locale.value || undefined,
-    })).hits
+    })
+    hits.value = result.hits
+    tokenizerHint.value = result.tokenizerHint ?? null
+    shortQueryHint.value = result.shortQueryHint ?? null
   } finally {
     loading.value = false
   }
@@ -100,6 +107,14 @@ run()
           <option value="outdated">outdated</option>
         </select>
       </div>
+    </div>
+
+    <div
+      v-if="tokenizerHint || shortQueryHint"
+      class="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100"
+    >
+      <p v-if="tokenizerHint">{{ tokenizerHint.message }}</p>
+      <p v-if="shortQueryHint">{{ shortQueryHint.message }}</p>
     </div>
 
     <p v-if="loading" class="text-gray-400">{{ t('searching') }}</p>

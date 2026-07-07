@@ -10,7 +10,9 @@
  * log, so multiple server processes attached to the same database see each
  * other's page-change notifications.
  */
+import { asc, gt, lte, sql } from 'drizzle-orm'
 import type { DB } from '../db/client.ts'
+import { wikiEvents } from '../db/schema.ts'
 
 export interface WikiEvent {
   readonly type: 'page:changed'
@@ -63,15 +65,6 @@ export const createEventBus = (): EventBus => {
   }
 }
 
-interface EventRow {
-  readonly id: number
-  readonly source_id: string
-  readonly event_type: WikiEvent['type']
-  readonly action: WikiEvent['action']
-  readonly path: string
-  readonly from_path: string | null
-}
-
 export interface DbEventBusOptions {
   /** Stable per-process id. Defaults to a random UUID on boot. */
   readonly sourceId?: string
@@ -94,30 +87,17 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
   const maxStoredEvents = maxStoredEventsFrom(options.maxStoredEvents)
   const ownDelivered = new Set<number>()
 
-  const readMaxEventId = db.$client.prepare('SELECT COALESCE(MAX(id), 0) AS id FROM wiki_events')
-  const deleteEventsThrough = db.$client.prepare('DELETE FROM wiki_events WHERE id <= ?')
-  const getMaxEventId = (): number => (readMaxEventId.get() as { id: number } | undefined)?.id ?? 0
+  const getMaxEventId = (): number =>
+    db.select({ id: sql<number>`coalesce(max(${wikiEvents.id}), 0)` }).from(wikiEvents).get()?.id ?? 0
 
   let lastSeenId = getMaxEventId()
   let polling = false
-
-  const insertEvent = db.$client.prepare(`
-    INSERT INTO wiki_events(source_id, event_type, action, path, from_path, created_at)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `)
-  const readEvents = db.$client.prepare(`
-    SELECT id, source_id, event_type, action, path, from_path
-    FROM wiki_events
-    WHERE id > ?
-    ORDER BY id
-    LIMIT 100
-  `)
 
   const prune = (): void => {
     const pruneThroughId = getMaxEventId() - maxStoredEvents
     if (pruneThroughId <= 0) return
 
-    deleteEventsThrough.run(pruneThroughId)
+    db.delete(wikiEvents).where(lte(wikiEvents.id, pruneThroughId)).run()
     for (const id of ownDelivered) {
       if (id <= pruneThroughId) ownDelivered.delete(id)
     }
@@ -135,16 +115,22 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
     if (polling) return
     polling = true
     try {
-      const rows = readEvents.all(lastSeenId) as EventRow[]
+      const rows = db
+        .select()
+        .from(wikiEvents)
+        .where(gt(wikiEvents.id, lastSeenId))
+        .orderBy(asc(wikiEvents.id))
+        .limit(100)
+        .all()
       for (const row of rows) {
         lastSeenId = row.id
-        const alreadyDeliveredLocally = row.source_id === sourceId && ownDelivered.delete(row.id)
+        const alreadyDeliveredLocally = row.sourceId === sourceId && ownDelivered.delete(row.id)
         if (alreadyDeliveredLocally) continue
         deliver(listeners, {
-          type: row.event_type,
+          type: row.eventType,
           action: row.action,
           path: row.path,
-          ...(row.from_path ? { from: row.from_path } : {}),
+          ...(row.fromPath ? { from: row.fromPath } : {}),
         })
       }
       pruneBestEffort()
@@ -160,15 +146,19 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
 
   return {
     emit(event) {
-      const result = insertEvent.run(
-        sourceId,
-        event.type,
-        event.action,
-        event.path,
-        event.from ?? null,
-        Date.now(),
-      )
-      ownDelivered.add(Number(result.lastInsertRowid))
+      const inserted = db
+        .insert(wikiEvents)
+        .values({
+          sourceId,
+          eventType: event.type,
+          action: event.action,
+          path: event.path,
+          fromPath: event.from ?? null,
+          createdAt: Date.now(),
+        })
+        .returning({ id: wikiEvents.id })
+        .get()
+      ownDelivered.add(inserted.id)
       deliver(listeners, event)
       pruneBestEffort()
     },

@@ -1,8 +1,10 @@
 import { describe, test, expect } from 'bun:test'
+import { asc } from 'drizzle-orm'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createDb } from '../db/client.ts'
+import { wikiEvents } from '../db/schema.ts'
 import { createDbEventBus, createEventBus, type WikiEvent } from './bus.ts'
 
 const eventually = async (predicate: () => boolean): Promise<void> => {
@@ -87,9 +89,7 @@ describe('event bus', () => {
         bus.emit({ type: 'page:changed', action: 'updated', path: `page-${i}` })
       }
 
-      const rows = db.$client
-        .prepare('SELECT path FROM wiki_events ORDER BY id')
-        .all() as Array<{ path: string }>
+      const rows = db.select({ path: wikiEvents.path }).from(wikiEvents).orderBy(asc(wikiEvents.id)).all()
 
       expect(seen).toHaveLength(5)
       expect(rows.map((row) => row.path)).toEqual(['page-2', 'page-3', 'page-4'])

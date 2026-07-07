@@ -19,6 +19,9 @@ const settings = ref<PublicSettings>({
   navLinks: [],
   privateWiki: false,
   registration: 'open',
+  mailConfigured: false,
+  requireEmailVerification: false,
+  requireTwoFactor: false,
 })
 const accentStyle = computed(() => ({ color: settings.value.accentColor }))
 
@@ -34,7 +37,9 @@ function openCommandPalette(): void {
 onMounted(async () => {
   try {
     settings.value = await Api.publicSettings()
-    document.title = settings.value.siteTitle
+    if (document.documentElement.dataset.tsWikiMeta !== 'page') {
+      document.title = settings.value.siteTitle
+    }
     applySiteDefault(settings.value.theme)
     if (settings.value.accentColor) {
       document.documentElement.style.setProperty('--accent', settings.value.accentColor)
@@ -80,8 +85,10 @@ onMounted(async () => {
         >
           {{ link.label }}
         </a>
+        <RouterLink to="/_changes" class="btn-ghost">{{ t('changes') }}</RouterLink>
         <RouterLink to="/_events" class="btn-ghost">{{ t('events') }}</RouterLink>
         <RouterLink to="/_graph" class="btn-ghost">{{ t('graph') }}</RouterLink>
+        <RouterLink v-if="auth.canEdit" to="/_redirects" class="btn-ghost">{{ t('redirects') }}</RouterLink>
         <RouterLink v-if="auth.isAdmin" to="/_admin" class="btn-ghost">{{ t('admin') }}</RouterLink>
         <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
         <template v-if="auth.isAuthed">

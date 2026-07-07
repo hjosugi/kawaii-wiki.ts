@@ -8,6 +8,7 @@ import type { Env } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { ASSET_MAX_BYTES, safeAssetFilename } from '../services/assets.ts'
 import { totpCode } from '../services/auth.ts'
+import type { MailMessage, MailSender } from '../services/mail.ts'
 import type { WebhookFetcher, WebhookHostnameResolver, WebhookPayload } from '../services/webhooks.ts'
 import type { AssetStorage } from '../storage/assets.ts'
 import type { LogEvent, StructuredLogger } from '../observability/logging.ts'
@@ -18,7 +19,7 @@ const HTTP_TEST_TIMEOUT_MS = 15_000
 
 const png1x1 = new Uint8Array(
   Buffer.from(
-    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=',
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAADUlEQVQImWP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==',
     'base64',
   ),
 )
@@ -39,6 +40,8 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
     tokenTtlSeconds: 30 * 24 * 60 * 60,
     registration: 'open',
     privateWiki: false,
+    requireEmailVerification: false,
+    requireTwoFactor: false,
     oidcProviders: [],
   },
   search: {
@@ -49,6 +52,11 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
   },
   webhooks: {
     allowPrivateTargets: false,
+  },
+  mail: {
+    smtpUrl: null,
+    from: 'ts-wiki <no-reply@localhost>',
+    timeoutMs: 10_000,
   },
   assetStorage: {
     type: 'local',
@@ -98,6 +106,7 @@ const createFixture = (
     webDist?: boolean
     logger?: StructuredLogger
     assetStorage?: AssetStorage
+    mailSender?: MailSender
     webhookFetcher?: WebhookFetcher
     webhookResolver?: WebhookHostnameResolver
     env?: (env: Env) => Env
@@ -107,16 +116,20 @@ const createFixture = (
   mkdirSync(join(dataDir, 'assets'), { recursive: true })
   if (options.webDist) {
     mkdirSync(join(dataDir, 'web-dist', 'assets'), { recursive: true })
-    writeFileSync(join(dataDir, 'web-dist', 'index.html'), '<!doctype html><div id="app"></div>')
+    writeFileSync(
+      join(dataDir, 'web-dist', 'index.html'),
+      '<!doctype html><html><head><title>ts-wiki</title></head><body><div id="app"></div></body></html>',
+    )
     writeFileSync(join(dataDir, 'web-dist', 'assets', 'app.js'), 'console.log("ts-wiki")')
   }
-  const db = createDb(':memory:')
   const env = options.env?.(testEnv(dataDir, cors)) ?? testEnv(dataDir, cors)
+  const db = createDb(':memory:', { ftsTokenizer: env.search.ftsTokenizer })
   const app = createApp({
     db,
     env,
     logger: options.logger ?? noopLogger,
     assetStorage: options.assetStorage,
+    mailSender: options.mailSender,
     webhookFetcher: options.webhookFetcher,
     webhookResolver: options.webhookResolver ?? (options.webhookFetcher ? publicWebhookResolver : undefined),
   })
@@ -134,6 +147,56 @@ const jsonRequest = (path: string, body: unknown, token?: string): Request =>
     body: JSON.stringify(body),
   })
 
+const base64UrlJson = (value: unknown): string =>
+  Buffer.from(JSON.stringify(value)).toString('base64url')
+
+const base64UrlBytes = (value: string): string =>
+  Buffer.from(value).toString('base64url')
+
+const passkeyAuthenticationVerifyBody = (challenge = 'missing') => ({
+  response: {
+    id: 'missing',
+    rawId: 'missing',
+    type: 'public-key',
+    clientExtensionResults: {},
+    response: {
+      clientDataJSON: base64UrlJson({ challenge }),
+      authenticatorData: base64UrlBytes('authenticator-data'),
+      signature: base64UrlBytes('signature'),
+    },
+  },
+})
+
+const passkeyRegistrationVerifyBody = (challenge = 'missing') => ({
+  response: {
+    id: 'missing',
+    rawId: 'missing',
+    type: 'public-key',
+    clientExtensionResults: {},
+    response: {
+      clientDataJSON: base64UrlJson({ challenge }),
+      attestationObject: base64UrlBytes('attestation-object'),
+    },
+  },
+})
+
+const captureMail = (): { messages: MailMessage[]; sender: MailSender } => {
+  const messages: MailMessage[] = []
+  return {
+    messages,
+    sender: async (message) => {
+      messages.push(message)
+    },
+  }
+}
+
+const tokenFromMail = (message: MailMessage, path: string): string => {
+  const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const match = message.text.match(new RegExp(`${escaped}\\?token=([^\\s]+)`))
+  expect(typeof match?.[1]).toBe('string')
+  return decodeURIComponent(match![1]!)
+}
+
 const register = async (app: App, email: string): Promise<{ token: string; user: { id: string; role: string } }> => {
   const response = await app.handle(
     jsonRequest('/api/auth/register', { email, name: email.split('@')[0], password: 'password' }),
@@ -149,9 +212,15 @@ const createPage = async (app: App, token: string, path: string, content = 'hell
   expect(response.status).toBe(200)
 }
 
-const uploadPngAsset = async (app: App, token: string, filename: string): Promise<{ id: string; filename: string; url: string }> => {
+const uploadPngAsset = async (
+  app: App,
+  token: string,
+  filename: string,
+  folder?: string,
+): Promise<{ id: string; filename: string; folder: string; url: string }> => {
   const form = new FormData()
   form.set('file', new File([png1x1], filename, { type: 'image/png' }))
+  if (folder !== undefined) form.set('folder', folder)
   const response = await app.handle(
     new Request('http://localhost/api/assets', {
       method: 'POST',
@@ -263,14 +332,7 @@ describe('http app auth', () => {
   test('rate limits credential-adjacent auth routes by surface', async () => {
     const { app } = createFixture()
 
-    const passkeyVerifyBody = {
-      response: {
-        id: 'missing',
-        response: {
-          clientDataJSON: Buffer.from(JSON.stringify({ challenge: 'missing' })).toString('base64url'),
-        },
-      },
-    }
+    const passkeyVerifyBody = passkeyAuthenticationVerifyBody()
     for (let i = 0; i < 10; i += 1) {
       const response = await app.handle(jsonRequest('/api/auth/passkeys/login/verify', passkeyVerifyBody))
       expect(response.status).toBe(401)
@@ -395,6 +457,49 @@ describe('http app auth', () => {
     expect((await loggedIn.json()).user.totpEnabled).toBe(true)
   }, HTTP_TEST_TIMEOUT_MS)
 
+  test('required 2FA returns a setup-only token for accounts without a factor', async () => {
+    const { logger, events } = captureLogger()
+    const { app } = createFixture(undefined, {
+      logger,
+      env: (env) => ({ ...env, auth: { ...env.auth, requireTwoFactor: true } }),
+    })
+    await register(app, 'admin@example.com')
+
+    const setupRequired = await app.handle(
+      jsonRequest('/api/auth/login', { email: 'admin@example.com', password: 'password' }),
+    )
+    expect(setupRequired.status).toBe(202)
+    const setupBody = await setupRequired.json() as { setupToken: string; twoFactorSetupRequired: true }
+    expect(setupBody.twoFactorSetupRequired).toBe(true)
+    expect(typeof setupBody.setupToken).toBe('string')
+    expect(events).toContainEqual(expect.objectContaining({ type: 'audit', action: 'auth.2fa.enforce' }))
+
+    const generalAuth = await app.handle(new Request('http://localhost/api/auth/me', {
+      headers: { authorization: `Bearer ${setupBody.setupToken}` },
+    }))
+    expect(generalAuth.status).toBe(401)
+
+    const setup = await app.handle(jsonRequest('/api/auth/totp/setup', { setupToken: setupBody.setupToken }))
+    expect(setup.status).toBe(200)
+    const secret = ((await setup.json()) as { secret: string }).secret
+    const code = totpCode(secret)
+
+    const enabled = await app.handle(jsonRequest('/api/auth/totp/enable', {
+      setupToken: setupBody.setupToken,
+      code,
+    }))
+    expect(enabled.status).toBe(200)
+    const enabledBody = await enabled.json() as { token: string; user: { totpEnabled: boolean } }
+    expect(enabledBody.user.totpEnabled).toBe(true)
+
+    expect((await app.handle(jsonRequest('/api/auth/login', { email: 'admin@example.com', password: 'password' }))).status).toBe(401)
+    expect((await app.handle(jsonRequest('/api/auth/login', {
+      email: 'admin@example.com',
+      password: 'password',
+      totpCode: code,
+    }))).status).toBe(200)
+  }, HTTP_TEST_TIMEOUT_MS)
+
   test('passkey routes issue WebAuthn options and reject invalid assertions', async () => {
     const { app } = createFixture()
     const { token } = await register(app, 'admin@example.com')
@@ -418,16 +523,117 @@ describe('http app auth', () => {
     expect(typeof loginBody.options.challenge).toBe('string')
 
     const invalidVerify = await app.handle(
-      jsonRequest('/api/auth/passkeys/login/verify', {
-        response: {
-          id: 'missing',
-          response: {
-            clientDataJSON: Buffer.from(JSON.stringify({ challenge: loginBody.options.challenge })).toString('base64url'),
-          },
-        },
-      }),
+      jsonRequest('/api/auth/passkeys/login/verify', passkeyAuthenticationVerifyBody(loginBody.options.challenge)),
     )
     expect(invalidVerify.status).toBe(401)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('passkey verify routes reject malformed WebAuthn payloads at the boundary', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+
+    const malformedRegistration = await app.handle(
+      jsonRequest('/api/auth/passkeys/register/verify', { response: { id: 'missing' } }, token),
+    )
+    expect(malformedRegistration.status).toBe(422)
+
+    const malformedAuthentication = await app.handle(
+      jsonRequest('/api/auth/passkeys/login/verify', { response: { id: 'missing' } }),
+    )
+    expect(malformedAuthentication.status).toBe(422)
+
+    const semanticallyInvalidRegistration = await app.handle(
+      jsonRequest('/api/auth/passkeys/register/verify', passkeyRegistrationVerifyBody(), token),
+    )
+    expect(semanticallyInvalidRegistration.status).toBe(401)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('self-service password reset sends a non-enumerating email flow', async () => {
+    const mail = captureMail()
+    const { app } = createFixture(undefined, {
+      mailSender: mail.sender,
+      env: (env) => ({ ...env, mail: { ...env.mail, smtpUrl: 'smtp://mail.test' } }),
+    })
+    await register(app, 'user@example.com')
+
+    const unknown = await app.handle(jsonRequest('/api/auth/forgot', { email: 'missing@example.com' }))
+    expect(unknown.status).toBe(200)
+    expect(mail.messages).toHaveLength(0)
+
+    const forgot = await app.handle(jsonRequest('/api/auth/forgot', { email: 'user@example.com' }))
+    expect(forgot.status).toBe(200)
+    expect(mail.messages).toHaveLength(1)
+    expect(mail.messages[0]!.subject).toContain('password reset')
+    const resetToken = tokenFromMail(mail.messages[0]!, '/_reset')
+
+    const reset = await app.handle(jsonRequest('/api/auth/reset', {
+      token: resetToken,
+      password: 'new-password',
+    }))
+    expect(reset.status).toBe(200)
+
+    expect((await app.handle(jsonRequest('/api/auth/login', { email: 'user@example.com', password: 'password' }))).status).toBe(401)
+    expect((await app.handle(jsonRequest('/api/auth/login', { email: 'user@example.com', password: 'new-password' }))).status).toBe(200)
+    expect((await app.handle(jsonRequest('/api/auth/reset', { token: resetToken, password: 'another-password' }))).status).toBe(401)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('rate limits forgot and reset password endpoints', async () => {
+    const { app } = createFixture()
+
+    for (let i = 0; i < 10; i += 1) {
+      expect((await app.handle(jsonRequest('/api/auth/forgot', { email: `missing-${i}@example.com` }))).status).toBe(200)
+    }
+    expect((await app.handle(jsonRequest('/api/auth/forgot', { email: 'limited@example.com' }))).status).toBe(429)
+
+    for (let i = 0; i < 10; i += 1) {
+      expect((await app.handle(jsonRequest('/api/auth/reset', {
+        token: 'x'.repeat(24),
+        password: 'new-password',
+      }))).status).toBe(401)
+    }
+    expect((await app.handle(jsonRequest('/api/auth/reset', {
+      token: 'x'.repeat(24),
+      password: 'new-password',
+    }))).status).toBe(429)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('email verification gate blocks local login until the emailed token is confirmed', async () => {
+    const mail = captureMail()
+    const { app } = createFixture(undefined, {
+      mailSender: mail.sender,
+      env: (env) => ({
+        ...env,
+        auth: { ...env.auth, requireEmailVerification: true },
+        mail: { ...env.mail, smtpUrl: 'smtp://mail.test' },
+      }),
+    })
+
+    const settings = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(settings.status).toBe(200)
+    expect(await settings.json()).toMatchObject({ mailConfigured: true, requireEmailVerification: true })
+
+    const registered = await app.handle(
+      jsonRequest('/api/auth/register', { email: 'verify@example.com', name: 'Verify', password: 'password' }),
+    )
+    expect(registered.status).toBe(202)
+    expect(await registered.json()).toEqual({ verificationRequired: true })
+    expect(mail.messages).toHaveLength(1)
+
+    const blockedLogin = await app.handle(jsonRequest('/api/auth/login', {
+      email: 'verify@example.com',
+      password: 'password',
+    }))
+    expect(blockedLogin.status).toBe(401)
+
+    const verifyToken = tokenFromMail(mail.messages[0]!, '/_verify-email')
+    const verified = await app.handle(jsonRequest('/api/auth/email/verify', { token: verifyToken }))
+    expect(verified.status).toBe(200)
+
+    const login = await app.handle(jsonRequest('/api/auth/login', {
+      email: 'verify@example.com',
+      password: 'password',
+    }))
+    expect(login.status).toBe(200)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('users can update profile and rotate their own password with audit logs', async () => {
@@ -576,6 +782,157 @@ describe('http app auth', () => {
     expect(authed.status).toBe(200)
     expect((await authed.json()).page.path).toBe('docs/private')
   }, HTTP_TEST_TIMEOUT_MS)
+
+  test('serves an Atom feed of recent page changes', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    const created = await app.handle(
+      jsonRequest('/api/pages', { path: 'docs/feed', title: 'Feed & <Title>', content: 'hello' }, token),
+    )
+    expect(created.status).toBe(200)
+
+    const feed = await app.handle(new Request('http://localhost/feed.xml'))
+    expect(feed.status).toBe(200)
+    expect(feed.headers.get('content-type')).toContain('application/atom+xml')
+    expect(feed.headers.get('cache-control')).toBe('public, max-age=60')
+    const xml = await feed.text()
+    expect(xml).toContain('<feed xmlns="http://www.w3.org/2005/Atom">')
+    expect(xml).toContain('ts-wiki-test recent changes')
+    expect(xml).toContain('Feed &amp; &lt;Title&gt; created')
+    expect(xml).toContain('http://localhost/docs/feed')
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('private wiki token-gates the Atom feed', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+    const anonymous = await app.handle(new Request('http://localhost/feed.xml'))
+    expect(anonymous.status).toBe(401)
+
+    const { token } = await register(app, 'admin@example.com')
+    await createPage(app, token, 'docs/private-feed', 'secret')
+    const authed = await app.handle(new Request('http://localhost/feed.xml', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
+    expect(authed.status).toBe(200)
+    expect(authed.headers.get('cache-control')).toBe('private, max-age=60')
+    expect(await authed.text()).toContain('http://localhost/docs/private-feed')
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('private wiki page shares expose one read-only page and can be revoked', async () => {
+    const { app } = createFixture(undefined, {
+      webDist: true,
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+    const created = await app.handle(
+      jsonRequest('/api/pages', {
+        path: 'docs/shared',
+        title: 'Shared Secret',
+        description: 'Only this page is shared',
+        content: 'private share body',
+      }, admin.token),
+    )
+    expect(created.status).toBe(200)
+
+    const directAnonymous = await app.handle(new Request('http://localhost/api/page?path=docs/shared'))
+    expect(directAnonymous.status).toBe(401)
+
+    const viewerCreate = await app.handle(jsonRequest('/api/page/share', { path: 'docs/shared' }, viewer.token))
+    expect(viewerCreate.status).toBe(403)
+
+    const create = await app.handle(jsonRequest('/api/page/share', { path: 'docs/shared' }, admin.token))
+    expect(create.status).toBe(200)
+    const share = (await create.json()).share as { token: string; path: string }
+    expect(share.path).toBe('docs/shared')
+    expect(share.token.length).toBeGreaterThan(20)
+
+    const reused = await app.handle(jsonRequest('/api/page/share', { path: 'docs/shared' }, admin.token))
+    expect(reused.status).toBe(200)
+    expect((await reused.json()).share.token).toBe(share.token)
+
+    const current = await app.handle(new Request('http://localhost/api/page/share?path=docs/shared', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(current.status).toBe(200)
+    expect((await current.json()).share.token).toBe(share.token)
+
+    const shared = await app.handle(new Request(`http://localhost/api/shared/${share.token}`))
+    expect(shared.status).toBe(200)
+    const sharedBody = await shared.json()
+    expect(sharedBody.page).toMatchObject({
+      path: 'docs/shared',
+      title: 'Shared Secret',
+      description: 'Only this page is shared',
+    })
+    expect(sharedBody.page.renderedHtml).toContain('private share body')
+
+    const shareShell = await app.handle(new Request(`http://localhost/_share/${share.token}`))
+    expect(shareShell.status).toBe(200)
+    const shellHtml = await shareShell.text()
+    expect(shellHtml).toContain('<title>Shared Secret · ts-wiki-test</title>')
+    expect(shellHtml).toContain('<meta property="og:url" content="http://localhost/_share/')
+
+    const revoked = await app.handle(
+      new Request(`http://localhost/api/page/share/${share.token}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${admin.token}` },
+      }),
+    )
+    expect(revoked.status).toBe(200)
+
+    const afterRevoke = await app.handle(new Request(`http://localhost/api/shared/${share.token}`))
+    expect(afterRevoke.status).toBe(404)
+
+    const currentAfterRevoke = await app.handle(new Request('http://localhost/api/page/share?path=docs/shared', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(currentAfterRevoke.status).toBe(200)
+    expect((await currentAfterRevoke.json()).share).toBeNull()
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('serves sitemap and robots for anonymous-readable public pages', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    await createPage(app, token, 'docs/sitemap-public', 'public')
+    await createPage(app, token, 'secret/sitemap-hidden', 'hidden')
+    const rule = await app.handle(
+      jsonRequest('/api/admin/page-rules', {
+        subjectType: 'anonymous',
+        action: 'page:read',
+        effect: 'deny',
+        matcher: 'prefix',
+        pattern: 'secret',
+      }, token),
+    )
+    expect(rule.status).toBe(200)
+
+    const sitemap = await app.handle(new Request('http://localhost/sitemap.xml'))
+    expect(sitemap.status).toBe(200)
+    expect(sitemap.headers.get('content-type')).toContain('application/xml')
+    expect(sitemap.headers.get('cache-control')).toBe('public, max-age=300')
+    const xml = await sitemap.text()
+    expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">')
+    expect(xml).toContain('http://localhost/docs/sitemap-public')
+    expect(xml).not.toContain('secret/sitemap-hidden')
+
+    const robots = await app.handle(new Request('http://localhost/robots.txt'))
+    expect(robots.status).toBe(200)
+    expect(await robots.text()).toBe('User-agent: *\nAllow: /\nSitemap: http://localhost/sitemap.xml\n')
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('private wiki disables sitemap and disallows robots', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+    const sitemap = await app.handle(new Request('http://localhost/sitemap.xml'))
+    expect(sitemap.status).toBe(404)
+
+    const robots = await app.handle(new Request('http://localhost/robots.txt'))
+    expect(robots.status).toBe(200)
+    expect(await robots.text()).toBe('User-agent: *\nDisallow: /\n')
+  }, HTTP_TEST_TIMEOUT_MS)
 })
 
 describe('http app CORS', () => {
@@ -628,11 +985,117 @@ describe('http app authorization', () => {
         headers: { authorization: `Bearer ${viewer.token}` },
       }),
     )
+    const viewedApiKeys = await app.handle(
+      new Request('http://localhost/api/admin/api-keys', {
+        headers: { authorization: `Bearer ${viewer.token}` },
+      }),
+    )
 
     expect(anonymous.status).toBe(403)
     expect(viewed.status).toBe(403)
     expect(anonymousWebhook.status).toBe(403)
     expect(viewedAutomation.status).toBe(403)
+    expect(viewedApiKeys.status).toBe(403)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('admin API keys are named one-time secrets with role-scoped permissions', async () => {
+    const { app, db } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+
+    const createdViewer = await app.handle(
+      jsonRequest('/api/admin/api-keys', {
+        name: 'CI backup',
+        role: 'viewer',
+        expiresAt: Date.now() + 60_000,
+      }, admin.token),
+    )
+    expect(createdViewer.status).toBe(200)
+    const viewerBody = await createdViewer.json() as {
+      apiKey: { id: string; name: string; role: string; keyHash?: unknown; secret?: unknown }
+      secret: string
+    }
+    expect(viewerBody.secret.startsWith('tswk_')).toBe(true)
+    expect(viewerBody.apiKey).toMatchObject({ name: 'CI backup', role: 'viewer' })
+    expect(viewerBody.apiKey).not.toHaveProperty('keyHash')
+    expect(viewerBody.apiKey).not.toHaveProperty('secret')
+
+    const listed = await app.handle(new Request('http://localhost/api/admin/api-keys', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(listed.status).toBe(200)
+    const listBody = await listed.json() as { apiKeys: Array<{ id: string; keyHash?: unknown; secret?: unknown }> }
+    expect(listBody.apiKeys).toHaveLength(1)
+    expect(listBody.apiKeys[0]).not.toHaveProperty('keyHash')
+    expect(listBody.apiKeys[0]).not.toHaveProperty('secret')
+
+    const read = await app.handle(new Request('http://localhost/api/pages', {
+      headers: { authorization: `Bearer ${viewerBody.secret}` },
+    }))
+    expect(read.status).toBe(200)
+    const used = db.$client.prepare('SELECT last_used_at AS lastUsedAt FROM api_keys WHERE id = ?').get(viewerBody.apiKey.id) as {
+      lastUsedAt: number | null
+    }
+    expect(typeof used.lastUsedAt).toBe('number')
+
+    const viewerWrite = await app.handle(
+      jsonRequest('/api/pages', { path: 'automation/viewer', title: 'Viewer', content: 'no' }, viewerBody.secret),
+    )
+    expect(viewerWrite.status).toBe(403)
+    const viewerAdmin = await app.handle(new Request('http://localhost/api/admin/stats', {
+      headers: { authorization: `Bearer ${viewerBody.secret}` },
+    }))
+    expect(viewerAdmin.status).toBe(403)
+
+    const createdEditor = await app.handle(
+      jsonRequest('/api/admin/api-keys', { name: 'Importer', role: 'editor' }, admin.token),
+    )
+    expect(createdEditor.status).toBe(200)
+    const editorBody = await createdEditor.json() as { secret: string }
+    const editorWrite = await app.handle(
+      jsonRequest('/api/pages', { path: 'automation/editor', title: 'Editor', content: 'ok' }, editorBody.secret),
+    )
+    expect(editorWrite.status).toBe(200)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('revoked and expired API keys cannot authenticate private API reads', async () => {
+    const { app, db } = createFixture(undefined, {
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+    const admin = await register(app, 'admin@example.com')
+
+    const created = await app.handle(
+      jsonRequest('/api/admin/api-keys', { name: 'Reader', role: 'viewer' }, admin.token),
+    )
+    expect(created.status).toBe(200)
+    const body = await created.json() as { apiKey: { id: string }; secret: string }
+
+    const beforeRevoke = await app.handle(new Request('http://localhost/api/pages', {
+      headers: { authorization: `Bearer ${body.secret}` },
+    }))
+    expect(beforeRevoke.status).toBe(200)
+
+    const revoked = await app.handle(new Request(`http://localhost/api/admin/api-keys/${body.apiKey.id}`, {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(revoked.status).toBe(200)
+
+    const afterRevoke = await app.handle(new Request('http://localhost/api/pages', {
+      headers: { authorization: `Bearer ${body.secret}` },
+    }))
+    expect(afterRevoke.status).toBe(401)
+
+    const expiring = await app.handle(
+      jsonRequest('/api/admin/api-keys', { name: 'Expiring', role: 'viewer', expiresAt: Date.now() + 60_000 }, admin.token),
+    )
+    expect(expiring.status).toBe(200)
+    const expiringBody = await expiring.json() as { apiKey: { id: string }; secret: string }
+    db.$client.prepare('UPDATE api_keys SET expires_at = ? WHERE id = ?').run(Date.now() - 1_000, expiringBody.apiKey.id)
+
+    const afterExpiry = await app.handle(new Request('http://localhost/api/pages', {
+      headers: { authorization: `Bearer ${expiringBody.secret}` },
+    }))
+    expect(afterExpiry.status).toBe(401)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('group page rules can grant a viewer write access only under a prefix', async () => {
@@ -714,6 +1177,156 @@ describe('http app authorization', () => {
     expect(adminSearch.status).toBe(200)
     const adminBody = await adminSearch.json() as { hits: Array<{ path: string }> }
     expect(adminBody.hits.map((hit) => hit.path).sort()).toEqual(['docs/public', 'secret/roadmap'])
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('CJK search queries expose tokenizer guidance and admins can rebuild as trigram', async () => {
+    const { app } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    await createPage(app, admin.token, 'jp/search', 'これはテストです。天ぷら本文もあります。')
+
+    const search = await app.handle(new Request('http://localhost/api/search?q=%E6%97%A5%E6%9C%AC%E8%AA%9E', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(search.status).toBe(200)
+    expect(await search.json()).toMatchObject({
+      tokenizerHint: {
+        kind: 'cjk-tokenizer',
+        tokenizer: 'unicode61',
+        recommendedTokenizer: 'trigram',
+      },
+    })
+
+    const status = await app.handle(new Request('http://localhost/api/admin/search-index', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(status.status).toBe(200)
+    expect(await status.json()).toMatchObject({
+      searchIndex: {
+        tokenizer: 'unicode61',
+        cjkPages: 1,
+        needsTrigram: true,
+      },
+    })
+
+    const rebuilt = await app.handle(jsonRequest('/api/admin/search-index/rebuild', { tokenizer: 'trigram' }, admin.token))
+    expect(rebuilt.status).toBe(200)
+    expect(await rebuilt.json()).toMatchObject({
+      searchIndex: {
+        tokenizer: 'trigram',
+        needsTrigram: false,
+      },
+    })
+
+    const trigramSearch = await app.handle(new Request('http://localhost/api/search?q=%E5%A4%A9%E3%81%B7%E3%82%89', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(trigramSearch.status).toBe(200)
+    const trigramBody = await trigramSearch.json() as { hits: Array<{ path: string }>; tokenizerHint?: unknown }
+    expect(trigramBody.hits[0]?.path).toBe('jp/search')
+    expect(trigramBody.tokenizerHint).toBeUndefined()
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('trigram search returns one- and two-character CJK substring matches with a hint', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({ ...env, search: { ftsTokenizer: 'trigram' } }),
+    })
+    const admin = await register(app, 'admin@example.com')
+
+    const page = await app.handle(
+      jsonRequest('/api/pages', {
+        path: 'jp/short',
+        title: '検索',
+        description: '日本語',
+        content: '短い語でも見つかります。',
+      }, admin.token),
+    )
+    expect(page.status).toBe(200)
+
+    const twoChars = await app.handle(new Request('http://localhost/api/search?q=%E6%A4%9C%E7%B4%A2', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(twoChars.status).toBe(200)
+    expect(await twoChars.json()).toMatchObject({
+      hits: [{ path: 'jp/short' }],
+      truncatedTerms: ['検索'],
+      shortQueryHint: { kind: 'trigram-short-query', tokenizer: 'trigram' },
+    })
+
+    const oneChar = await app.handle(new Request('http://localhost/api/search?q=%E8%AA%9E', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(oneChar.status).toBe(200)
+    expect(await oneChar.json()).toMatchObject({
+      hits: [{ path: 'jp/short' }],
+      truncatedTerms: ['語'],
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('Atom feed respects page read deny rules', async () => {
+    const { app } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+
+    await createPage(app, admin.token, 'docs/public-feed', 'public feed body')
+    await createPage(app, admin.token, 'secret/feed', 'secret feed body')
+
+    const rule = await app.handle(
+      jsonRequest('/api/admin/page-rules', {
+        subjectType: 'user',
+        subjectId: viewer.user.id,
+        action: 'page:read',
+        effect: 'deny',
+        matcher: 'prefix',
+        pattern: 'secret',
+      }, admin.token),
+    )
+    expect(rule.status).toBe(200)
+
+    const feed = await app.handle(new Request('http://localhost/feed.xml', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(feed.status).toBe(200)
+    const xml = await feed.text()
+    expect(xml).toContain('http://localhost/docs/public-feed')
+    expect(xml).not.toContain('secret/feed')
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('recent changes respect page read deny rules and before pagination', async () => {
+    const { app } = createFixture()
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+
+    await createPage(app, admin.token, 'docs/public-changes', 'public changes body')
+    await createPage(app, admin.token, 'secret/changes', 'secret changes body')
+
+    const rule = await app.handle(
+      jsonRequest('/api/admin/page-rules', {
+        subjectType: 'user',
+        subjectId: viewer.user.id,
+        action: 'page:read',
+        effect: 'deny',
+        matcher: 'prefix',
+        pattern: 'secret',
+      }, admin.token),
+    )
+    expect(rule.status).toBe(200)
+
+    const changes = await app.handle(new Request('http://localhost/api/changes?limit=10', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(changes.status).toBe(200)
+    const body = await changes.json() as { changes: Array<{ id: string; path: string; createdAt: number }> }
+    expect(body.changes.map((change) => change.path)).toContain('docs/public-changes')
+    expect(body.changes.map((change) => change.path)).not.toContain('secret/changes')
+
+    const before = body.changes[0]?.createdAt
+    expect(before).toBeDefined()
+    const older = await app.handle(new Request(`http://localhost/api/changes?limit=10&before=${before}`, {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(older.status).toBe(200)
+    const olderBody = await older.json() as { changes: Array<{ id: string }> }
+    expect(olderBody.changes.map((change) => change.id)).not.toContain(body.changes[0]?.id)
   }, HTTP_TEST_TIMEOUT_MS)
 })
 
@@ -1292,6 +1905,37 @@ describe('http app page utilities', () => {
       page: expect.objectContaining({ path: 'docs/new' }),
       redirectedFrom: ['docs/middle'],
     })
+
+    const redirects = await app.handle(new Request('http://localhost/api/redirects', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
+    expect(redirects.status).toBe(200)
+    expect((await redirects.json()).redirects).toEqual(expect.arrayContaining([
+      expect.objectContaining({ fromPath: 'docs/old', toPath: 'docs/new' }),
+      expect.objectContaining({ fromPath: 'docs/middle', toPath: 'docs/new' }),
+    ]))
+
+    const alias = await app.handle(
+      jsonRequest('/api/redirects', { fromPath: 'docs/alias', toPath: 'docs/new' }, token),
+    )
+    expect(alias.status).toBe(200)
+    expect(await alias.json()).toMatchObject({
+      redirect: { fromPath: 'docs/alias', toPath: 'docs/new' },
+    })
+
+    const aliased = await app.handle(new Request('http://localhost/api/page?path=docs/alias'))
+    expect(aliased.status).toBe(200)
+    expect(await aliased.json()).toMatchObject({
+      page: expect.objectContaining({ path: 'docs/new' }),
+      redirectedFrom: ['docs/alias'],
+    })
+
+    const removed = await app.handle(new Request('http://localhost/api/redirects?fromPath=docs/alias', {
+      method: 'DELETE',
+      headers: { authorization: `Bearer ${token}` },
+    }))
+    expect(removed.status).toBe(200)
+    expect(await removed.json()).toEqual({ fromPath: 'docs/alias' })
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('moves pages to trash, restores, archives, and purges through HTTP routes', async () => {
@@ -1368,7 +2012,7 @@ describe('http app page utilities', () => {
         '/api/import/markdown',
         {
           path: 'docs/imported',
-          content: '---\ntitle: Imported\ndescription: From file\n---\n\nHello import',
+          content: '---\ntitle: Imported\ndescription: From file\ntoc: false\ntocDepth: 2\n---\n\n# Imported\n\n## Hidden TOC\n\nHello import',
           labels: ['imported'],
           status: 'verified',
         },
@@ -1381,7 +2025,13 @@ describe('http app page utilities', () => {
       title: 'Imported',
       labels: '["imported"]',
       status: 'verified',
+      toc: '[]',
     })
+    const importedPage = (await app.handle(new Request('http://localhost/api/page?path=docs/imported', {
+      headers: { authorization: `Bearer ${token}` },
+    }))).json()
+    expect((await importedPage).page.content).toContain('toc: false')
+    expect((await importedPage).page.renderedHtml).not.toContain('toc: false')
   }, HTTP_TEST_TIMEOUT_MS)
 })
 
@@ -1493,12 +2143,21 @@ describe('http app assets', () => {
       }),
     )
     expect(assets.status).toBe(200)
-    const listed = (await assets.json()) as { assets: Array<{ id: string; filename: string; url: string }> }
+    const listed = (await assets.json()) as { assets: Array<{ id: string; filename: string; url: string; thumbUrl: string | null }> }
     expect(listed.assets).toContainEqual(expect.objectContaining({ filename: 'avatar.png', url: body.url }))
+    const listedAsset = listed.assets.find((asset) => asset.filename === 'avatar.png')
+    expect(listedAsset?.thumbUrl).toBe(`${body.url}?size=thumb`)
+    const thumbUrl = listedAsset!.thumbUrl!
+
+    const thumbResponse = await app.handle(new Request(`http://localhost${thumbUrl}`))
+    expect(thumbResponse.status).toBe(200)
+    expect(thumbResponse.headers.get('content-type')).toBe('image/webp')
+    expect(thumbResponse.headers.get('x-content-type-options')).toBe('nosniff')
+    expect((await thumbResponse.arrayBuffer()).byteLength).toBeGreaterThan(0)
 
     const renamed = await app.handle(
-      new Request(`http://localhost/api/assets/${listed.assets[0]!.id}`, {
-        method: 'PUT',
+      new Request(`http://localhost/api/assets/${listedAsset!.id}`, {
+        method: 'PATCH',
         headers: {
           'content-type': 'application/json',
           authorization: `Bearer ${token}`,
@@ -1509,14 +2168,99 @@ describe('http app assets', () => {
     expect(renamed.status).toBe(200)
     expect((await renamed.json()).asset).toMatchObject({ filename: 'renamed.png', url: body.url })
 
+    const assetId = listedAsset!.id
     const removed = await app.handle(
-      new Request(`http://localhost/api/assets/${listed.assets[0]!.id}`, {
+      new Request(`http://localhost/api/assets/${assetId}`, {
         method: 'DELETE',
         headers: { authorization: `Bearer ${token}` },
       }),
     )
     expect(removed.status).toBe(200)
+    expect((await removed.json()).asset.deletedAt).toEqual(expect.any(Number))
+    expect(existsSync(join(dataDir, body.url))).toBe(true)
+
+    const trash = await app.handle(
+      new Request('http://localhost/api/assets/trash', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(trash.status).toBe(200)
+    expect(((await trash.json()) as { assets: Array<{ id: string; deletedAt: number | null }> }).assets).toContainEqual(
+      expect.objectContaining({ id: assetId, deletedAt: expect.any(Number) }),
+    )
+
+    const restored = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId}/restore`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(restored.status).toBe(200)
+    expect((await restored.json()).asset.deletedAt).toBeNull()
+
+    expect((await app.handle(
+      new Request(`http://localhost/api/assets/${assetId}`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )).status).toBe(200)
+    const purged = await app.handle(
+      new Request(`http://localhost/api/assets/${assetId}/purge`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(purged.status).toBe(200)
     expect(existsSync(join(dataDir, body.url))).toBe(false)
+    expect((await app.handle(new Request(`http://localhost${thumbUrl}`))).status).toBe(404)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('organizes assets by normalized folders and filters listings', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    const portrait = await uploadPngAsset(app, token, 'portrait.png', 'Characters / Main ')
+    const map = await uploadPngAsset(app, token, 'map.png', 'maps')
+
+    const characterAssets = await app.handle(
+      new Request('http://localhost/api/assets?folder=characters/main', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(characterAssets.status).toBe(200)
+    expect((await characterAssets.json()) as { assets: Array<{ id: string; filename: string; folder: string }> }).toMatchObject({
+      assets: [{ id: portrait.id, filename: 'portrait.png', folder: 'characters/main' }],
+    })
+
+    const folders = await app.handle(
+      new Request('http://localhost/api/assets/folders', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(folders.status).toBe(200)
+    expect((await folders.json()) as { folders: string[] }).toEqual({ folders: ['characters/main', 'maps'] })
+
+    const moved = await app.handle(
+      new Request(`http://localhost/api/assets/${portrait.id}`, {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ folder: 'Characters / Secondary' }),
+      }),
+    )
+    expect(moved.status).toBe(200)
+    expect((await moved.json()).asset).toMatchObject({ id: portrait.id, folder: 'characters/secondary' })
+
+    const mapAssets = await app.handle(
+      new Request('http://localhost/api/assets?folder=maps', {
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(mapAssets.status).toBe(200)
+    expect((await mapAssets.json()) as { assets: Array<{ id: string; filename: string; folder: string }> }).toMatchObject({
+      assets: [{ id: map.id, filename: 'map.png', folder: 'maps' }],
+    })
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('uses injected R2-style asset storage keys and public URLs', async () => {
@@ -1569,9 +2313,12 @@ describe('http app assets', () => {
     expect(body.filename).toBe('avatar.png')
     expect(body.url).toMatch(/^https:\/\/cdn\.example\.com\/media\/assets\/[^/]+\/avatar\.png$/)
     expect(body.url).not.toContain('secret')
-    expect(uploads).toHaveLength(1)
+    expect(uploads).toHaveLength(2)
     expect(uploads[0]!.storageName).toBe(`assets/${body.id}/avatar.png`)
     expect(uploads[0]!.bytes.byteLength).toBe(png1x1.byteLength)
+    expect(uploads[1]!.storageName).toBe(`assets/${body.id}/thumb.webp`)
+    expect(uploads[1]!.contentType).toBe('image/webp')
+    expect(uploads[1]!.bytes.byteLength).toBeGreaterThan(0)
 
     const proxied = await app.handle(new Request(`http://localhost/assets/${uploads[0]!.storageName}`))
     expect(proxied.status).toBe(200)
@@ -1585,12 +2332,17 @@ describe('http app assets', () => {
       }),
     )
     expect(listed.status).toBe(200)
-    const listBody = (await listed.json()) as { assets: Array<{ id: string; url: string; storageName: string }> }
+    const listBody = (await listed.json()) as { assets: Array<{ id: string; url: string; storageName: string; thumbUrl: string | null }> }
     expect(listBody.assets[0]).toMatchObject({
       id: body.id,
       url: body.url,
       storageName: uploads[0]!.storageName,
+      thumbUrl: `/assets/${uploads[0]!.storageName}?size=thumb`,
     })
+
+    const proxiedThumb = await app.handle(new Request(`http://localhost${listBody.assets[0]!.thumbUrl!}`))
+    expect(proxiedThumb.status).toBe(200)
+    expect(proxiedThumb.headers.get('content-type')).toBe('image/webp')
 
     const removed = await app.handle(
       new Request(`http://localhost/api/assets/${body.id}`, {
@@ -1599,8 +2351,19 @@ describe('http app assets', () => {
       }),
     )
     expect(removed.status).toBe(200)
-    expect(deletes).toEqual([uploads[0]!.storageName])
+    expect(deletes).toEqual([])
+    expect(stored.has(uploads[0]!.storageName)).toBe(true)
+
+    const purged = await app.handle(
+      new Request(`http://localhost/api/assets/${body.id}/purge`, {
+        method: 'DELETE',
+        headers: { authorization: `Bearer ${token}` },
+      }),
+    )
+    expect(purged.status).toBe(200)
+    expect(deletes).toEqual([uploads[0]!.storageName, uploads[1]!.storageName])
     expect(stored.has(uploads[0]!.storageName)).toBe(false)
+    expect(stored.has(uploads[1]!.storageName)).toBe(false)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('reports page usage for uploaded assets without leaking denied pages', async () => {
@@ -1697,9 +2460,17 @@ describe('http app assets', () => {
     const cleanupBody = await cleanup.json() as { assets: Array<{ id: string }>; skipped: number }
     expect(cleanupBody.assets.map((asset) => asset.id)).toEqual([orphan.id])
     expect(cleanupBody.skipped).toBe(2)
-    expect(existsSync(join(dataDir, orphan.url))).toBe(false)
+    expect(existsSync(join(dataDir, orphan.url))).toBe(true)
     expect(existsSync(join(dataDir, used.url))).toBe(true)
     expect(existsSync(join(dataDir, laterUsed.url))).toBe(true)
+
+    const trash = await app.handle(new Request('http://localhost/api/assets/trash', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(trash.status).toBe(200)
+    expect(((await trash.json()) as { assets: Array<{ id: string; deletedAt: number | null }> }).assets).toContainEqual(
+      expect.objectContaining({ id: orphan.id, deletedAt: expect.any(Number) }),
+    )
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('encoded traversal asset paths return 404', async () => {
@@ -1852,5 +2623,68 @@ describe('http app web serving', () => {
 
     const api = await app.handle(new Request('http://localhost/api/nope'))
     expect(api.status).toBe(404)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('injects per-page SEO tags into the SPA shell for crawlers', async () => {
+    const { app } = createFixture(undefined, { webDist: true })
+    const { token } = await register(app, 'admin@example.com')
+    const created = await app.handle(
+      jsonRequest('/api/pages', {
+        path: 'docs/seo',
+        title: 'SEO & Title',
+        description: 'Custom <description>',
+        content: 'Intro body\n\n![Cover](/assets/cover.png)',
+      }, token),
+    )
+    expect(created.status).toBe(200)
+
+    const shell = await app.handle(new Request('http://localhost/docs/seo'))
+    expect(shell.status).toBe(200)
+    const html = await shell.text()
+    expect(html).toContain('<title>SEO &amp; Title · ts-wiki-test</title>')
+    expect(html).toContain('<meta name="description" content="Custom &lt;description&gt;" />')
+    expect(html).toContain('<meta property="og:title" content="SEO &amp; Title · ts-wiki-test" />')
+    expect(html).toContain('<meta property="og:url" content="http://localhost/docs/seo" />')
+    expect(html).toContain('<meta property="og:image" content="http://localhost/assets/cover.png" />')
+    expect(html).toContain('<meta name="twitter:card" content="summary_large_image" />')
+
+    const uiShell = await app.handle(new Request('http://localhost/ui/docs/seo'))
+    expect(uiShell.status).toBe(200)
+    expect(await uiShell.text()).toContain('<meta property="og:title" content="SEO &amp; Title · ts-wiki-test" />')
+
+    const missingFile = await app.handle(new Request('http://localhost/ui/assets/missing.js'))
+    expect(missingFile.status).toBe(404)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('keeps private wiki shell metadata generic for anonymous requests', async () => {
+    const { app } = createFixture(undefined, {
+      webDist: true,
+      env: (env) => ({ ...env, auth: { ...env.auth, privateWiki: true } }),
+    })
+    const { token } = await register(app, 'admin@example.com')
+    const created = await app.handle(
+      jsonRequest('/api/pages', {
+        path: 'docs/private-seo',
+        title: 'Private SEO Title',
+        description: 'Secret crawler description',
+        content: 'secret crawler text',
+      }, token),
+    )
+    expect(created.status).toBe(200)
+
+    const anonymous = await app.handle(new Request('http://localhost/docs/private-seo'))
+    expect(anonymous.status).toBe(200)
+    const html = await anonymous.text()
+    expect(html).toContain('<title>ts-wiki-test</title>')
+    expect(html).toContain('<meta name="description" content="ts-wiki-test" />')
+    expect(html).not.toContain('Private SEO Title')
+    expect(html).not.toContain('Secret crawler description')
+    expect(html).not.toContain('secret crawler text')
+
+    const authed = await app.handle(new Request('http://localhost/docs/private-seo', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
+    expect(authed.status).toBe(200)
+    expect(await authed.text()).toContain('<title>Private SEO Title · ts-wiki-test</title>')
   }, HTTP_TEST_TIMEOUT_MS)
 })

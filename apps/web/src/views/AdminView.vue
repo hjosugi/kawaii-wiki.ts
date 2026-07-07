@@ -6,10 +6,13 @@ import AdminAssetsPanel from '@/components/admin/AdminAssetsPanel.vue'
 import AdminAppearancePanel from '@/components/admin/AdminAppearancePanel.vue'
 import AdminAutomationPanel from '@/components/admin/AdminAutomationPanel.vue'
 import AdminGroupsPanel from '@/components/admin/AdminGroupsPanel.vue'
+import AdminHistoryPanel from '@/components/admin/AdminHistoryPanel.vue'
 import AdminImportPanel from '@/components/admin/AdminImportPanel.vue'
+import AdminPagesPanel from '@/components/admin/AdminPagesPanel.vue'
 import AdminPageRulesPanel from '@/components/admin/AdminPageRulesPanel.vue'
 import AdminSecurityPanel from '@/components/admin/AdminSecurityPanel.vue'
 import AdminStatsPanel from '@/components/admin/AdminStatsPanel.vue'
+import AdminRedirectsPanel from '@/components/admin/AdminRedirectsPanel.vue'
 import AdminTrashPanel from '@/components/admin/AdminTrashPanel.vue'
 import AdminUsersPanel from '@/components/admin/AdminUsersPanel.vue'
 import AdminWebhookDeliveriesPanel from '@/components/admin/AdminWebhookDeliveriesPanel.vue'
@@ -29,7 +32,10 @@ onMounted(() => {
   <div class="space-y-10">
     <h1 class="text-2xl font-bold tracking-tight">{{ t('admin') }}</h1>
     <AdminStatsPanel />
+    <AdminPagesPanel />
+    <AdminHistoryPanel />
     <AdminSecurityPanel />
+    <AdminRedirectsPanel />
     <AdminUsersPanel />
     <AdminGroupsPanel />
     <AdminPageRulesPanel />

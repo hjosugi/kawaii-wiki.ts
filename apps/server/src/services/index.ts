@@ -3,7 +3,8 @@
  * built here from a single `DB` dependency and passed down explicitly.
  */
 import type { DB } from '../db/client.ts'
-import type { AuthEnv } from '../env.ts'
+import type { AuthEnv, MailEnv, SearchEnv } from '../env.ts'
+import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
 import { createSearchService, type SearchService } from './search.ts'
 import { createUserService, type UserService } from './users.ts'
@@ -15,6 +16,10 @@ import { createSettingsService, type SettingsService } from './settings.ts'
 import { createAuthzService, type AuthzService } from './authz.ts'
 import { createOidcService, type OidcService } from './oidc.ts'
 import { createPasskeyService, type PasskeyService } from './passkeys.ts'
+import { createPageShareService, type PageShareService } from './shares.ts'
+import { createMailService, type MailSender, type MailService } from './mail.ts'
+import { createAuthRecoveryService, type AuthRecoveryService } from './auth-recovery.ts'
+import { createApiKeyService, type ApiKeyService } from './api-keys.ts'
 import {
   createWebhookService,
   type WebhookFetcher,
@@ -25,6 +30,10 @@ import {
 export interface ServiceOptions {
   readonly assetUrl?: (storageName: string) => string
   readonly auth?: AuthEnv
+  readonly search?: SearchEnv
+  readonly mail?: MailEnv
+  readonly mailSender?: MailSender
+  readonly logger?: StructuredLogger
   readonly webhookFetcher?: WebhookFetcher
   readonly webhookResolver?: WebhookHostnameResolver
   readonly allowPrivateWebhookTargets?: boolean
@@ -42,6 +51,10 @@ export interface Services {
   readonly authz: AuthzService
   readonly oidc: OidcService
   readonly passkeys: PasskeyService
+  readonly shares: PageShareService
+  readonly mail: MailService
+  readonly recovery: AuthRecoveryService
+  readonly apiKeys: ApiKeyService
   readonly webhooks: WebhookService
 }
 
@@ -52,16 +65,29 @@ const defaultAuth: AuthEnv = {
   tokenTtlSeconds: 30 * 24 * 60 * 60,
   registration: 'open',
   privateWiki: false,
+  requireEmailVerification: false,
+  requireTwoFactor: false,
   oidcProviders: [],
+}
+
+const defaultMail: MailEnv = {
+  smtpUrl: null,
+  from: 'ts-wiki <no-reply@localhost>',
+  timeoutMs: 10_000,
 }
 
 export const createServices = (db: DB, options: ServiceOptions = {}): Services => {
   const authz = createAuthzService(db)
   authz.ensureDefaults()
   const auth = options.auth ?? defaultAuth
+  const search = options.search ?? { ftsTokenizer: 'unicode61' as const }
+  const mail = createMailService(options.mail ?? defaultMail, {
+    sender: options.mailSender,
+    logger: options.logger,
+  })
   return {
     pages: createPageService(db),
-    search: createSearchService(db),
+    search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer }),
     users: createUserService(db),
     assets: createAssetService(db, { urlForStorageName: options.assetUrl }),
     admin: createAdminService(db, authz),
@@ -71,6 +97,10 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     authz,
     oidc: createOidcService(db, auth, authz),
     passkeys: createPasskeyService(db, auth),
+    shares: createPageShareService(db),
+    mail,
+    recovery: createAuthRecoveryService(db, auth, mail),
+    apiKeys: createApiKeyService(db, authz),
     webhooks: createWebhookService(db, {
       fetcher: options.webhookFetcher,
       resolver: options.webhookResolver,
@@ -79,4 +109,4 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   }
 }
 
-export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, OidcService, PasskeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }
+export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, OidcService, PasskeyService, PageShareService, MailService, MailSender, AuthRecoveryService, ApiKeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }

@@ -13,9 +13,9 @@ import {
   can,
   conflict,
   err,
-  forbidden,
   normalizePath,
   ok,
+  requirePermission,
   validationError,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
@@ -57,6 +57,8 @@ export interface UpsertPageRuleInput {
 export interface AuthzService {
   ensureDefaults(): void
   principalForUser(user: User): Principal
+  principalForApiKey(apiKeyId: string, role: Role): Principal
+  canAnonymous(action: Action, path?: string): boolean
   syncRoleGroup(userId: string, role: Role): void
   listGroups(principal: Principal | null): Result<AuthzGroupView[], AppError>
   createGroup(principal: Principal | null, input: CreateGroupInput): Result<AuthzGroupView, AppError>
@@ -210,7 +212,7 @@ export const createAuthzService = (db: DB): AuthzService => {
   })
 
   const requireAdmin = (principal: Principal | null): Result<true, AppError> =>
-    can(principal, 'admin:access') ? ok(true) : err(forbidden())
+    requirePermission(principal, 'admin:access')
 
   return {
     ensureDefaults() {
@@ -237,6 +239,21 @@ export const createAuthzService = (db: DB): AuthzService => {
         groups: groupsForUser(user.id, user.role),
         policy: policy(),
       }
+    },
+
+    principalForApiKey(apiKeyId, role) {
+      this.ensureDefaults()
+      return {
+        id: `api-key:${apiKeyId}`,
+        role,
+        groups: [ROLE_GROUPS[role]],
+        policy: policy(),
+      }
+    },
+
+    canAnonymous(action, path) {
+      this.ensureDefaults()
+      return can(null, action, { path }, policy())
     },
 
     syncRoleGroup(userId, role) {

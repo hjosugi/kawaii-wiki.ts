@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import type { Page } from '@/lib/api'
+import { computed, ref, watch } from 'vue'
+import { Api, type Page, type PageShareView } from '@/lib/api'
 import WikiBreadcrumbs from '@/components/WikiBreadcrumbs.vue'
 import { useI18n } from '@/lib/i18n'
 
@@ -10,6 +10,10 @@ const props = defineProps<{
 }>()
 
 const copied = ref(false)
+const share = ref<PageShareView | null>(null)
+const shareBusy = ref(false)
+const shareMessage = ref<string | null>(null)
+const shareError = ref<string | null>(null)
 const { formatDate, formatDateTime, t } = useI18n()
 
 const updated = computed(() =>
@@ -30,6 +34,21 @@ const labels = computed<string[]>(() => {
 const reviewDate = computed(() =>
   props.page.reviewAt ? formatDate(props.page.reviewAt) : null,
 )
+const shareUrl = computed(() =>
+  share.value ? `${window.location.origin}/_share/${encodeURIComponent(share.value.token)}` : '',
+)
+
+async function loadShare(): Promise<void> {
+  if (!props.canEdit) {
+    share.value = null
+    return
+  }
+  try {
+    share.value = await Api.currentPageShare(props.page.path)
+  } catch {
+    share.value = null
+  }
+}
 
 async function copyPath(): Promise<void> {
   await navigator.clipboard?.writeText('/' + props.page.path)
@@ -38,6 +57,49 @@ async function copyPath(): Promise<void> {
     copied.value = false
   }, 1200)
 }
+
+async function copyShareLink(): Promise<void> {
+  if (!shareUrl.value) return
+  const canCopy = Boolean(navigator.clipboard?.writeText)
+  if (canCopy) await navigator.clipboard.writeText(shareUrl.value)
+  shareMessage.value = canCopy ? t('shareLinkCopied') : shareUrl.value
+  shareError.value = null
+}
+
+async function createShareLink(): Promise<void> {
+  shareBusy.value = true
+  shareError.value = null
+  try {
+    share.value = await Api.createPageShare(props.page.path)
+    shareMessage.value = t('shareReady')
+    await copyShareLink()
+  } catch (e) {
+    shareError.value = (e as Error).message
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+async function revokeShareLink(): Promise<void> {
+  if (!share.value) return
+  shareBusy.value = true
+  shareError.value = null
+  try {
+    await Api.revokePageShare(share.value.token)
+    share.value = null
+    shareMessage.value = null
+  } catch (e) {
+    shareError.value = (e as Error).message
+  } finally {
+    shareBusy.value = false
+  }
+}
+
+watch(() => [props.page.path, props.canEdit] as const, () => {
+  shareMessage.value = null
+  shareError.value = null
+  void loadShare()
+}, { immediate: true })
 </script>
 
 <template>
@@ -69,21 +131,43 @@ async function copyPath(): Promise<void> {
         </div>
       </div>
 
-      <div class="flex flex-wrap gap-2 shrink-0">
-        <button class="btn-ghost" type="button" @click="copyPath">
-          {{ copied ? t('copied') : t('copyPath') }}
-        </button>
-        <RouterLink v-if="canEdit" :to="{ name: 'new', query: { path: childPath } }" class="btn-ghost">
-          {{ t('newChild') }}
-        </RouterLink>
-        <RouterLink :to="'/_history/' + page.path" class="btn-ghost">
-          {{ t('history') }}
-        </RouterLink>
-        <a class="btn-ghost" :href="markdownExportUrl">{{ t('markdown') }}</a>
-        <a class="btn-ghost" :href="htmlExportUrl">{{ t('html') }}</a>
-        <RouterLink v-if="canEdit" :to="'/_edit/' + page.path" class="btn-primary">
-          {{ t('edit') }}
-        </RouterLink>
+      <div class="shrink-0 space-y-2">
+        <div class="flex flex-wrap justify-end gap-2">
+          <button class="btn-ghost" type="button" @click="copyPath">
+            {{ copied ? t('copied') : t('copyPath') }}
+          </button>
+          <button
+            v-if="canEdit"
+            class="btn-ghost"
+            type="button"
+            :disabled="shareBusy"
+            @click="share ? copyShareLink() : createShareLink()"
+          >
+            {{ share ? t('copyShareLink') : t('share') }}
+          </button>
+          <button
+            v-if="canEdit && share"
+            class="btn-ghost"
+            type="button"
+            :disabled="shareBusy"
+            @click="revokeShareLink"
+          >
+            {{ t('revokeShare') }}
+          </button>
+          <RouterLink v-if="canEdit" :to="{ name: 'new', query: { path: childPath } }" class="btn-ghost">
+            {{ t('newChild') }}
+          </RouterLink>
+          <RouterLink :to="'/_history/' + page.path" class="btn-ghost">
+            {{ t('history') }}
+          </RouterLink>
+          <a class="btn-ghost" :href="markdownExportUrl">{{ t('markdown') }}</a>
+          <a class="btn-ghost" :href="htmlExportUrl">{{ t('html') }}</a>
+          <RouterLink v-if="canEdit" :to="'/_edit/' + page.path" class="btn-primary">
+            {{ t('edit') }}
+          </RouterLink>
+        </div>
+        <p v-if="shareError" class="text-right text-xs text-red-600">{{ shareError }}</p>
+        <p v-else-if="shareMessage" class="text-right text-xs text-gray-500">{{ shareMessage }}</p>
       </div>
     </div>
   </header>

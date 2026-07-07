@@ -3,6 +3,7 @@ import type { Principal } from '@ts-wiki/core'
 import { createDb } from './db/client.ts'
 import { pageRedirects } from './db/schema.ts'
 import { createServices } from './services/index.ts'
+import { rewriteLinksForMove } from './services/pages.ts'
 
 const admin: Principal = { id: 'admin-1', role: 'admin' }
 const viewer: Principal = { id: 'viewer-1', role: 'viewer' }
@@ -185,6 +186,57 @@ describe('page + search slice (in-memory db)', () => {
     expect(search.search('天ぷら').hits[0]?.path).toBe('jp/search')
   })
 
+  test('trigram tokenizer falls back for one- and two-character CJK queries', () => {
+    const db = createDb(':memory:', { ftsTokenizer: 'trigram' })
+    const { pages, search } = createServices(db)
+    pages.create({ path: 'jp/short', title: '検索', description: '日本語', content: '短い語でも見つかります。' }, admin)
+
+    const twoChars = search.search('検索')
+    expect(twoChars.hits[0]?.path).toBe('jp/short')
+    expect(twoChars.truncatedTerms).toEqual(['検索'])
+    expect(twoChars.shortQueryHint).toMatchObject({ kind: 'trigram-short-query', tokenizer: 'trigram' })
+    expect(twoChars.hits[0]?.snippet).toContain('<mark>検索</mark>')
+
+    const oneChar = search.search('語')
+    expect(oneChar.hits[0]?.path).toBe('jp/short')
+    expect(oneChar.truncatedTerms).toEqual(['語'])
+  })
+
+  test('unicode tokenizer flags CJK queries and reports index status', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    pages.create({ path: 'jp/search', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
+
+    const result = search.search('日本語')
+    expect(result.tokenizerHint).toMatchObject({
+      kind: 'cjk-tokenizer',
+      tokenizer: 'unicode61',
+      recommendedTokenizer: 'trigram',
+    })
+
+    const status = search.indexStatus(admin)
+    expect(status.ok).toBe(true)
+    if (!status.ok) return
+    expect(status.value.tokenizer).toBe('unicode61')
+    expect(status.value.needsTrigram).toBe(true)
+    expect(status.value.cjkPages).toBe(1)
+    expect(status.value.cjkCharacterRatio).toBeGreaterThan(0)
+  })
+
+  test('admin rebuilds the search index with trigram for CJK matching', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    pages.create({ path: 'jp/reindex', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
+
+    const rebuilt = search.rebuildIndex(admin, { tokenizer: 'trigram' })
+    expect(rebuilt.ok).toBe(true)
+    if (!rebuilt.ok) return
+    expect(rebuilt.value.tokenizer).toBe('trigram')
+    expect(rebuilt.value.needsTrigram).toBe(false)
+    expect(search.search('天ぷら').hits[0]?.path).toBe('jp/reindex')
+    expect(search.search('天ぷら').tokenizerHint).toBeUndefined()
+  })
+
   test('page metadata supports labels, status, review dates, and filtered search', () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
@@ -257,6 +309,50 @@ describe('page + search slice (in-memory db)', () => {
       { path: 'home', title: 'Home', label: 'old page', kind: 'wikilink' },
       { path: 'home', title: 'Home', label: 'new/path', kind: 'markdown' },
     ])
+  })
+
+  test('rewriteLinksForMove rewrites wiki and markdown page links in active pages', () => {
+    const db = createDb(':memory:')
+    const { pages } = createServices(db)
+    const source = pages.create({
+      path: 'docs/source',
+      title: 'Source',
+      content: 'See [[Docs/Old|old]] and [Old](/docs/old#top).',
+    }, admin)
+    expect(source.ok).toBe(true)
+    pages.create({
+      path: 'docs/archived',
+      title: 'Archived',
+      content: 'Keep [[Docs/Old]] and [Old](/docs/old).',
+    }, admin)
+    expect(pages.archive('docs/archived', admin).ok).toBe(true)
+
+    const reindexed: Array<{ id: string; content: string }> = []
+    const now = 9_000_000_000_000
+    const rewritten = db.transaction((tx) => rewriteLinksForMove(tx, 'docs/old', 'docs/new', {
+      principal: admin,
+      now,
+      reindex: (page, content) => reindexed.push({ id: page.id, content }),
+    }))
+
+    expect(rewritten).toBe(1)
+    const updated = pages.getByPath('docs/source')
+    expect(updated.ok).toBe(true)
+    if (updated.ok) {
+      expect(updated.value.content).toBe('See [[docs/new|old]] and [Old](/docs/new#top).')
+      expect(updated.value.renderedHtml).toContain('data-wiki-link="docs/new"')
+      expect(updated.value.renderedHtml).toContain('href="/docs/new#top"')
+      expect(reindexed).toEqual([{ id: updated.value.id, content: updated.value.content }])
+    }
+    const history = pages.history('docs/source')
+    expect(history.ok).toBe(true)
+    if (history.ok) {
+      expect(history.value).toContainEqual(expect.objectContaining({ action: 'updated', createdAt: now }))
+    }
+    const archived = db.$client
+      .prepare('SELECT content FROM pages WHERE path = ?')
+      .get('docs/archived') as { content: string }
+    expect(archived.content).toBe('Keep [[Docs/Old]] and [Old](/docs/old).')
   })
 
   test('move records redirects and resolves old paths after chained moves', () => {
@@ -423,6 +519,7 @@ describe('page + search slice (in-memory db)', () => {
     // The limit is respected and capped.
     expect(pages.recentChanges(1).length).toBe(1)
     expect(pages.recentChanges(9999).length).toBeLessThanOrEqual(200)
+    expect(pages.recentChanges(10, changes[0]?.createdAt ?? 0).map((change) => change.id)).not.toContain(changes[0]?.id)
   })
 
   test('history stays newest-first even when revisions share a timestamp', () => {
@@ -525,7 +622,16 @@ describe('page + search slice (in-memory db)', () => {
     expect(recorded.ok).toBe(true)
     expect(assets.list(null).ok).toBe(true)
     expect(assets.remove('asset-1', viewer).ok).toBe(false)
+    const removed = assets.remove('asset-1', admin)
+    expect(removed.ok).toBe(true)
+    expect(assets.list(admin)).toMatchObject({ ok: true, value: [] })
+    const trashed = assets.trash(admin)
+    expect(trashed.ok).toBe(true)
+    if (trashed.ok) expect(trashed.value).toContainEqual(expect.objectContaining({ id: 'asset-1', deletedAt: expect.any(Number) }))
+    expect(assets.restore('asset-1', viewer).ok).toBe(false)
+    expect(assets.restore('asset-1', admin).ok).toBe(true)
     expect(assets.remove('asset-1', admin).ok).toBe(true)
+    expect(assets.purge('asset-1', admin).ok).toBe(true)
 
     analytics.recordPageView('docs/private', admin)
     expect(analytics.summary(viewer).ok).toBe(false)

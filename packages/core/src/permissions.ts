@@ -5,6 +5,8 @@
  * models. Here every decision flows through `can()`, so the policy is one
  * readable, testable table.
  */
+import { forbidden, type AppError } from './errors.ts'
+import { err, ok, type Result } from './result.ts'
 
 export type Role = 'admin' | 'editor' | 'viewer'
 
@@ -203,3 +205,10 @@ export const can = (
 
   return roleAllows(principal, action)
 }
+
+export const requirePermission = (
+  principal: Principal | null,
+  action: Action,
+  resource: PermissionResource = {},
+): Result<true, AppError> =>
+  can(principal, action, resource) ? ok(true) : err(forbidden())

@@ -3,12 +3,12 @@ import {
   type AppError,
   type Principal,
   type Result,
-  can,
   err,
   forbidden,
   normalizePath,
   notFound,
   ok,
+  requirePermission,
   validationError,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
@@ -69,7 +69,7 @@ export const createCommentService = (db: DB): CommentService => {
     id ? (db.select({ name: users.name }).from(users).where(eq(users.id, id)).get()?.name ?? null) : null
 
   const canMutate = (principal: Principal | null, comment: PageComment): boolean =>
-    Boolean(principal && (principal.role === 'admin' || principal.id === comment.authorId))
+    Boolean(principal && (principal.id === comment.authorId || requirePermission(principal, 'admin:access').ok))
 
   const cleanBody = (body: string): Result<string, AppError> => {
     const clean = body.trim()
@@ -93,7 +93,8 @@ export const createCommentService = (db: DB): CommentService => {
     },
 
     create(path, body, principal) {
-      if (!principal || !can(principal, 'comment:write', { path })) return err(forbidden())
+      const allowed = requirePermission(principal, 'comment:write', { path })
+      if (!principal || !allowed.ok) return allowed.ok ? err(forbidden()) : allowed
       const page = findActivePage(path)
       if (!page) return err(notFound(`No page at "${path}"`))
       const clean = cleanBody(body)

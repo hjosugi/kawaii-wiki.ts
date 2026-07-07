@@ -1,10 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Api, type RecentChange } from '@/lib/api'
+import { API_BASE_URL } from '@/lib/url'
 
+const PAGE_SIZE = 50
 const changes = ref<RecentChange[]>([])
 const loading = ref(false)
+const loadingMore = ref(false)
+const hasMore = ref(false)
 const error = ref<string | null>(null)
+const feedUrl = `${API_BASE_URL.replace(/\/+$/, '')}/feed.xml`
 
 const dayKey = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
 const formatTime = (ms: number): string =>
@@ -24,22 +29,40 @@ const grouped = computed(() => {
 
 const actionClass = (action: string): string =>
   action === 'created'
-    ? 'text-green-600'
+    ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-200'
     : action === 'deleted' || action === 'purged'
-      ? 'text-red-600'
+      ? 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-200'
       : action === 'archived'
-        ? 'text-amber-600'
-        : 'text-violet-600'
+        ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200'
+        : 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-200'
 
 async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    changes.value = await Api.recentChanges(100)
+    const next = await Api.recentChanges(PAGE_SIZE)
+    changes.value = next
+    hasMore.value = next.length === PAGE_SIZE
   } catch (e) {
     error.value = (e as Error).message
   } finally {
     loading.value = false
+  }
+}
+
+async function loadMore(): Promise<void> {
+  const before = changes.value.at(-1)?.createdAt
+  if (!before) return
+  loadingMore.value = true
+  error.value = null
+  try {
+    const older = await Api.recentChanges(PAGE_SIZE, before)
+    changes.value = [...changes.value, ...older]
+    hasMore.value = older.length === PAGE_SIZE
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    loadingMore.value = false
   }
 }
 
@@ -53,7 +76,10 @@ onMounted(load)
         <h1 class="text-3xl font-bold tracking-tight">Recent changes</h1>
         <p class="mt-1 text-sm text-gray-500">Latest edits across the wiki</p>
       </div>
-      <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <a class="btn-ghost" :href="feedUrl" target="_blank" rel="noopener">Atom</a>
+        <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
+      </div>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
@@ -64,12 +90,23 @@ onMounted(load)
       <ul class="card divide-y divide-gray-100 dark:divide-gray-800">
         <li v-for="change in items" :key="change.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-4 py-2 text-sm">
           <span class="w-16 shrink-0 text-xs text-gray-400">{{ formatTime(change.createdAt) }}</span>
-          <span class="w-20 shrink-0 font-medium capitalize" :class="actionClass(change.action)">{{ change.action }}</span>
+          <span class="w-20 shrink-0 rounded px-2 py-0.5 text-center text-xs font-semibold capitalize" :class="actionClass(change.action)">{{ change.action }}</span>
           <RouterLink class="link-quiet min-w-0 truncate" :to="'/' + change.path">{{ change.title || change.path }}</RouterLink>
           <span v-if="change.authorName" class="text-xs text-gray-400">by {{ change.authorName }}</span>
+          <RouterLink class="ml-auto text-xs link-quiet" :to="'/_history/' + change.path">History</RouterLink>
         </li>
       </ul>
     </section>
+
+    <button
+      v-if="hasMore"
+      class="btn-ghost"
+      type="button"
+      :disabled="loadingMore"
+      @click="loadMore"
+    >
+      {{ loadingMore ? 'Loading...' : 'Load older changes' }}
+    </button>
 
     <p v-if="!loading && !changes.length" class="text-gray-500">No changes yet.</p>
   </div>

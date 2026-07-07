@@ -2,9 +2,20 @@
  * Asset service — records uploaded-file metadata. The bytes live behind the
  * configured asset storage boundary; this just tracks them.
  */
-import { asc, eq, desc } from 'drizzle-orm'
+import { and, asc, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { fileTypeFromBlob } from 'file-type'
-import { type AppError, type Principal, type Result, can, err, forbidden, normalizePath, ok, validationError } from '@ts-wiki/core'
+import {
+  type Action,
+  type AppError,
+  type Principal,
+  type Result,
+  can,
+  err,
+  normalizePath,
+  ok,
+  requirePermission,
+  validationError,
+} from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
 import { assets, pages, type Asset } from '../db/schema.ts'
 
@@ -141,24 +152,36 @@ export const safeAssetStorageName = (
 ): string =>
   `${id}-${safeAssetFilename(file, mime)}`
 
+export const normalizeAssetFolder = (folder: string | null | undefined): string =>
+  normalizePath((folder ?? '').replace(/\\/g, '/'))
+
 export interface RecordAssetInput {
   readonly id?: string
   readonly filename: string
   readonly storageName: string
+  readonly folder?: string | null
   readonly mime: string
   readonly size: number
   readonly authorId: string | null
+}
+
+export interface UpdateAssetInput {
+  readonly filename?: string
+  readonly folder?: string | null
 }
 
 export interface AssetView {
   readonly id: string
   readonly filename: string
   readonly storageName: string
+  readonly folder: string
   readonly mime: string
   readonly size: number
   readonly authorId: string | null
   readonly createdAt: number
+  readonly deletedAt: number | null
   readonly url: string
+  readonly thumbUrl: string | null
 }
 
 export interface AssetUsagePage {
@@ -173,12 +196,18 @@ export interface AssetUsageView {
 
 export interface AssetService {
   record(input: RecordAssetInput, principal: Principal | null): Result<AssetView, AppError>
-  list(principal: Principal | null): Result<AssetView[], AppError>
+  list(principal: Principal | null, folder?: string | null): Result<AssetView[], AppError>
+  folders(principal: Principal | null): Result<string[], AppError>
+  trash(principal: Principal | null): Result<AssetView[], AppError>
   usage(principal: Principal | null, path?: string): Result<AssetUsageView[], AppError>
   orphans(principal: Principal | null): Result<AssetView[], AppError>
   findById(id: string, principal: Principal | null): Result<AssetView | null, AppError>
+  findDeletedById(id: string, principal: Principal | null): Result<AssetView | null, AppError>
+  update(id: string, input: UpdateAssetInput, principal: Principal | null): Result<AssetView | null, AppError>
   rename(id: string, filename: string, principal: Principal | null): Result<AssetView | null, AppError>
   remove(id: string, principal: Principal | null): Result<AssetView | null, AppError>
+  restore(id: string, principal: Principal | null): Result<AssetView | null, AppError>
+  purge(id: string, principal: Principal | null): Result<AssetView | null, AppError>
 }
 
 export interface AssetServiceOptions {
@@ -190,9 +219,21 @@ const encodeAssetPath = (storageName: string): string =>
 
 const defaultAssetUrl = (storageName: string): string => `/assets/${encodeAssetPath(storageName)}`
 
+export const isImageAssetMime = (mime: string): boolean => normalizeAssetMime(mime).startsWith('image/')
+
+export const thumbnailStorageName = (storageName: string): string => {
+  if (storageName.includes('/')) {
+    const parts = storageName.split('/')
+    parts[parts.length - 1] = 'thumb.webp'
+    return parts.join('/')
+  }
+  return `${storageName.replace(/\.[^.]+$/, '')}.thumb.webp`
+}
+
 const toView = (asset: Asset, urlForStorageName: (storageName: string) => string): AssetView => ({
   ...asset,
   url: urlForStorageName(asset.storageName),
+  thumbUrl: isImageAssetMime(asset.mime) ? `${defaultAssetUrl(asset.storageName)}?size=thumb` : null,
 })
 
 const assetReferenceAliases = (asset: AssetView): string[] => {
@@ -216,7 +257,20 @@ const contentReferencesAsset = (content: string, asset: AssetView): boolean =>
 
 export const createAssetService = (db: DB, options: AssetServiceOptions = {}): AssetService => {
   const urlForStorageName = options.urlForStorageName ?? defaultAssetUrl
-  const listRecords = (): Asset[] => db.select().from(assets).orderBy(desc(assets.createdAt)).all()
+  const requireAssetPermission = (principal: Principal | null, action: Action, path?: string): Result<true, AppError> =>
+    requirePermission(principal, action, path ? { path } : {})
+  const activeRecords = (folder?: string | null): Asset[] => {
+    const normalizedFolder = folder === undefined ? undefined : normalizeAssetFolder(folder)
+    const conditions = [isNull(assets.deletedAt)]
+    if (normalizedFolder !== undefined) conditions.push(eq(assets.folder, normalizedFolder))
+    return db.select().from(assets).where(and(...conditions)).orderBy(desc(assets.createdAt)).all()
+  }
+  const deletedRecords = (): Asset[] =>
+    db.select().from(assets).where(isNotNull(assets.deletedAt)).orderBy(desc(assets.deletedAt)).all()
+  const findActive = (id: string): Asset | undefined =>
+    db.select().from(assets).where(and(eq(assets.id, id), isNull(assets.deletedAt))).get()
+  const findDeleted = (id: string): Asset | undefined =>
+    db.select().from(assets).where(and(eq(assets.id, id), isNotNull(assets.deletedAt))).get()
   const usageFor = (principal: Principal | null, path?: string): AssetUsageView[] => {
     const targetPath = path ? normalizePath(path) : null
     const visiblePages = db
@@ -231,7 +285,7 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       .all()
       .filter((page) => (!targetPath || page.path === targetPath) && can(principal, 'page:read', { path: page.path }))
 
-    return listRecords().map((asset) => {
+    return activeRecords().map((asset) => {
       const view = toView(asset, urlForStorageName)
       return {
         asset: view,
@@ -241,53 +295,109 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       }
     })
   }
-
   return {
     record(input, principal) {
-      if (!can(principal, 'asset:write')) return err(forbidden())
+      const allowed = requireAssetPermission(principal, 'asset:write')
+      if (!allowed.ok) return allowed
       const asset: Asset = {
         id: input.id ?? crypto.randomUUID(),
         filename: input.filename,
         storageName: input.storageName,
+        folder: normalizeAssetFolder(input.folder),
         mime: input.mime,
         size: input.size,
         authorId: input.authorId,
         createdAt: Date.now(),
+        deletedAt: null,
       }
       db.insert(assets).values(asset).run()
       return ok(toView(asset, urlForStorageName))
     },
-    list(principal) {
-      if (!can(principal, 'asset:read')) return err(forbidden())
-      return ok(listRecords().map((asset) => toView(asset, urlForStorageName)))
+    list(principal, folder) {
+      const allowed = requireAssetPermission(principal, 'asset:read')
+      if (!allowed.ok) return allowed
+      return ok(activeRecords(folder).map((asset) => toView(asset, urlForStorageName)))
+    },
+    folders(principal) {
+      const allowed = requireAssetPermission(principal, 'asset:read')
+      if (!allowed.ok) return allowed
+      return ok([...new Set(activeRecords().map((asset) => asset.folder).filter(Boolean))].sort())
+    },
+    trash(principal) {
+      const allowed = requireAssetPermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
+      return ok(deletedRecords().map((asset) => toView(asset, urlForStorageName)))
     },
     usage(principal, path) {
-      if (!can(principal, 'asset:read')) return err(forbidden())
+      const allowed = requireAssetPermission(principal, 'asset:read')
+      if (!allowed.ok) return allowed
       const targetPath = path ? normalizePath(path) : null
-      if (targetPath && !can(principal, 'page:read', { path: targetPath })) return err(forbidden())
+      if (targetPath) {
+        const pageAllowed = requireAssetPermission(principal, 'page:read', targetPath)
+        if (!pageAllowed.ok) return pageAllowed
+      }
 
       return ok(usageFor(principal, path))
     },
     orphans(principal) {
-      if (!can(principal, 'asset:read')) return err(forbidden())
+      const allowed = requireAssetPermission(principal, 'asset:read')
+      if (!allowed.ok) return allowed
       return ok(usageFor(principal).filter((entry) => entry.pages.length === 0).map((entry) => entry.asset))
     },
     findById(id, principal) {
-      if (!can(principal, 'asset:read')) return err(forbidden())
-      const asset = db.select().from(assets).where(eq(assets.id, id)).get()
+      const allowed = requireAssetPermission(principal, 'asset:read')
+      if (!allowed.ok) return allowed
+      const asset = findActive(id)
       return ok(asset ? toView(asset, urlForStorageName) : null)
     },
+    findDeletedById(id, principal) {
+      const allowed = requireAssetPermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
+      const asset = findDeleted(id)
+      return ok(asset ? toView(asset, urlForStorageName) : null)
+    },
+    update(id, input, principal) {
+      const allowed = requireAssetPermission(principal, 'asset:write')
+      if (!allowed.ok) return allowed
+      const asset = findActive(id)
+      if (!asset) return ok(null)
+      const patch: Partial<Pick<Asset, 'filename' | 'folder'>> = {}
+      if (input.filename !== undefined) {
+        const clean = input.filename.trim()
+        if (!clean) return err(validationError('Filename is required', 'filename'))
+        patch.filename = clean
+      }
+      if (input.folder !== undefined) {
+        patch.folder = normalizeAssetFolder(input.folder)
+      }
+      if (Object.keys(patch).length === 0) return ok(toView(asset, urlForStorageName))
+      db.update(assets).set(patch).where(eq(assets.id, id)).run()
+      return ok(toView({ ...asset, ...patch }, urlForStorageName))
+    },
     rename(id, filename, principal) {
-      if (!can(principal, 'asset:write')) return err(forbidden())
-      const asset = db.select().from(assets).where(eq(assets.id, id)).get()
-      const clean = filename.trim()
-      if (!asset || !clean) return ok(null)
-      db.update(assets).set({ filename: clean }).where(eq(assets.id, id)).run()
-      return ok(toView({ ...asset, filename: clean }, urlForStorageName))
+      return this.update(id, { filename }, principal)
     },
     remove(id, principal) {
-      if (!can(principal, 'asset:delete')) return err(forbidden())
-      const asset = db.select().from(assets).where(eq(assets.id, id)).get()
+      const allowed = requireAssetPermission(principal, 'asset:delete')
+      if (!allowed.ok) return allowed
+      const asset = findActive(id)
+      if (!asset) return ok(null)
+      const deletedAt = Date.now()
+      db.update(assets).set({ deletedAt }).where(eq(assets.id, id)).run()
+      return ok(toView({ ...asset, deletedAt }, urlForStorageName))
+    },
+    restore(id, principal) {
+      const allowed = requireAssetPermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
+      const asset = findDeleted(id)
+      if (!asset) return ok(null)
+      db.update(assets).set({ deletedAt: null }).where(eq(assets.id, id)).run()
+      return ok(toView({ ...asset, deletedAt: null }, urlForStorageName))
+    },
+    purge(id, principal) {
+      const allowed = requireAssetPermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
+      const asset = findDeleted(id)
       if (!asset) return ok(null)
       db.delete(assets).where(eq(assets.id, id)).run()
       return ok(toView(asset, urlForStorageName))

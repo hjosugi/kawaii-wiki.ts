@@ -14,7 +14,7 @@ import {
 import { Api } from '@/lib/api'
 import AssetPicker from '@/components/AssetPicker.vue'
 
-const props = defineProps<{ modelValue: string }>()
+const props = defineProps<{ modelValue: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const host = ref<HTMLElement | null>(null)
@@ -122,7 +122,7 @@ async function uploadImages(files: File[]): Promise<void> {
   uploading.value = true
   try {
     for (const file of files) {
-      const asset = await Api.uploadAsset(file)
+      const asset = await Api.uploadAsset(file, props.assetFolder)
       const alt = asset.filename.replace(/\.[^.]+$/, '') || 'image'
       insertSnippet(`![${alt}](${asset.url})\n`)
     }
@@ -293,6 +293,6 @@ onBeforeUnmount(() => view?.destroy())
         <p v-else class="text-sm text-gray-500">No events found.</p>
       </section>
     </div>
-    <AssetPicker :open="showAssets" @close="showAssets = false" @insert="insertAsset" />
+    <AssetPicker :open="showAssets" :folder="props.assetFolder" @close="showAssets = false" @insert="insertAsset" />
   </div>
 </template>

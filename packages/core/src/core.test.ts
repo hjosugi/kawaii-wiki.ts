@@ -13,6 +13,8 @@ import {
   validatePageInput,
   isOk,
   isErr,
+  parseJsonStringArray,
+  requirePermission,
 } from './index.ts'
 
 describe('slug', () => {
@@ -35,6 +37,14 @@ describe('markdown', () => {
       { id: 'title', text: 'Title', level: 1 },
       { id: 'section-a', text: 'Section A', level: 2 },
     ])
+  })
+  test('uses frontmatter to disable or deepen the TOC', () => {
+    const disabled = renderMarkdown('---\ntoc: false\n---\n\n# Hidden\n\n## Also hidden')
+    expect(disabled.html).not.toContain('toc: false')
+    expect(disabled.toc).toEqual([])
+
+    const deep = renderMarkdown('---\ntocDepth: 4\n---\n\n# A\n\n### C\n\n#### D\n\n##### E')
+    expect(deep.toc.map((entry) => `${entry.level}:${entry.text}`)).toEqual(['1:A', '3:C', '4:D'])
   })
   test('does not pass through raw HTML', () => {
     const { html } = renderMarkdown('<script>alert(1)</script>')
@@ -323,6 +333,18 @@ describe('permissions', () => {
     }
 
     expect(can(principal, 'page:update', { path: 'ops/secret' })).toBe(false)
+    expect(requirePermission(principal, 'page:update', { path: 'ops/secret' })).toMatchObject({
+      ok: false,
+      error: { kind: 'forbidden' },
+    })
+  })
+})
+
+describe('json utilities', () => {
+  test('parseJsonStringArray keeps strings and treats invalid input as empty', () => {
+    expect(parseJsonStringArray('["a", 1, "b", null]')).toEqual(['a', 'b'])
+    expect(parseJsonStringArray('{"a": true}')).toEqual([])
+    expect(parseJsonStringArray('not json')).toEqual([])
   })
 })
 

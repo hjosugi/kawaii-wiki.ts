@@ -11,8 +11,8 @@
  *   # Getting Started
  *   ...body...
  *
- * We hand-roll a tiny frontmatter reader/writer (title + description only) so
- * the core stays dependency-free; it's lenient enough for hand-edited files.
+ * We hand-roll a tiny frontmatter reader/writer so the core stays dependency-free;
+ * it's lenient enough for hand-edited files.
  */
 import { normalizePath } from './slug.ts'
 
@@ -20,7 +20,11 @@ export interface PageFileData {
   readonly title: string
   readonly description: string
   readonly content: string
+  readonly toc?: boolean
+  readonly tocDepth?: number
 }
+
+export interface MarkdownFrontmatter extends PageFileData {}
 
 const needsQuote = (s: string): boolean => s === '' || /[:#"'\n]|^\s|\s$/.test(s)
 
@@ -35,19 +39,59 @@ const unquoteYaml = (v: string): string => {
   return t
 }
 
+const parseYamlBoolean = (value: string): boolean | undefined => {
+  const normalized = unquoteYaml(value).trim().toLowerCase()
+  if (normalized === 'true') return true
+  if (normalized === 'false') return false
+  return undefined
+}
+
+const parseTocDepth = (value: string): number | undefined => {
+  const depth = Number.parseInt(unquoteYaml(value).trim(), 10)
+  if (!Number.isInteger(depth) || depth < 1) return undefined
+  return Math.min(depth, 6)
+}
+
+const tocFrontmatterLines = (data: Pick<PageFileData, 'toc' | 'tocDepth'>): string[] => [
+  data.toc === undefined ? '' : `toc: ${data.toc ? 'true' : 'false'}`,
+  data.tocDepth === undefined ? '' : `tocDepth: ${data.tocDepth}`,
+].filter(Boolean)
+
+export const contentWithTocFrontmatter = (data: Pick<PageFileData, 'content' | 'toc' | 'tocDepth'>): string => {
+  const parsed = parseMarkdownFrontmatter(data.content)
+  const toc = data.toc ?? parsed.toc
+  const tocDepth = data.tocDepth ?? parsed.tocDepth
+  const lines = tocFrontmatterLines({ toc, tocDepth })
+  if (!lines.length) return parsed.content
+  const body = parsed.content.endsWith('\n') ? parsed.content : `${parsed.content}\n`
+  return `---\n${lines.join('\n')}\n---\n\n${body}`
+}
+
 /** Serialize a page into frontmatter + body. */
 export const serializePageFile = (data: PageFileData): string => {
-  const frontmatter = `---\ntitle: ${escapeYaml(data.title)}\ndescription: ${escapeYaml(data.description)}\n---\n`
-  const body = data.content.endsWith('\n') ? data.content : `${data.content}\n`
+  const parsedContent = parseMarkdownFrontmatter(data.content)
+  const toc = data.toc ?? parsedContent.toc
+  const tocDepth = data.tocDepth ?? parsedContent.tocDepth
+  const frontmatter = [
+    '---',
+    `title: ${escapeYaml(data.title)}`,
+    `description: ${escapeYaml(data.description)}`,
+    ...tocFrontmatterLines({ toc, tocDepth }),
+    '---',
+    '',
+  ].join('\n')
+  const body = parsedContent.content.endsWith('\n') ? parsedContent.content : `${parsedContent.content}\n`
   return `${frontmatter}\n${body}`
 }
 
-/** Parse a markdown file (with optional frontmatter) back into page fields. */
-export const parsePageFile = (raw: string): PageFileData => {
+/** Parse markdown frontmatter and return the stripped body. */
+export const parseMarkdownFrontmatter = (raw: string): MarkdownFrontmatter => {
   const text = (raw ?? '').replace(/^﻿/, '')
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   let title = ''
   let description = ''
+  let toc: boolean | undefined
+  let tocDepth: number | undefined
   let content = text
 
   if (match) {
@@ -57,11 +101,22 @@ export const parsePageFile = (raw: string): PageFileData => {
       if (!kv) continue
       if (kv[1] === 'title') title = unquoteYaml(kv[2] ?? '')
       else if (kv[1] === 'description') description = unquoteYaml(kv[2] ?? '')
+      else if (kv[1] === 'toc') toc = parseYamlBoolean(kv[2] ?? '')
+      else if (kv[1] === 'tocDepth') tocDepth = parseTocDepth(kv[2] ?? '')
     }
   }
 
-  return { title, description, content }
+  return {
+    title,
+    description,
+    content,
+    ...(toc === undefined ? {} : { toc }),
+    ...(tocDepth === undefined ? {} : { tocDepth }),
+  }
 }
+
+/** Parse a markdown file (with optional frontmatter) back into page fields. */
+export const parsePageFile = (raw: string): PageFileData => parseMarkdownFrontmatter(raw)
 
 /** Page path → repo-relative file path (under the content/ root). */
 export const pageFilePath = (path: string): string => `${path}.md`

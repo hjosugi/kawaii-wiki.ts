@@ -14,10 +14,13 @@ vi.mock('@/lib/api', async (importOriginal) => {
         siteTitle: 'ts-wiki',
         accentColor: '#7c3aed',
         theme: 'system',
-        navLinks: [],
-        privateWiki: false,
-        registration: 'open',
-      })),
+	        navLinks: [],
+	        privateWiki: false,
+	        registration: 'open',
+	        mailConfigured: false,
+	        requireEmailVerification: false,
+	        requireTwoFactor: false,
+	      })),
     },
   }
 })
@@ -30,10 +33,13 @@ describe('router auth guard', () => {
       siteTitle: 'ts-wiki',
       accentColor: '#7c3aed',
       theme: 'system',
-      navLinks: [],
-      privateWiki: false,
-      registration: 'open',
-    })
+	      navLinks: [],
+	      privateWiki: false,
+	      registration: 'open',
+	      mailConfigured: false,
+	      requireEmailVerification: false,
+	      requireTwoFactor: false,
+	    })
   })
 
   test('redirects anonymous editors/admins to login', async () => {
@@ -68,10 +74,13 @@ describe('router auth guard', () => {
       siteTitle: 'ts-wiki',
       accentColor: '#7c3aed',
       theme: 'system',
-      navLinks: [],
-      privateWiki: true,
-      registration: 'off',
-    })
+	      navLinks: [],
+	      privateWiki: true,
+	      registration: 'off',
+	      mailConfigured: false,
+	      requireEmailVerification: false,
+	      requireTwoFactor: false,
+	    })
     const router = createWikiRouter()
 
     await router.push('/docs/private')
@@ -79,5 +88,47 @@ describe('router auth guard', () => {
 
     expect(router.currentRoute.value.name).toBe('login')
     expect(router.currentRoute.value.query.redirect).toBe('/docs/private')
+  })
+
+  test('allows anonymous shared links when private wiki is enabled', async () => {
+    vi.mocked(Api.publicSettings).mockResolvedValueOnce({
+      siteTitle: 'ts-wiki',
+      accentColor: '#7c3aed',
+      theme: 'system',
+	      navLinks: [],
+	      privateWiki: true,
+	      registration: 'off',
+	      mailConfigured: false,
+	      requireEmailVerification: false,
+	      requireTwoFactor: false,
+	    })
+    const router = createWikiRouter()
+
+    await router.push('/_share/share-token')
+    await router.isReady()
+
+	  expect(router.currentRoute.value.name).toBe('shared')
+	})
+
+  test('allows anonymous password reset and email verification links when private wiki is enabled', async () => {
+    vi.mocked(Api.publicSettings).mockResolvedValueOnce({
+      siteTitle: 'ts-wiki',
+      accentColor: '#7c3aed',
+      theme: 'system',
+      navLinks: [],
+      privateWiki: true,
+      registration: 'off',
+      mailConfigured: true,
+      requireEmailVerification: true,
+      requireTwoFactor: true,
+    })
+    const router = createWikiRouter()
+
+    await router.push('/_reset?token=abc')
+    await router.isReady()
+    expect(router.currentRoute.value.name).toBe('reset-password')
+
+    await router.push('/_verify-email?token=abc')
+    expect(router.currentRoute.value.name).toBe('verify-email')
   })
 })

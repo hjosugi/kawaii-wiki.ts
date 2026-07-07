@@ -9,7 +9,7 @@
  * and aren't searchable; storage writes aren't transactional. Here a save is
  * atomic and the page is fully rendered and indexed the instant it returns.
  */
-import { eq, ne, asc, desc, sql } from 'drizzle-orm'
+import { eq, ne, asc, desc, lt, sql } from 'drizzle-orm'
 import {
   type Result,
   ok,
@@ -21,6 +21,7 @@ import {
   forbidden,
   notFound,
   conflict,
+  validationError,
   validatePageInput,
   renderMarkdown,
   toPlainText,
@@ -29,11 +30,14 @@ import {
   extractCalendarEvents,
   normalizePath,
   normalizeLabels,
+  parseJsonStringArray,
+  requirePermission,
   isPageStatus,
   normalizeLocale,
   type PageStatus,
   type PageFileData,
   type ExtractedCalendarEvent,
+  contentWithTocFrontmatter,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
 import {
@@ -114,6 +118,12 @@ export interface RecentChange {
   readonly createdAt: number
 }
 
+export interface PageRedirectView {
+  readonly fromPath: string
+  readonly toPath: string
+  readonly createdAt: number
+}
+
 export interface PageRevisionSummary {
   readonly id: string
   readonly path: string
@@ -166,7 +176,10 @@ export interface PageService {
   backlinks(path: string): PageBacklink[]
   labels(): LabelCount[]
   brokenLinks(): BrokenLink[]
-  recentChanges(limit?: number): RecentChange[]
+  recentChanges(limit?: number, before?: number | null): RecentChange[]
+  redirects(principal: Principal | null): Result<PageRedirectView[], AppError>
+  createRedirect(fromPath: string, toPath: string, principal: Principal | null): Result<PageRedirectView, AppError>
+  deleteRedirect(fromPath: string, principal: Principal | null): Result<{ fromPath: string }, AppError>
   events(): ExtractedCalendarEvent[]
   history(path: string): Result<PageRevisionSummary[], AppError>
   getByPath(path: string): Result<Page, AppError>
@@ -194,6 +207,66 @@ export interface PageService {
   purge(path: string, principal: Principal | null): Result<{ path: string }, AppError>
 }
 
+type PageWriteTransaction = Parameters<Parameters<DB['transaction']>[0]>[0]
+
+const snapshotRevision = (
+  tx: { insert: DB['insert'] },
+  page: Pick<Page, 'id' | 'path' | 'title' | 'description' | 'content'>,
+  principal: Principal | null,
+  action: PageRevision['action'],
+  now: number,
+): void => {
+  tx.insert(pageRevisions)
+    .values({
+      id: crypto.randomUUID(),
+      pageId: page.id,
+      path: page.path,
+      title: page.title,
+      description: page.description,
+      content: page.content,
+      authorId: principal?.id ?? null,
+      action,
+      createdAt: now,
+    })
+    .run()
+}
+
+export interface RewriteLinksForMoveOptions {
+  readonly principal: Principal | null
+  readonly now: number
+  readonly reindex: (
+    page: Pick<Page, 'id' | 'title' | 'description'>,
+    content: string,
+  ) => void
+}
+
+export const rewriteLinksForMove = (
+  tx: PageWriteTransaction,
+  oldPath: string,
+  newPath: string,
+  { principal, now, reindex }: RewriteLinksForMoveOptions,
+): number => {
+  let rewritten = 0
+  for (const page of tx.select().from(pages).where(eq(pages.lifecycle, 'active')).all()) {
+    const content = rewritePageLinks(page.content, oldPath, newPath)
+    if (content === page.content) continue
+    const { html, toc } = renderMarkdown(content)
+    snapshotRevision(tx, page, principal, 'updated', now)
+    tx.update(pages)
+      .set({
+        content,
+        renderedHtml: html,
+        toc: JSON.stringify(toc),
+        updatedAt: now,
+      })
+      .where(eq(pages.id, page.id))
+      .run()
+    reindex(page, content)
+    rewritten += 1
+  }
+  return rewritten
+}
+
 export const createPageService = (db: DB): PageService => {
   // Prepared FTS5 statements (FTS5 has no UPSERT, so update = delete + insert).
   const ftsInsert = db.$client.prepare(
@@ -214,6 +287,12 @@ export const createPageService = (db: DB): PageService => {
 
   const findRedirect = (path: string): string | null =>
     db.select().from(pageRedirects).where(eq(pageRedirects.fromPath, normalizePath(path))).get()?.toPath ?? null
+
+  const requirePagePermission = (
+    principal: Principal | null,
+    action: Parameters<typeof requirePermission>[1],
+    path?: string,
+  ): Result<true, AppError> => requirePermission(principal, action, path ? { path } : {})
 
   const resolvePath = (path: string): Result<ResolvedPage, AppError> => {
     let currentPath = normalizePath(path)
@@ -241,36 +320,7 @@ export const createPageService = (db: DB): PageService => {
   const pathConflict = (page: Page, path: string): AppError =>
     page.lifecycle === 'active' ? conflict(`A page already exists at "${normalizePath(path)}"`) : tombstoneConflict(path)
 
-  const snapshotRevision = (
-    tx: { insert: DB['insert'] },
-    page: Pick<Page, 'id' | 'path' | 'title' | 'description' | 'content'>,
-    principal: Principal | null,
-    action: PageRevision['action'],
-    now: number,
-  ): void => {
-    tx.insert(pageRevisions)
-      .values({
-        id: crypto.randomUUID(),
-        pageId: page.id,
-        path: page.path,
-        title: page.title,
-        description: page.description,
-        content: page.content,
-        authorId: principal?.id ?? null,
-        action,
-        createdAt: now,
-      })
-      .run()
-  }
-
-  const parseLabels = (value: string): string[] => {
-    try {
-      const labels = JSON.parse(value) as unknown
-      return Array.isArray(labels) ? normalizeLabels(labels.filter((label): label is string => typeof label === 'string')) : []
-    } catch {
-      return []
-    }
-  }
+  const parseLabels = (value: string): string[] => normalizeLabels(parseJsonStringArray(value))
 
   const writeExistingPage = (
     current: Page,
@@ -449,10 +499,29 @@ export const createPageService = (db: DB): PageService => {
       return out
     },
 
-    recentChanges(limit = 50) {
+    recentChanges(limit = 50, before = null) {
       const capped = Math.min(Math.max(limit, 1), 200)
-      const rows = db
-        .select({
+      const selection = {
+        id: pageRevisions.id,
+        path: pageRevisions.path,
+        title: pageRevisions.title,
+        action: pageRevisions.action,
+        authorId: pageRevisions.authorId,
+        authorName: users.name,
+        createdAt: pageRevisions.createdAt,
+      }
+      const base = db
+        .select(selection)
+        .from(pageRevisions)
+        .leftJoin(users, eq(users.id, pageRevisions.authorId))
+      const rows = before !== null && before !== undefined
+        ? base
+          .where(lt(pageRevisions.createdAt, before))
+          .orderBy(desc(pageRevisions.createdAt), sql`page_revisions.rowid desc`)
+          .limit(capped)
+          .all()
+        : db
+          .select({
           id: pageRevisions.id,
           path: pageRevisions.path,
           title: pageRevisions.title,
@@ -460,13 +529,49 @@ export const createPageService = (db: DB): PageService => {
           authorId: pageRevisions.authorId,
           authorName: users.name,
           createdAt: pageRevisions.createdAt,
-        })
-        .from(pageRevisions)
-        .leftJoin(users, eq(users.id, pageRevisions.authorId))
-        .orderBy(desc(pageRevisions.createdAt), sql`page_revisions.rowid desc`)
-        .limit(capped)
-        .all()
+          })
+          .from(pageRevisions)
+          .leftJoin(users, eq(users.id, pageRevisions.authorId))
+          .orderBy(desc(pageRevisions.createdAt), sql`page_revisions.rowid desc`)
+          .limit(capped)
+          .all()
       return rows.map((row) => ({ ...row, authorName: row.authorName ?? null }))
+    },
+
+    redirects(principal) {
+      const allowed = requirePagePermission(principal, 'page:update')
+      if (!allowed.ok) return allowed
+      return ok(db.select().from(pageRedirects).orderBy(asc(pageRedirects.fromPath)).all())
+    },
+
+    createRedirect(fromPath, toPath, principal) {
+      const from = normalizePath(fromPath)
+      const to = normalizePath(toPath)
+      const allowed = requirePagePermission(principal, 'page:update', to)
+      if (!allowed.ok) return allowed
+      if (!from || !to) return err(validationError('Redirect paths are required', 'fromPath'))
+      if (from === to) return err(conflict('Redirect source and target must be different'))
+      const sourcePage = findByPath(from)
+      if (sourcePage?.lifecycle === 'active') return err(conflict(`A page already exists at "${from}"`))
+      const existing = findRedirect(from)
+      if (existing) return err(conflict(`A redirect already exists at "${from}"`))
+      const resolved = resolvePath(to)
+      if (!resolved.ok) return resolved
+      const target = resolved.value.page.path
+      if (target === from) return err(conflict('Redirect would create a loop'))
+      const redirect = { fromPath: from, toPath: target, createdAt: Date.now() }
+      db.insert(pageRedirects).values(redirect).run()
+      return ok(redirect)
+    },
+
+    deleteRedirect(fromPath, principal) {
+      const from = normalizePath(fromPath)
+      const allowed = requirePagePermission(principal, 'page:update', from)
+      if (!allowed.ok) return allowed
+      const existing = findRedirect(from)
+      if (!existing) return err(notFound(`No redirect at "${from}"`))
+      db.delete(pageRedirects).where(eq(pageRedirects.fromPath, from)).run()
+      return ok({ fromPath: from })
     },
 
     events() {
@@ -523,7 +628,8 @@ export const createPageService = (db: DB): PageService => {
       const validated = validatePageInput(input)
       if (!validated.ok) return validated
       const v = validated.value
-      if (!can(principal, 'page:create', { path: v.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:create', v.path)
+      if (!allowed.ok) return allowed
 
       const existing = findByPath(v.path)
       if (existing) return err(pathConflict(existing, v.path))
@@ -569,7 +675,8 @@ export const createPageService = (db: DB): PageService => {
     update(path, patch, principal) {
       const current = findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:update', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:update', current.path)
+      if (!allowed.ok) return allowed
       if (patch.expectedUpdatedAt != null && current.updatedAt !== patch.expectedUpdatedAt) {
         return err(conflict(`Page "${path}" changed since you opened it; reload the latest version before saving.`))
       }
@@ -598,12 +705,13 @@ export const createPageService = (db: DB): PageService => {
     upsertFromFile(path, file, options, principal) {
       const title = (options.title ?? file.title).trim() || normalizePath(path).split('/').at(-1) || 'Imported page'
       const description = options.description ?? file.description
+      const content = contentWithTocFrontmatter(file)
       const existing = this.getByPath(path)
       if (existing.ok) {
         const page = this.update(path, {
           title,
           description,
-          content: file.content,
+          content,
           labels: options.labels,
           status: options.status,
           locale: options.locale,
@@ -616,7 +724,7 @@ export const createPageService = (db: DB): PageService => {
         path,
         title,
         description,
-        content: file.content,
+        content,
         labels: options.labels,
         status: options.status,
         locale: options.locale,
@@ -628,7 +736,8 @@ export const createPageService = (db: DB): PageService => {
     saveContent(path, content, principal, expectedUpdatedAt = null) {
       const current = findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:update', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:update', current.path)
+      if (!allowed.ok) return allowed
       if (expectedUpdatedAt !== null && current.updatedAt !== expectedUpdatedAt) {
         return err(conflict(`Page "${path}" changed outside the collaborative editor`))
       }
@@ -659,7 +768,8 @@ export const createPageService = (db: DB): PageService => {
     restoreRevision(path, revisionId, principal) {
       const current = findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:update', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:update', current.path)
+      if (!allowed.ok) return allowed
       const revision = db.select().from(pageRevisions).where(eq(pageRevisions.id, revisionId)).get()
       if (!revision || revision.pageId !== current.id) return err(notFound('Revision not found'))
 
@@ -684,7 +794,8 @@ export const createPageService = (db: DB): PageService => {
     archive(path, principal) {
       const current = findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:delete', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:delete', current.path)
+      if (!allowed.ok) return allowed
       const now = Date.now()
       const page = db.transaction((tx) => {
         snapshotRevision(tx, current, principal, 'archived', now)
@@ -701,7 +812,8 @@ export const createPageService = (db: DB): PageService => {
     restore(path, principal) {
       const current = findByPath(path)
       if (!current) return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:update', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:update', current.path)
+      if (!allowed.ok) return allowed
       if (current.lifecycle === 'active') return ok(current)
       const now = Date.now()
       const page = db.transaction((tx) => {
@@ -719,7 +831,8 @@ export const createPageService = (db: DB): PageService => {
     move(oldPath, newPath, principal) {
       const current = findByPath(oldPath)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${oldPath}"`))
-      if (!can(principal, 'page:move', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:move', current.path)
+      if (!allowed.ok) return allowed
 
       const validated = validatePageInput({
         path: newPath,
@@ -768,22 +881,11 @@ export const createPageService = (db: DB): PageService => {
           })
           .run()
 
-        for (const page of tx.select().from(pages).where(eq(pages.lifecycle, 'active')).all()) {
-          const content = rewritePageLinks(page.content, current.path, v.path)
-          if (content === page.content) continue
-          const { html, toc } = renderMarkdown(content)
-          snapshotRevision(tx, page, principal, 'updated', now)
-          tx.update(pages)
-            .set({
-              content,
-              renderedHtml: html,
-              toc: JSON.stringify(toc),
-              updatedAt: now,
-            })
-            .where(eq(pages.id, page.id))
-            .run()
-          reindex(page.id, page.title, page.description, content)
-        }
+        rewriteLinksForMove(tx, current.path, v.path, {
+          principal,
+          now,
+          reindex: (page, content) => reindex(page.id, page.title, page.description, content),
+        })
 
         reindex(current.id, current.title, current.description, current.content)
         return findById(current.id)
@@ -795,7 +897,8 @@ export const createPageService = (db: DB): PageService => {
     remove(path, principal) {
       const current = findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
-      if (!can(principal, 'page:delete', { path: current.path })) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'page:delete', current.path)
+      if (!allowed.ok) return allowed
 
       const now = Date.now()
       const deleted = db.transaction((tx) => {
@@ -815,7 +918,8 @@ export const createPageService = (db: DB): PageService => {
     },
 
     purge(path, principal) {
-      if (!can(principal, 'admin:access')) return err(forbidden())
+      const allowed = requirePagePermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
 
       const current = findByPath(path)
       if (!current) return err(notFound(`No page at "${path}"`))

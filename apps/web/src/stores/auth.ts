@@ -25,16 +25,32 @@ export const useAuth = defineStore('auth', () => {
     }
   }
 
-  async function login(email: string, password: string, totpCode?: string): Promise<void> {
+  async function login(
+    email: string,
+    password: string,
+    totpCode?: string,
+  ): Promise<'signed-in' | { status: 'two-factor-setup-required'; setupToken: string }> {
     const res = await Api.login({ email, password, totpCode })
+    if ('twoFactorSetupRequired' in res) {
+      setToken(null)
+      user.value = null
+      return { status: 'two-factor-setup-required', setupToken: res.setupToken }
+    }
     setToken(res.token)
     user.value = res.user
+    return 'signed-in'
   }
 
-  async function register(email: string, name: string, password: string): Promise<void> {
+  async function register(email: string, name: string, password: string): Promise<'signed-in' | 'verification-required'> {
     const res = await Api.register({ email, name, password })
+    if ('verificationRequired' in res) {
+      setToken(null)
+      user.value = null
+      return 'verification-required'
+    }
     setToken(res.token)
     user.value = res.user
+    return 'signed-in'
   }
 
   function logout(): void {

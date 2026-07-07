@@ -20,6 +20,7 @@ export const users = sqliteTable('users', {
   totpEnabled: integer('totp_enabled').notNull().default(0),
   disabledAt: integer('disabled_at'),
   tokenInvalidBefore: integer('token_invalid_before').notNull().default(0),
+  emailVerifiedAt: integer('email_verified_at'),
   createdAt: integer('created_at').notNull(),
 })
 
@@ -46,6 +47,29 @@ export const oauthStates = sqliteTable('oauth_states', {
   expiresAt: integer('expires_at').notNull(),
   createdAt: integer('created_at').notNull(),
 })
+
+export const passwordResets = sqliteTable(
+  'password_resets',
+  {
+    token: text('token').primaryKey(),
+    userId: text('user_id').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('password_resets_user_idx').on(t.userId), index('password_resets_expires_idx').on(t.expiresAt)],
+)
+
+export const emailVerifications = sqliteTable(
+  'email_verifications',
+  {
+    token: text('token').primaryKey(),
+    userId: text('user_id').notNull(),
+    email: text('email').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('email_verifications_user_idx').on(t.userId), index('email_verifications_expires_idx').on(t.expiresAt)],
+)
 
 export const passkeys = sqliteTable(
   'passkeys',
@@ -76,6 +100,27 @@ export const webauthnChallenges = sqliteTable(
   (t) => [
     index('webauthn_challenges_user_idx').on(t.userId),
     index('webauthn_challenges_expires_idx').on(t.expiresAt),
+  ],
+)
+
+export const apiKeys = sqliteTable(
+  'api_keys',
+  {
+    id: text('id').primaryKey(),
+    name: text('name').notNull(),
+    keyHash: text('key_hash').notNull().unique(),
+    role: text('role', { enum: ['admin', 'editor', 'viewer'] })
+      .notNull()
+      .default('viewer'),
+    expiresAt: integer('expires_at'),
+    lastUsedAt: integer('last_used_at'),
+    revokedAt: integer('revoked_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('api_keys_hash_idx').on(t.keyHash),
+    index('api_keys_expires_idx').on(t.expiresAt),
+    index('api_keys_revoked_idx').on(t.revokedAt),
   ],
 )
 
@@ -198,6 +243,19 @@ export const pageRedirects = sqliteTable('page_redirects', {
   createdAt: integer('created_at').notNull(),
 })
 
+export const pageShares = sqliteTable(
+  'page_shares',
+  {
+    token: text('token').primaryKey(),
+    path: text('path').notNull(),
+    createdBy: text('created_by').notNull(),
+    expiresAt: integer('expires_at'),
+    revokedAt: integer('revoked_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('page_shares_path_idx').on(t.path), index('page_shares_created_by_idx').on(t.createdBy)],
+)
+
 export const siteSettings = sqliteTable('site_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
@@ -208,11 +266,27 @@ export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),
   filename: text('filename').notNull(),
   storageName: text('storage_name').notNull().default(''),
+  folder: text('folder').notNull().default(''),
   mime: text('mime').notNull(),
   size: integer('size').notNull(),
   authorId: text('author_id'),
   createdAt: integer('created_at').notNull(),
+  deletedAt: integer('deleted_at'),
 })
+
+export const wikiEvents = sqliteTable(
+  'wiki_events',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    sourceId: text('source_id').notNull(),
+    eventType: text('event_type', { enum: ['page:changed'] }).notNull(),
+    action: text('action', { enum: ['created', 'updated', 'moved', 'deleted'] }).notNull(),
+    path: text('path').notNull(),
+    fromPath: text('from_path'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [index('wiki_events_id_idx').on(t.id)],
+)
 
 export const rateLimitHits = sqliteTable(
   'rate_limit_hits',
@@ -295,8 +369,11 @@ export type User = typeof users.$inferSelect
 export type NewUser = typeof users.$inferInsert
 export type AuthAccount = typeof authAccounts.$inferSelect
 export type OAuthState = typeof oauthStates.$inferSelect
+export type PasswordReset = typeof passwordResets.$inferSelect
+export type EmailVerification = typeof emailVerifications.$inferSelect
 export type Passkey = typeof passkeys.$inferSelect
 export type WebauthnChallenge = typeof webauthnChallenges.$inferSelect
+export type ApiKey = typeof apiKeys.$inferSelect
 export type Group = typeof groups.$inferSelect
 export type GroupMembership = typeof groupMemberships.$inferSelect
 export type PermissionGrantRow = typeof permissionGrants.$inferSelect
@@ -307,8 +384,10 @@ export type PageRevision = typeof pageRevisions.$inferSelect
 export type PageComment = typeof pageComments.$inferSelect
 export type PageAnalytics = typeof pageAnalytics.$inferSelect
 export type PageRedirect = typeof pageRedirects.$inferSelect
+export type PageShare = typeof pageShares.$inferSelect
 export type SiteSetting = typeof siteSettings.$inferSelect
 export type Asset = typeof assets.$inferSelect
+export type WikiEventRow = typeof wikiEvents.$inferSelect
 export type RateLimitHit = typeof rateLimitHits.$inferSelect
 export type RealtimeTicket = typeof realtimeTickets.$inferSelect
 export type WebhookSubscription = typeof webhookSubscriptions.$inferSelect

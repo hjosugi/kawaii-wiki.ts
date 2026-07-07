@@ -64,6 +64,8 @@ export interface AuthEnv {
   readonly tokenTtlSeconds: number
   readonly registration: 'open' | 'off'
   readonly privateWiki: boolean
+  readonly requireEmailVerification: boolean
+  readonly requireTwoFactor: boolean
   readonly oidcProviders: readonly OidcProviderEnv[]
 }
 
@@ -73,6 +75,12 @@ export interface AssetUploadEnv {
 
 export interface WebhookEnv {
   readonly allowPrivateTargets: boolean
+}
+
+export interface MailEnv {
+  readonly smtpUrl: string | null
+  readonly from: string
+  readonly timeoutMs: number
 }
 
 export interface Env {
@@ -89,6 +97,7 @@ export interface Env {
   readonly search: SearchEnv
   readonly assetUpload: AssetUploadEnv
   readonly webhooks: WebhookEnv
+  readonly mail: MailEnv
   readonly assetStorage: AssetStorageConfig
   readonly git: GitEnv
   readonly realtime: RealtimeEnv
@@ -278,9 +287,20 @@ const loadAuthEnv = (source: EnvSource): AuthEnv => {
     tokenTtlSeconds: parsePositiveInteger(source.TS_WIKI_JWT_TTL_SECONDS, 30 * 24 * 60 * 60, 'TS_WIKI_JWT_TTL_SECONDS'),
     registration: parseRegistration(source.TS_WIKI_REGISTRATION),
     privateWiki: parseBoolean(source.TS_WIKI_PRIVATE),
+    requireEmailVerification: parseBoolean(source.TS_WIKI_REQUIRE_EMAIL_VERIFICATION),
+    requireTwoFactor: parseBoolean(source.TS_WIKI_REQUIRE_2FA),
     oidcProviders: providers,
   }
 }
+
+const defaultMailFrom = (publicOrigin: string): string =>
+  `ts-wiki <no-reply@${originHost(publicOrigin)}>`
+
+const loadMailEnv = (source: EnvSource, publicOrigin: string): MailEnv => ({
+  smtpUrl: optionalTrimmed(source.SMTP_URL) ?? optionalTrimmed(source.TS_WIKI_SMTP_URL),
+  from: optionalTrimmed(source.SMTP_FROM) ?? optionalTrimmed(source.TS_WIKI_MAIL_FROM) ?? defaultMailFrom(publicOrigin),
+  timeoutMs: parsePositiveInteger(source.TS_WIKI_SMTP_TIMEOUT_MS, 10_000, 'TS_WIKI_SMTP_TIMEOUT_MS'),
+})
 
 export const loadEnv = (source: EnvSource = process.env): Env => {
   const production = isProduction(source)
@@ -290,6 +310,7 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
   const configuredCorsOrigins = parseCorsOrigins(source.TS_WIKI_CORS_ORIGINS)
   const remoteUrl = source.TS_WIKI_GIT_REMOTE_URL?.trim() || null
   const remote = source.TS_WIKI_GIT_REMOTE?.trim() || (remoteUrl ? 'origin' : null)
+  const auth = loadAuthEnv(source)
   return {
     port: Number(source.PORT ?? 4000),
     database,
@@ -301,7 +322,7 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
     cors: {
       origins: configuredCorsOrigins ?? (production ? [] : null),
     },
-    auth: loadAuthEnv(source),
+    auth,
     search: {
       ftsTokenizer: parseFtsTokenizer(source.TS_WIKI_FTS_TOKENIZER),
     },
@@ -311,6 +332,7 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
     webhooks: {
       allowPrivateTargets: parseBoolean(source.TS_WIKI_WEBHOOK_ALLOW_PRIVATE),
     },
+    mail: loadMailEnv(source, auth.publicOrigin),
     assetStorage: loadAssetStorage(source, dataDir),
     git: {
       // NB: namespaced TS_WIKI_GIT_* — plain GIT_DIR / GIT_AUTHOR_* are reserved

@@ -14,6 +14,7 @@ import taskLists from 'markdown-it-task-lists'
 import imsize from 'markdown-it-imsize'
 import hljs from 'highlight.js'
 import { slugifyHeading } from './slug.ts'
+import { parseMarkdownFrontmatter } from './frontmatter.ts'
 
 export interface TocEntry {
   readonly id: string
@@ -674,25 +675,30 @@ const addUniqueLink = (links: PageLink[], seen: Set<string>, link: PageLink): vo
 }
 
 /**
- * Render Markdown to sanitized HTML and extract a 3-level table of contents in
- * a single parse pass.
+ * Render Markdown to sanitized HTML and extract a configurable table of
+ * contents in a single parse pass.
  */
 export const renderMarkdown = (content: string): RenderResult => {
+  const frontmatter = parseMarkdownFrontmatter(content ?? '')
   const env: Record<string, unknown> = {}
-  const tokens = md.parse(content ?? '', env)
+  const tokens = md.parse(frontmatter.content, env)
   const toc: TocEntry[] = []
+  const tocEnabled = frontmatter.toc !== false
+  const tocDepth = frontmatter.tocDepth ?? 3
 
-  for (let i = 0; i < tokens.length; i++) {
-    const open = tokens[i]
-    if (open && open.type === 'heading_open') {
-      const level = headingLevel(open.tag)
-      if (level >= 1 && level <= 3) {
-        const inline = tokens[i + 1]
-        toc.push({
-          id: open.attrGet('id') ?? '',
-          text: inline?.content ?? '',
-          level,
-        })
+  if (tocEnabled) {
+    for (let i = 0; i < tokens.length; i++) {
+      const open = tokens[i]
+      if (open && open.type === 'heading_open') {
+        const level = headingLevel(open.tag)
+        if (level >= 1 && level <= tocDepth) {
+          const inline = tokens[i + 1]
+          toc.push({
+            id: open.attrGet('id') ?? '',
+            text: inline?.content ?? '',
+            level,
+          })
+        }
       }
     }
   }

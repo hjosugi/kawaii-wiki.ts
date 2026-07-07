@@ -12,6 +12,8 @@ const authEnv = (): AuthEnv => ({
   tokenTtlSeconds: 30 * 24 * 60 * 60,
   registration: 'open',
   privateWiki: false,
+  requireEmailVerification: false,
+  requireTwoFactor: false,
   oidcProviders: [{
     id: 'oidc',
     label: 'OIDC',

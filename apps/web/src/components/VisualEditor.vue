@@ -3,7 +3,7 @@ import { nextTick, onMounted, ref, watch } from 'vue'
 import { Api } from '@/lib/api'
 import AssetPicker from '@/components/AssetPicker.vue'
 
-const props = defineProps<{ modelValue: string }>()
+const props = defineProps<{ modelValue: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const editor = ref<HTMLElement | null>(null)
@@ -438,7 +438,7 @@ async function uploadImages(files: File[]): Promise<void> {
   uploading.value = true
   try {
     for (const file of files) {
-      const asset = await Api.uploadAsset(file)
+      const asset = await Api.uploadAsset(file, props.assetFolder)
       insertImage(asset.url, asset.filename.replace(/\.[^.]+$/, '') || 'image')
     }
   } catch (e) {
@@ -520,6 +520,6 @@ watch(
       @paste="onPaste"
       @drop="onDrop"
     ></div>
-    <AssetPicker :open="showAssets" @close="showAssets = false" @insert="insertAsset" />
+    <AssetPicker :open="showAssets" :folder="props.assetFolder" @close="showAssets = false" @insert="insertAsset" />
   </div>
 </template>

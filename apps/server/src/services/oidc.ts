@@ -222,6 +222,7 @@ export const createOidcService = (
       totpEnabled: 0,
       disabledAt: null,
       tokenInvalidBefore: 0,
+      emailVerifiedAt: now,
       createdAt: now,
     }
     db.insert(users).values(user).run()

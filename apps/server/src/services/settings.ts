@@ -2,10 +2,9 @@ import {
   type AppError,
   type Principal,
   type Result,
-  can,
   err,
-  forbidden,
   ok,
+  requirePermission,
   validationError,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
@@ -118,7 +117,8 @@ export const createSettingsService = (db: DB): SettingsService => {
   return {
     public: read,
     update(principal, patch) {
-      if (!can(principal, 'admin:access')) return err(forbidden())
+      const allowed = requirePermission(principal, 'admin:access')
+      if (!allowed.ok) return allowed
       const next = validatePatch(read(), patch)
       if (!next.ok) return next
       write(next.value)

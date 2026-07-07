@@ -2,6 +2,7 @@ import { describe, test, expect } from 'bun:test'
 import {
   serializePageFile,
   parsePageFile,
+  contentWithTocFrontmatter,
   pageFilePath,
   filePathToPagePath,
 } from './frontmatter.ts'
@@ -21,6 +22,30 @@ describe('frontmatter', () => {
     const file = serializePageFile({ title: 'A: B', description: '  spaced', content: 'x' })
     expect(parsePageFile(file).title).toBe('A: B')
     expect(parsePageFile(file).description).toBe('  spaced')
+  })
+
+  test('parses and serializes TOC frontmatter settings', () => {
+    const parsed = parsePageFile('---\ntitle: Guide\ndescription: Deep page\ntoc: false\ntocDepth: 4\n---\n\n# Body')
+    expect(parsed).toMatchObject({
+      title: 'Guide',
+      description: 'Deep page',
+      toc: false,
+      tocDepth: 4,
+      content: '# Body',
+    })
+
+    const file = serializePageFile({ title: 'Guide', description: 'Deep page', content: parsed.content, toc: false, tocDepth: 4 })
+    expect(file).toContain('toc: false')
+    expect(file).toContain('tocDepth: 4')
+  })
+
+  test('keeps TOC settings as content frontmatter for stored pages', () => {
+    const content = contentWithTocFrontmatter({
+      content: '# Body\n',
+      toc: false,
+      tocDepth: 2,
+    })
+    expect(content).toBe('---\ntoc: false\ntocDepth: 2\n---\n\n# Body\n')
   })
 
   test('parses a hand-written file without frontmatter', () => {

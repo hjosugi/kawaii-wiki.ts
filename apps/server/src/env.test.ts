@@ -13,6 +13,11 @@ describe('loadEnv', () => {
     expect(env.search).toEqual({ ftsTokenizer: 'unicode61' })
     expect(env.assetUpload).toEqual({ maxBytes: 25 * 1024 * 1024 })
     expect(env.webhooks).toEqual({ allowPrivateTargets: false })
+    expect(env.mail).toEqual({
+      smtpUrl: null,
+      from: 'ts-wiki <no-reply@localhost>',
+      timeoutMs: 10_000,
+    })
     expect(env.assetStorage).toEqual({
       type: 'local',
       dataDir: './data',
@@ -21,6 +26,8 @@ describe('loadEnv', () => {
     expect(env.auth.tokenTtlSeconds).toBe(30 * 24 * 60 * 60)
     expect(env.auth.registration).toBe('open')
     expect(env.auth.privateWiki).toBe(false)
+    expect(env.auth.requireEmailVerification).toBe(false)
+    expect(env.auth.requireTwoFactor).toBe(false)
     expect(env.auth.oidcProviders).toEqual([])
   })
 
@@ -109,12 +116,14 @@ describe('loadEnv', () => {
     const env = loadEnv({
       TS_WIKI_PRIVATE: 'true',
       TS_WIKI_REGISTRATION: 'off',
+      TS_WIKI_REQUIRE_2FA: '1',
       TS_WIKI_JWT_TTL_SECONDS: '604800',
       ASSET_MAX_BYTES: '1024',
     })
 
     expect(env.auth.privateWiki).toBe(true)
     expect(env.auth.registration).toBe('off')
+    expect(env.auth.requireTwoFactor).toBe(true)
     expect(env.auth.tokenTtlSeconds).toBe(604800)
     expect(env.assetUpload.maxBytes).toBe(1024)
 
@@ -128,6 +137,24 @@ describe('loadEnv', () => {
     expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: '1' }).webhooks.allowPrivateTargets).toBe(true)
     expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'yes' }).webhooks.allowPrivateTargets).toBe(true)
     expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'false' }).webhooks.allowPrivateTargets).toBe(false)
+  })
+
+  test('parses optional mail and email verification settings', () => {
+    const env = loadEnv({
+      TS_WIKI_PUBLIC_ORIGIN: 'https://wiki.example.com',
+      SMTP_URL: ' smtp://user:pass@mail.example.com:587 ',
+      SMTP_FROM: 'Wiki <wiki@example.com>',
+      TS_WIKI_SMTP_TIMEOUT_MS: '5000',
+      TS_WIKI_REQUIRE_EMAIL_VERIFICATION: 'yes',
+    })
+
+    expect(env.mail).toEqual({
+      smtpUrl: 'smtp://user:pass@mail.example.com:587',
+      from: 'Wiki <wiki@example.com>',
+      timeoutMs: 5000,
+    })
+    expect(env.auth.requireEmailVerification).toBe(true)
+    expect(() => loadEnv({ TS_WIKI_SMTP_TIMEOUT_MS: '0' })).toThrow(/TS_WIKI_SMTP_TIMEOUT_MS/)
   })
 
   test('parses R2 asset storage with the official account endpoint', () => {

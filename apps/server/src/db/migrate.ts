@@ -57,11 +57,12 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
       password_hash TEXT NOT NULL,
       role          TEXT NOT NULL DEFAULT 'viewer',
       totp_secret   TEXT,
-      totp_enabled  INTEGER NOT NULL DEFAULT 0,
-      disabled_at   INTEGER,
-      token_invalid_before INTEGER NOT NULL DEFAULT 0,
-      created_at    INTEGER NOT NULL
-    );
+	      totp_enabled  INTEGER NOT NULL DEFAULT 0,
+	      disabled_at   INTEGER,
+	      token_invalid_before INTEGER NOT NULL DEFAULT 0,
+	      email_verified_at INTEGER,
+	      created_at    INTEGER NOT NULL
+	    );
 
     CREATE TABLE IF NOT EXISTS auth_accounts (
       id               TEXT PRIMARY KEY,
@@ -75,17 +76,36 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     CREATE INDEX IF NOT EXISTS auth_accounts_user_idx ON auth_accounts(user_id);
     CREATE INDEX IF NOT EXISTS auth_accounts_provider_idx ON auth_accounts(provider, provider_subject);
 
-    CREATE TABLE IF NOT EXISTS oauth_states (
-      state          TEXT PRIMARY KEY,
-      provider       TEXT NOT NULL,
-      nonce          TEXT NOT NULL,
+	    CREATE TABLE IF NOT EXISTS oauth_states (
+	      state          TEXT PRIMARY KEY,
+	      provider       TEXT NOT NULL,
+	      nonce          TEXT NOT NULL,
       code_verifier  TEXT NOT NULL,
       redirect_after TEXT,
       expires_at     INTEGER NOT NULL,
-      created_at     INTEGER NOT NULL
-    );
+	      created_at     INTEGER NOT NULL
+	    );
 
-    CREATE TABLE IF NOT EXISTS passkeys (
+	    CREATE TABLE IF NOT EXISTS password_resets (
+	      token      TEXT PRIMARY KEY,
+	      user_id    TEXT NOT NULL,
+	      expires_at INTEGER NOT NULL,
+	      created_at INTEGER NOT NULL
+	    );
+	    CREATE INDEX IF NOT EXISTS password_resets_user_idx ON password_resets(user_id);
+	    CREATE INDEX IF NOT EXISTS password_resets_expires_idx ON password_resets(expires_at);
+
+	    CREATE TABLE IF NOT EXISTS email_verifications (
+	      token      TEXT PRIMARY KEY,
+	      user_id    TEXT NOT NULL,
+	      email      TEXT NOT NULL,
+	      expires_at INTEGER NOT NULL,
+	      created_at INTEGER NOT NULL
+	    );
+	    CREATE INDEX IF NOT EXISTS email_verifications_user_idx ON email_verifications(user_id);
+	    CREATE INDEX IF NOT EXISTS email_verifications_expires_idx ON email_verifications(expires_at);
+
+	    CREATE TABLE IF NOT EXISTS passkeys (
       id           TEXT PRIMARY KEY,
       user_id      TEXT NOT NULL,
       name         TEXT NOT NULL,
@@ -108,6 +128,20 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     );
     CREATE INDEX IF NOT EXISTS webauthn_challenges_user_idx ON webauthn_challenges(user_id);
     CREATE INDEX IF NOT EXISTS webauthn_challenges_expires_idx ON webauthn_challenges(expires_at);
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id           TEXT PRIMARY KEY,
+      name         TEXT NOT NULL,
+      key_hash     TEXT NOT NULL UNIQUE,
+      role         TEXT NOT NULL DEFAULT 'viewer',
+      expires_at   INTEGER,
+      last_used_at INTEGER,
+      revoked_at   INTEGER,
+      created_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS api_keys_hash_idx ON api_keys(key_hash);
+    CREATE INDEX IF NOT EXISTS api_keys_expires_idx ON api_keys(expires_at);
+    CREATE INDEX IF NOT EXISTS api_keys_revoked_idx ON api_keys(revoked_at);
 
     CREATE TABLE IF NOT EXISTS groups (
       id          TEXT PRIMARY KEY,
@@ -209,6 +243,17 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
       created_at INTEGER NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS page_shares (
+      token      TEXT PRIMARY KEY,
+      path       TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      expires_at INTEGER,
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS page_shares_path_idx ON page_shares(path);
+    CREATE INDEX IF NOT EXISTS page_shares_created_by_idx ON page_shares(created_by);
+
     CREATE TABLE IF NOT EXISTS site_settings (
       key        TEXT PRIMARY KEY,
       value      TEXT NOT NULL,
@@ -219,10 +264,12 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
       id         TEXT PRIMARY KEY,
       filename   TEXT NOT NULL,
       storage_name TEXT NOT NULL DEFAULT '',
+      folder     TEXT NOT NULL DEFAULT '',
       mime       TEXT NOT NULL,
       size       INTEGER NOT NULL,
       author_id  TEXT,
-      created_at INTEGER NOT NULL
+      created_at INTEGER NOT NULL,
+      deleted_at INTEGER
     );
 
     CREATE TABLE IF NOT EXISTS wiki_events (
@@ -316,10 +363,14 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
   addColumn(sqlite, 'pages', 'space_key', "TEXT NOT NULL DEFAULT 'main'")
   addColumn(sqlite, 'pages', 'locale', "TEXT NOT NULL DEFAULT 'und'")
   addColumn(sqlite, 'assets', 'storage_name', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'assets', 'folder', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'assets', 'deleted_at', 'INTEGER')
   addColumn(sqlite, 'users', 'totp_secret', 'TEXT')
   addColumn(sqlite, 'users', 'totp_enabled', 'INTEGER NOT NULL DEFAULT 0')
   addColumn(sqlite, 'users', 'disabled_at', 'INTEGER')
   addColumn(sqlite, 'users', 'token_invalid_before', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn(sqlite, 'users', 'email_verified_at', 'INTEGER')
+  sqlite.exec('UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;')
 }
 
 /** Run migrations standalone: `bun src/db/migrate.ts`. */

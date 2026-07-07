@@ -54,9 +54,13 @@ DATABASE_DRIVER=sqlite DATABASE_PATH=/data/ts-wiki.sqlite
 
 Search uses SQLite FTS5. The default tokenizer is `unicode61`, which is good
 for English/European prose but only matches Japanese/CJK token prefixes. For
-CJK-heavy deployments, set `TS_WIKI_FTS_TOKENIZER=trigram` before the first
-migration. For an existing database, back it up and rebuild the virtual search
-table:
+Japanese, Chinese, Korean, or mixed CJK deployments, set
+`TS_WIKI_FTS_TOKENIZER=trigram` before the first migration.
+
+If an existing wiki already contains CJK content, the Admin page shows the
+current tokenizer, CJK content ratio, and a guarded "Rebuild index as trigram"
+action. Back up the database before rebuilding. The same rebuild is available
+from the CLI:
 
 ```bash
 TS_WIKI_FTS_TOKENIZER=trigram bun --filter '@ts-wiki/server' db:reindex-search

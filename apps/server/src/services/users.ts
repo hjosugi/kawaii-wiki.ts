@@ -23,6 +23,7 @@ export interface CreateUserInput {
   readonly name: string
   readonly password: string
   readonly role: Role
+  readonly emailVerifiedAt?: number | null
 }
 
 export interface UserService {
@@ -103,6 +104,7 @@ export const createUserService = (db: DB): UserService => ({
       totpEnabled: 0,
       disabledAt: null,
       tokenInvalidBefore: 0,
+      emailVerifiedAt: input.emailVerifiedAt === undefined ? now : input.emailVerifiedAt,
       createdAt: now,
     }
     db.insert(users).values(user).run()

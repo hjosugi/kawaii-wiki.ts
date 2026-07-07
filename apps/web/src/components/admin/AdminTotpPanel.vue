@@ -29,7 +29,7 @@ async function enableTotp(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    auth.user = await Api.totpEnable(code.value)
+    auth.user = (await Api.totpEnable(code.value)).user
     code.value = ''
   } catch (e) {
     error.value = (e as Error).message

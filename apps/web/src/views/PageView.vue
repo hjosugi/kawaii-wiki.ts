@@ -8,6 +8,7 @@ import { onWikiEvent } from '@/lib/realtime'
 import { vCodeCopy } from '@/lib/codeCopy'
 import { usePresence } from '@/composables/usePresence'
 import { attachmentsForPage } from '@/lib/assets'
+import { setPageMeta } from '@/lib/meta'
 import EmptyState from '@/components/EmptyState.vue'
 import InteractiveGraph from '@/components/InteractiveGraph.vue'
 import PageComments from '@/components/PageComments.vue'
@@ -58,6 +59,7 @@ async function load(): Promise<void> {
   try {
     const result = await Api.getPageResult(path.value)
     page.value = result.page
+    setPageMeta(result.page)
     redirectedFrom.value = result.redirectedFrom.length ? [...result.redirectedFrom] : redirectedFrom.value
     if (result.redirectedFrom.length && result.page.path !== path.value) {
       await router.replace({ path: `/${result.page.path}`, query: { redirectedFrom: result.redirectedFrom[0] } })
@@ -94,6 +96,7 @@ async function reloadInPlace(): Promise<void> {
     ])
     const nextUsage = await Api.assetUsage(nextPage.page.path)
     page.value = nextPage.page
+    setPageMeta(nextPage.page)
     redirectedFrom.value = nextPage.redirectedFrom
     backlinks.value = nextBacklinks
     attachments.value = attachmentsForPage(nextUsage, nextPage.page.path)

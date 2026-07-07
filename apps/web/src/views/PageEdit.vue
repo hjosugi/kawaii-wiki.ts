@@ -6,7 +6,7 @@ import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
-import { attachmentsForPage } from '@/lib/assets'
+import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n } from '@/lib/i18n'
 
 const MarkdownEditor = defineAsyncComponent(() => import('@/components/MarkdownEditor.vue'))
@@ -104,7 +104,7 @@ const saveStatus = computed(() => {
 const useCollaborativeMarkdown = computed(
   () => isEdit.value && editorMode.value === 'markdown' && originalPath.value && !collabDisabledForSession.value,
 )
-
+const assetFolder = computed(() => assetFolderFromPagePath(path.value || originalPath.value))
 interface DraftSnapshot {
   title: string
   path: string
@@ -431,12 +431,12 @@ async function archive(): Promise<void> {
       :loading="attachmentsLoading"
       show-empty
     />
-    <VisualEditor v-if="editorMode === 'visual'" v-model="content" />
+    <VisualEditor v-if="editorMode === 'visual'" v-model="content" :asset-folder="assetFolder" />
     <template v-else-if="isEdit">
-      <CollabEditor v-if="useCollaborativeMarkdown" :room="originalPath" @update:modelValue="content = $event" />
-      <MarkdownEditor v-else-if="originalPath" v-model="content" />
+      <CollabEditor v-if="useCollaborativeMarkdown" :room="originalPath" :asset-folder="assetFolder" @update:modelValue="content = $event" />
+      <MarkdownEditor v-else-if="originalPath" v-model="content" :asset-folder="assetFolder" />
       <div v-else class="text-gray-400">{{ t('loadingEditor') }}</div>
     </template>
-    <MarkdownEditor v-else v-model="content" />
+    <MarkdownEditor v-else v-model="content" :asset-folder="assetFolder" />
   </div>
 </template>
