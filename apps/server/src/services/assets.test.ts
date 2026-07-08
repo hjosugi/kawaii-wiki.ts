@@ -1,0 +1,80 @@
+import { describe, expect, test } from 'bun:test'
+import type { Principal } from '@ts-wiki/core'
+import { createDb } from '../db/client.ts'
+import { createServices } from './index.ts'
+import { createAssetService } from './assets.ts'
+import type { SearchIndexer } from './search.ts'
+
+const admin: Principal = { id: 'admin-1', role: 'admin' }
+const editor: Principal = { id: 'editor-1', role: 'editor' }
+
+const fakeIndexer = (indexed: string[]): SearchIndexer => ({
+  indexPageById: (pageId) => indexed.push(pageId),
+  removePage: () => {},
+  search: () => {
+    throw new Error('not used')
+  },
+  rebuild: () => {},
+  status: () => {
+    throw new Error('not used')
+  },
+})
+
+describe('asset service', () => {
+  test('tracks usage, filters folders, and manages trash lifecycle', () => {
+    const db = createDb(':memory:')
+    const services = createServices(db)
+    const page = services.pages.create({
+      path: 'docs/asset',
+      title: 'Asset page',
+      content: 'Uses ![image](/assets/docs/image.png)',
+    }, admin)
+    if (!page.ok) throw new Error('page seed failed')
+    const indexed: string[] = []
+    const assets = createAssetService(db, { searchIndexer: fakeIndexer(indexed) })
+
+    const recorded = assets.record({
+      id: 'asset-1',
+      filename: 'image.png',
+      storageName: 'docs/image.png',
+      folder: 'Docs\\Images',
+      mime: 'image/png',
+      size: 1024,
+      authorId: editor.id,
+    }, editor)
+    expect(recorded.ok).toBe(true)
+    if (!recorded.ok) throw new Error('asset record failed')
+    expect(recorded.value.folder).toBe('docs/images')
+    expect(recorded.value.thumbUrl).toBe('/assets/docs/image.png?size=thumb')
+    expect(indexed).toEqual([page.value.id])
+
+    const folders = assets.folders(editor)
+    expect(folders.ok).toBe(true)
+    if (folders.ok) expect(folders.value).toEqual(['docs/images'])
+
+    const usage = assets.usage(editor)
+    expect(usage.ok).toBe(true)
+    if (usage.ok) expect(usage.value[0]?.pages).toEqual([{ path: 'docs/asset', title: 'Asset page' }])
+
+    const orphans = assets.orphans(editor)
+    expect(orphans.ok).toBe(true)
+    if (orphans.ok) expect(orphans.value).toHaveLength(0)
+
+    const removed = assets.remove('asset-1', editor)
+    expect(removed.ok).toBe(true)
+    const trash = assets.trash(admin)
+    expect(trash.ok).toBe(true)
+    if (trash.ok) expect(trash.value[0]?.id).toBe('asset-1')
+
+    const restored = assets.restore('asset-1', admin)
+    expect(restored.ok).toBe(true)
+    if (restored.ok) expect(restored.value?.deletedAt).toBeNull()
+
+    assets.remove('asset-1', editor)
+    const purged = assets.purge('asset-1', admin)
+    expect(purged.ok).toBe(true)
+    const missing = assets.findById('asset-1', editor)
+    expect(missing.ok).toBe(true)
+    if (missing.ok) expect(missing.value).toBeNull()
+  })
+})

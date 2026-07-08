@@ -5,7 +5,7 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
 - **As of:** 2026-07-08
-- **State:** v0.4.12 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **State:** v0.4.13 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
@@ -29,13 +29,16 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Markdown editor (CodeMirror + visual mode) | ✅ | Markdown remains canonical; visual mode round-trips common blocks |
 | Webhooks + automation | ✅ | signed deliveries, retry history, event automation rules with priority/conditions/actions |
 | Site configuration | ✅ | runtime branding, nav settings, default locale/timezone/date format, webhook retry policy, shared `PublicSettings` shape |
-| Tests / typecheck / build | ✅ | core/server Bun tests + web Vitest tests; all 3 packages typecheck; web builds |
+| Tests / typecheck / build | ✅ | core/server Bun tests, direct service coverage, and web Vitest tests; all 3 packages typecheck; web builds |
 | Mobile shell | ✅ | compact header, touch-visible command palette trigger, focus-managed navigation drawer, collapsible page TOC below `xl`, full-height mobile editor Write/Preview panes |
 | Accessibility shell | ✅ | skip-to-content link, focused main landmark after navigation, visible focus rings, labeled controls, reduced-motion handling, skeleton loading states, dialog semantics, Escape handling, focus trap/restore for app modals |
 | Auth route guards in router | ✅ | global router guard gates editor/admin routes |
 
 ### Verified during release batches (evidence)
 - `bun run test` runs core/server Bun tests and web Vitest component/composable tests.
+- Dedicated service tests cover passkey success/replay paths, authz policy assembly,
+  search query building, settings validation, comments, assets, users, analytics, and
+  webhook delivery retry state.
 - Live API smoke has covered register/login, permission failures, path normalization,
   render-on-save, search, reindex-on-update, move, delete, SSE, WebSocket auth, and assets.
 - Eden Treaty client keeps every request shape (`get`/`post`/`put`/`delete` + query/body)

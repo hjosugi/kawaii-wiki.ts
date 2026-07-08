@@ -64,6 +64,11 @@ export interface PasskeyService {
   verifyAuthentication(input: { response: AuthenticationResponseJSON }): Promise<Result<PasskeyLoginResult, AppError>>
 }
 
+export interface PasskeyVerifier {
+  readonly verifyRegistrationResponse: typeof verifyRegistrationResponse
+  readonly verifyAuthenticationResponse: typeof verifyAuthenticationResponse
+}
+
 const CHALLENGE_TTL_MS = 5 * 60_000
 
 const encodeBytes = (bytes: Uint8Array): string => Buffer.from(bytes).toString('base64url')
@@ -120,7 +125,11 @@ const clientChallenge = (clientDataJSON: string): string | null => {
   }
 }
 
-export const createPasskeyService = (db: DB, auth: AuthEnv): PasskeyService => {
+export const createPasskeyService = (
+  db: DB,
+  auth: AuthEnv,
+  verifier: PasskeyVerifier = { verifyRegistrationResponse, verifyAuthenticationResponse },
+): PasskeyService => {
   const now = () => Date.now()
 
   const cleanupChallenges = (): void => {
@@ -217,7 +226,7 @@ export const createPasskeyService = (db: DB, auth: AuthEnv): PasskeyService => {
       const challenge = takeChallenge(responseChallenge, 'registration')
       if (!challenge || challenge.userId !== user.id) return err(unauthorized('Passkey challenge is invalid or expired'))
 
-      const verified = await verifyRegistrationResponse({
+      const verified = await verifier.verifyRegistrationResponse({
         response: input.response,
         expectedChallenge: challenge.challenge,
         expectedOrigin: auth.publicOrigin,
@@ -272,7 +281,7 @@ export const createPasskeyService = (db: DB, auth: AuthEnv): PasskeyService => {
         return err(unauthorized('Passkey is not registered'))
       }
 
-      const verified = await verifyAuthenticationResponse({
+      const verified = await verifier.verifyAuthenticationResponse({
         response: input.response,
         expectedChallenge: challenge.challenge,
         expectedOrigin: auth.publicOrigin,
