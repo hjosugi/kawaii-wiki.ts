@@ -11,13 +11,21 @@ export const createSearchRoutes = ({ requireSearchRead }: SearchRoutesContext) =
     requireSearchRead(principal)
     return services.search.search(
       query.q ?? '',
-      query.limit,
       {
-        pathPrefix: query.pathPrefix,
-        label: query.label,
-        status: query.status,
-        spaceKey: query.spaceKey,
-        locale: query.locale,
+        limit: query.limit,
+        offset: query.offset,
+        scope: query.scope,
+        sort: query.sort,
+        filters: {
+          pathPrefix: query.pathPrefix,
+          label: query.label,
+          status: query.status,
+          spaceKey: query.spaceKey,
+          locale: query.locale,
+          author: query.author,
+          updatedAfter: query.updatedAfter,
+          updatedBefore: query.updatedBefore,
+        },
       },
       (path) => can(principal, 'page:read', { path }),
     )
@@ -25,10 +33,16 @@ export const createSearchRoutes = ({ requireSearchRead }: SearchRoutesContext) =
     query: t.Object({
       q: t.Optional(t.String()),
       limit: t.Optional(t.Numeric()),
+      offset: t.Optional(t.Numeric()),
+      scope: t.Optional(t.Union([t.Literal('all'), t.Literal('title')])),
+      sort: t.Optional(t.Union([t.Literal('relevance'), t.Literal('recent')])),
       pathPrefix: t.Optional(t.String()),
       label: t.Optional(t.String()),
       status: t.Optional(t.String()),
       spaceKey: t.Optional(t.String()),
       locale: t.Optional(t.String()),
+      author: t.Optional(t.String()),
+      updatedAfter: t.Optional(t.Numeric()),
+      updatedBefore: t.Optional(t.Numeric()),
     }),
   })

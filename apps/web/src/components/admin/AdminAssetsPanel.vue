@@ -6,6 +6,7 @@ import { displayAssetFolder } from '@/lib/assets'
 const assets = ref<AssetView[]>([])
 const folders = ref<string[]>([])
 const folderFilter = ref('')
+const query = ref('')
 const usageByAssetId = ref<Record<string, AssetUsagePage[]>>({})
 const orphanAssetIds = ref<string[]>([])
 const selectedOrphanIds = ref<string[]>([])
@@ -21,7 +22,7 @@ async function load(): Promise<void> {
   error.value = null
   try {
     const [nextAssets, nextUsage, nextOrphans, nextFolders] = await Promise.all([
-      Api.listAssets(folderFilter.value || undefined),
+      Api.listAssets(folderFilter.value || undefined, query.value || undefined),
       Api.assetUsage(),
       Api.orphanAssets(),
       Api.assetFolders(),
@@ -133,6 +134,12 @@ onMounted(load)
           list="admin-asset-folders"
           placeholder="Folder"
           @change="load"
+        />
+        <input
+          v-model.trim="query"
+          class="input h-9 w-56 text-sm"
+          placeholder="Search files"
+          @input="load"
         />
         <datalist id="admin-asset-folders">
           <option value="" label="Root"></option>

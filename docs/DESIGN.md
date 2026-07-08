@@ -73,16 +73,21 @@ the permission (`can`), validates & normalises the input, renders Markdown → H
 contents, writes the page row, snapshots the previous version into `page_revisions`, and updates
 the FTS5 index. When the call returns, the page is fully rendered **and** searchable — no race.
 
-**Search** uses a SQLite FTS5 table with BM25 ranking and `snippet()` highlighting. Columns are
-weighted title ≫ description ≫ body, mirroring the idea behind Wiki.js's PostgreSQL `tsvector`
-setup — but with a single zero-dependency backend. User input is turned into a forgiving prefix
-query so it feels good as-you-type.
+**Search** uses a SQLite FTS5 table behind a `SearchIndexer` interface with BM25 ranking,
+escaped `snippet()` highlighting, paging, total counts, and per-page ACL filtering. Columns are
+weighted title ≫ description ≫ body ≫ comments/assets, mirroring the idea behind Wiki.js's
+PostgreSQL `tsvector` setup — but with a single zero-dependency backend. User input is turned
+into forgiving prefix queries; quoted phrases stay exact, `-term` excludes matches, title-only
+scope is server-built, and exact/prefix title matches plus mild recency boosting shape ranking.
+Comments and referenced asset filenames are indexed into the owning page result.
 
 > **CJK / Japanese search note.** The default FTS5 tokenizer is `unicode61`, which ranks prose
 > (English/European) well but doesn't segment Japanese. For CJK-heavy content set
 > `TS_WIKI_FTS_TOKENIZER=trigram` before first migration. Existing databases need the
 > FTS virtual table rebuilt: back up SQLite, then run
 > `TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
+> Lightweight typo tolerance remains a future external-engine concern: SQLite FTS5 trigram helps
+> CJK/substring matching, but portable spell-correction is deferred behind `SearchIndexer`.
 
 **Types** are shared without codegen. The server exports its `App` type; `apps/web/src/lib/api.ts`
 does `treaty<App>(...)`, so every request's path, query, and body is checked against the real

@@ -124,8 +124,8 @@ export const createAssetRoutes = ({
     app
       .get('/api/assets', ({ query, services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
-        return { assets: unwrap(services.assets.list(principal, query.folder)) }
-      }, { query: t.Object({ folder: t.Optional(t.String()) }) })
+        return { assets: unwrap(services.assets.list(principal, query.folder, query.q)) }
+      }, { query: t.Object({ folder: t.Optional(t.String()), q: t.Optional(t.String()) }) })
       .get('/api/assets/folders', ({ services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
         return { folders: unwrap(services.assets.folders(principal)) }

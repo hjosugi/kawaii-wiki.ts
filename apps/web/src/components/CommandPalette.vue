@@ -2,9 +2,9 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { normalizePath } from '@ts-wiki/core'
-import { Api, type SearchHit } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
+import { useListNavigation, useSearch } from '@/composables/useSearch'
 
 interface CommandItem {
   readonly key: string
@@ -17,14 +17,11 @@ const router = useRouter()
 const auth = useAuth()
 const pages = usePages()
 const open = ref(false)
-const q = ref('')
 const input = ref<HTMLInputElement | null>(null)
-const selected = ref(0)
-const hits = ref<SearchHit[]>([])
-let searchTimer: ReturnType<typeof setTimeout> | null = null
+const search = useSearch({ limit: 8, debounceMs: 120, scope: 'title' })
 
 const localPages = computed(() => {
-  const needle = q.value.trim().toLowerCase()
+  const needle = search.q.value.trim().toLowerCase()
   if (!needle) return pages.list.slice(0, 8)
   return pages.list
     .filter((page) => `${page.title} ${page.path}`.toLowerCase().includes(needle))
@@ -45,10 +42,10 @@ const items = computed<CommandItem[]>(() => {
     })
   }
 
-  for (const hit of hits.value) pushPage(hit.path, hit.title, `/${hit.path}`)
+  for (const hit of search.hits.value) pushPage(hit.path, hit.title, `/${hit.path}`)
   for (const page of localPages.value) pushPage(page.path, page.title, `/${page.path}`)
 
-  const normalized = normalizePath(q.value)
+  const normalized = normalizePath(search.q.value)
   if (auth.canEdit && normalized && !pages.list.some((page) => page.path === normalized)) {
     out.push({
       key: `create:${normalized}`,
@@ -106,8 +103,8 @@ const items = computed<CommandItem[]>(() => {
 })
 
 async function openPalette(): Promise<void> {
-  open.value = true
-  selected.value = 0
+    open.value = true
+  navigation.reset()
   if (!pages.list.length) await pages.refresh()
   await nextTick()
   input.value?.focus()
@@ -116,12 +113,12 @@ async function openPalette(): Promise<void> {
 
 function close(): void {
   open.value = false
-  q.value = ''
-  hits.value = []
+  search.q.value = ''
+  search.clear()
 }
 
 function runSelected(): void {
-  const item = items.value[selected.value]
+  const item = items.value[navigation.selected.value]
   if (!item) return
   item.run()
   close()
@@ -137,36 +134,27 @@ function onKeydown(event: KeyboardEvent): void {
   if (event.key === 'Escape') {
     event.preventDefault()
     close()
-  } else if (event.key === 'ArrowDown') {
-    event.preventDefault()
-    selected.value = Math.min(selected.value + 1, Math.max(items.value.length - 1, 0))
-  } else if (event.key === 'ArrowUp') {
-    event.preventDefault()
-    selected.value = Math.max(selected.value - 1, 0)
-  } else if (event.key === 'Enter') {
-    event.preventDefault()
-    runSelected()
+  } else {
+    navigation.onKeydown(event)
   }
 }
 
-watch(q, (value) => {
-  selected.value = 0
-  if (searchTimer) clearTimeout(searchTimer)
+const navigation = useListNavigation(computed(() => items.value.length), runSelected)
+
+watch(() => search.q.value, (value) => {
+  navigation.reset()
   const query = value.trim()
   if (!query) {
-    hits.value = []
+    search.clear()
     return
   }
-  searchTimer = setTimeout(() => {
-    void Api.search(query, 8)
-      .then((result) => {
-        hits.value = result.hits
-      })
-      .catch(() => {
-        hits.value = []
-      })
-  }, 120)
+  search.schedule()
 })
+
+function chooseRecent(query: string): void {
+  search.q.value = query
+  search.schedule()
+}
 
 onMounted(() => {
   window.addEventListener('keydown', onKeydown)
@@ -175,7 +163,6 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('open-command-palette', openPalette)
-  if (searchTimer) clearTimeout(searchTimer)
 })
 </script>
 
@@ -188,25 +175,46 @@ onBeforeUnmount(() => {
     <section class="card w-full max-w-2xl overflow-hidden">
       <input
         ref="input"
-        v-model="q"
+        v-model="search.q.value"
         class="w-full border-0 border-b border-gray-200 dark:border-gray-800 bg-transparent px-4 py-3 text-lg outline-none"
         placeholder="Search or jump..."
+        role="combobox"
+        aria-controls="command-palette-results"
+        :aria-expanded="Boolean(items.length)"
+        :aria-activedescendant="navigation.activeId('command-palette-item')"
       />
-      <div class="max-h-[24rem] overflow-auto p-2">
+      <div v-if="!search.q.value.trim() && search.recentSearches.value.length" class="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
+        <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Recent</div>
+        <div class="flex flex-wrap gap-2">
+          <button
+            v-for="recent in search.recentSearches.value"
+            :key="recent"
+            class="rounded-full border border-gray-200 px-3 py-1 text-sm hover:border-violet-400 dark:border-gray-800"
+            type="button"
+            @click="chooseRecent(recent)"
+          >
+            {{ recent }}
+          </button>
+        </div>
+      </div>
+      <div id="command-palette-results" class="max-h-[24rem] overflow-auto p-2" role="listbox">
         <button
           v-for="(item, index) in items"
+          :id="`command-palette-item-${index}`"
           :key="item.key"
           class="w-full rounded-md px-3 py-2 text-left flex items-center justify-between gap-4"
-          :class="index === selected ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
+          :class="index === navigation.selected.value ? 'bg-gray-100 dark:bg-gray-800' : 'hover:bg-gray-100 dark:hover:bg-gray-800'"
           type="button"
-          @mouseenter="selected = index"
+          role="option"
+          :aria-selected="index === navigation.selected.value"
+          @mouseenter="navigation.selected.value = index"
           @click="item.run(); close()"
         >
           <span class="min-w-0">
             <span class="block font-medium truncate">{{ item.label }}</span>
             <span class="block text-xs text-gray-500 truncate">{{ item.detail }}</span>
           </span>
-          <span v-if="index === selected" class="text-xs text-gray-400">Enter</span>
+          <span v-if="index === navigation.selected.value" class="text-xs text-gray-400">Enter</span>
         </button>
       </div>
     </section>

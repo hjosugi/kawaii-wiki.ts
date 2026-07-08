@@ -75,7 +75,7 @@ watch(() => props.path, load, { immediate: true })
 </script>
 
 <template>
-  <section class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
+  <section id="comments" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Comments</h2>
       <span v-if="comments.length" class="text-xs text-gray-400">{{ comments.length }}</span>

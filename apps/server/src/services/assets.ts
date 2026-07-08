@@ -18,6 +18,7 @@ import {
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
 import { assets, pages, type Asset } from '../db/schema.ts'
+import type { SearchIndexer } from './search.ts'
 
 export const ASSET_MAX_SIZE = '25m' as const
 export const ASSET_MAX_BYTES = 25 * 1024 * 1024
@@ -196,7 +197,7 @@ export interface AssetUsageView {
 
 export interface AssetService {
   record(input: RecordAssetInput, principal: Principal | null): Result<AssetView, AppError>
-  list(principal: Principal | null, folder?: string | null): Result<AssetView[], AppError>
+  list(principal: Principal | null, folder?: string | null, query?: string | null): Result<AssetView[], AppError>
   folders(principal: Principal | null): Result<string[], AppError>
   trash(principal: Principal | null): Result<AssetView[], AppError>
   usage(principal: Principal | null, path?: string): Result<AssetUsageView[], AppError>
@@ -212,6 +213,7 @@ export interface AssetService {
 
 export interface AssetServiceOptions {
   readonly urlForStorageName?: (storageName: string) => string
+  readonly searchIndexer?: SearchIndexer
 }
 
 const encodeAssetPath = (storageName: string): string =>
@@ -257,13 +259,20 @@ const contentReferencesAsset = (content: string, asset: AssetView): boolean =>
 
 export const createAssetService = (db: DB, options: AssetServiceOptions = {}): AssetService => {
   const urlForStorageName = options.urlForStorageName ?? defaultAssetUrl
+  const searchIndexer = options.searchIndexer
   const requireAssetPermission = (principal: Principal | null, action: Action, path?: string): Result<true, AppError> =>
     requirePermission(principal, action, path ? { path } : {})
-  const activeRecords = (folder?: string | null): Asset[] => {
+  const matchesAssetQuery = (asset: Asset, query?: string | null): boolean => {
+    const needle = query?.trim().toLowerCase()
+    if (!needle) return true
+    return `${asset.filename} ${asset.folder} ${asset.mime} ${asset.storageName}`.toLowerCase().includes(needle)
+  }
+  const activeRecords = (folder?: string | null, query?: string | null): Asset[] => {
     const normalizedFolder = folder === undefined ? undefined : normalizeAssetFolder(folder)
     const conditions = [isNull(assets.deletedAt)]
     if (normalizedFolder !== undefined) conditions.push(eq(assets.folder, normalizedFolder))
     return db.select().from(assets).where(and(...conditions)).orderBy(desc(assets.createdAt)).all()
+      .filter((asset) => matchesAssetQuery(asset, query))
   }
   const deletedRecords = (): Asset[] =>
     db.select().from(assets).where(isNotNull(assets.deletedAt)).orderBy(desc(assets.deletedAt)).all()
@@ -295,6 +304,20 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       }
     })
   }
+  const affectedPageIds = (asset: Asset): string[] => {
+    const view = toView(asset, urlForStorageName)
+    return db
+      .select({ id: pages.id, content: pages.content })
+      .from(pages)
+      .where(eq(pages.lifecycle, 'active'))
+      .all()
+      .filter((page) => contentReferencesAsset(page.content, view))
+      .map((page) => page.id)
+  }
+  const refreshPagesForAsset = (...records: Asset[]): void => {
+    const ids = new Set(records.flatMap((asset) => affectedPageIds(asset)))
+    for (const id of ids) searchIndexer?.indexPageById(id)
+  }
   return {
     record(input, principal) {
       const allowed = requireAssetPermission(principal, 'asset:write')
@@ -311,12 +334,13 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
         deletedAt: null,
       }
       db.insert(assets).values(asset).run()
+      refreshPagesForAsset(asset)
       return ok(toView(asset, urlForStorageName))
     },
-    list(principal, folder) {
+    list(principal, folder, query) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
-      return ok(activeRecords(folder).map((asset) => toView(asset, urlForStorageName)))
+      return ok(activeRecords(folder, query).map((asset) => toView(asset, urlForStorageName)))
     },
     folders(principal) {
       const allowed = requireAssetPermission(principal, 'asset:read')
@@ -372,7 +396,9 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       }
       if (Object.keys(patch).length === 0) return ok(toView(asset, urlForStorageName))
       db.update(assets).set(patch).where(eq(assets.id, id)).run()
-      return ok(toView({ ...asset, ...patch }, urlForStorageName))
+      const updated = { ...asset, ...patch }
+      refreshPagesForAsset(asset, updated)
+      return ok(toView(updated, urlForStorageName))
     },
     rename(id, filename, principal) {
       return this.update(id, { filename }, principal)
@@ -384,6 +410,7 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       if (!asset) return ok(null)
       const deletedAt = Date.now()
       db.update(assets).set({ deletedAt }).where(eq(assets.id, id)).run()
+      refreshPagesForAsset(asset)
       return ok(toView({ ...asset, deletedAt }, urlForStorageName))
     },
     restore(id, principal) {
@@ -392,6 +419,7 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       const asset = findDeleted(id)
       if (!asset) return ok(null)
       db.update(assets).set({ deletedAt: null }).where(eq(assets.id, id)).run()
+      refreshPagesForAsset({ ...asset, deletedAt: null })
       return ok(toView({ ...asset, deletedAt: null }, urlForStorageName))
     },
     purge(id, principal) {
@@ -400,6 +428,7 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       const asset = findDeleted(id)
       if (!asset) return ok(null)
       db.delete(assets).where(eq(assets.id, id)).run()
+      refreshPagesForAsset({ ...asset, deletedAt: null })
       return ok(toView(asset, urlForStorageName))
     },
   }

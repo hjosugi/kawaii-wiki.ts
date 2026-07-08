@@ -18,7 +18,7 @@ const fileKind = (asset: AssetView): string =>
 </script>
 
 <template>
-  <section v-if="loading || assets.length || props.showEmpty" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
+  <section id="attachments" v-if="loading || assets.length || props.showEmpty" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
     <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Attachments</h2>
     <p v-if="loading" class="mt-3 text-sm text-gray-400">Loading...</p>
     <p v-else-if="!assets.length" class="mt-3 text-sm text-gray-500">No uploaded assets referenced by this page.</p>

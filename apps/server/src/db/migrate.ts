@@ -44,6 +44,48 @@ const addColumn = (sqlite: MigratableDatabase, table: string, column: string, de
   }
 }
 
+const createSearchTable = (sqlite: MigratableDatabase, ftsTokenizer: string): void => {
+  sqlite.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
+      page_id UNINDEXED,
+      title,
+      description,
+      content,
+      comments,
+      assets,
+      tokenize = '${ftsTokenizer}'
+    );
+  `)
+}
+
+const populateSearchTable = (sqlite: MigratableDatabase): void => {
+  sqlite.exec(`
+    DELETE FROM pages_fts;
+    INSERT INTO pages_fts(page_id, title, description, content, comments, assets)
+    SELECT
+      p.id,
+      p.title,
+      p.description,
+      p.content,
+      coalesce((
+        SELECT group_concat(pc.body, char(10))
+        FROM page_comments pc
+        WHERE pc.page_id = p.id
+      ), ''),
+      coalesce((
+        SELECT group_concat(trim(a.filename || ' ' || a.folder), char(10))
+        FROM assets a
+        WHERE a.deleted_at IS NULL
+          AND (
+            p.content LIKE '%' || a.storage_name || '%'
+            OR p.content LIKE '%' || a.filename || '%'
+          )
+      ), '')
+    FROM pages p
+    WHERE p.lifecycle = 'active';
+  `)
+}
+
 export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOptions = {}): void => {
   const ftsTokenizer = FTS_TOKENIZER_SQL[options.ftsTokenizer ?? DEFAULT_FTS_TOKENIZER]
   sqlite.exec('PRAGMA journal_mode = WAL;')
@@ -343,17 +385,14 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     CREATE INDEX IF NOT EXISTS automation_rules_type_idx ON automation_rules(type);
   `)
 
-  // Full-text search index. Columns: page_id (returned, not searched), then the
-  // three weighted text columns. `plain_text` holds the de-marked-down body.
-  sqlite.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS pages_fts USING fts5(
-      page_id UNINDEXED,
-      title,
-      description,
-      content,
-      tokenize = '${ftsTokenizer}'
-    );
-  `)
+  // Full-text search index. Columns: page_id (returned, not searched), then
+  // weighted title/summary/body plus lower-weight comment and asset metadata.
+  createSearchTable(sqlite, ftsTokenizer)
+  if (!hasColumn(sqlite, 'pages_fts', 'comments') || !hasColumn(sqlite, 'pages_fts', 'assets')) {
+    sqlite.exec('DROP TABLE IF EXISTS pages_fts;')
+    createSearchTable(sqlite, ftsTokenizer)
+    populateSearchTable(sqlite)
+  }
 
   addColumn(sqlite, 'pages', 'lifecycle', "TEXT NOT NULL DEFAULT 'active'")
   addColumn(sqlite, 'pages', 'status', "TEXT NOT NULL DEFAULT 'draft'")

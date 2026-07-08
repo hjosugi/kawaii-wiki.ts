@@ -1,9 +1,6 @@
 /**
- * Search service — SQLite FTS5 with BM25 ranking and highlighted snippets.
- *
- * Mirrors the *idea* of Wiki.js's weighted PostgreSQL `tsvector` (title ≫
- * description ≫ body) but with a single, zero-dependency backend. We build a
- * forgiving prefix query so search feels good as-you-type.
+ * Search service — SQLite FTS5 with BM25 ranking, highlighted snippets, paging,
+ * and a narrow indexer seam for future engine swaps.
  */
 import { eq } from 'drizzle-orm'
 import {
@@ -15,15 +12,22 @@ import {
   toPlainText,
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
-import { pages } from '../db/schema.ts'
+import { assets, pageComments, pages } from '../db/schema.ts'
 import { runMigrations, type FtsTokenizer } from '../db/migrate.ts'
+
+export type SearchHitKind = 'page' | 'comment' | 'asset'
+export type SearchScope = 'all' | 'title'
+export type SearchSort = 'relevance' | 'recent'
 
 export interface SearchHit {
   readonly path: string
   readonly title: string
   readonly snippet: string
-  /** BM25 score — lower (more negative) is more relevant. */
+  /** Final relevance score — lower is more relevant. */
   readonly rank: number
+  readonly kind: SearchHitKind
+  readonly anchor?: string
+  readonly updatedAt: number
 }
 
 export interface SearchFilters {
@@ -32,6 +36,17 @@ export interface SearchFilters {
   readonly status?: string
   readonly spaceKey?: string
   readonly locale?: string
+  readonly author?: string
+  readonly updatedAfter?: number
+  readonly updatedBefore?: number
+}
+
+export interface SearchRequest {
+  readonly limit?: number
+  readonly offset?: number
+  readonly filters?: SearchFilters
+  readonly scope?: SearchScope
+  readonly sort?: SearchSort
 }
 
 export interface SearchTokenizerHint {
@@ -51,6 +66,10 @@ export interface SearchShortQueryHint {
 export interface SearchResponse {
   readonly query: string
   readonly hits: SearchHit[]
+  readonly total: number
+  readonly limit: number
+  readonly offset: number
+  readonly hasMore: boolean
   readonly tokenizerHint?: SearchTokenizerHint
   readonly shortQueryHint?: SearchShortQueryHint
   readonly truncatedTerms?: readonly string[]
@@ -73,32 +92,41 @@ export interface SearchIndexRebuildInput {
   readonly tokenizer?: FtsTokenizer
 }
 
+export interface SearchIndexer {
+  indexPageById(pageId: string): void
+  removePage(pageId: string): void
+  search(query: string, request: Required<SearchRequest>, canRead?: (path: string) => boolean): SearchResponse
+  rebuild(tokenizer: FtsTokenizer): void
+  status(): SearchIndexStatus
+}
+
 export interface SearchService {
   /**
    * @param canRead Optional per-page read predicate. When supplied, hits the
-   *   principal is not allowed to read (via page rules) are filtered out, so
-   *   search never leaks titles/paths/snippets past `page:read` ACLs.
+   *   principal is not allowed to read are filtered out, so search never leaks
+   *   titles/paths/snippets/counts past `page:read` ACLs.
    */
-  search(
-    query: string,
-    limit?: number,
-    filters?: SearchFilters,
-    canRead?: (path: string) => boolean,
-  ): SearchResponse
+  search(query: string, options?: SearchRequest, canRead?: (path: string) => boolean): SearchResponse
+  search(query: string, limit?: number, filters?: SearchFilters, canRead?: (path: string) => boolean): SearchResponse
   indexStatus(principal: Principal | null): Result<SearchIndexStatus, AppError>
   rebuildIndex(principal: Principal | null, input?: SearchIndexRebuildInput): Result<SearchIndexStatus, AppError>
 }
 
 export interface SearchServiceOptions {
   readonly configuredTokenizer?: FtsTokenizer
+  readonly indexer?: SearchIndexer
 }
 
+const DEFAULT_LIMIT = 20
+const MAX_LIMIT = 100
 const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/u
+const SNIPPET_START = '\u0001'
+const SNIPPET_END = '\u0002'
 
 export const containsCjk = (value: string): boolean => CJK_RE.test(value)
 
-const indexedText = (page: { title: string; description: string; content: string }): string =>
-  `${page.title}\n${page.description}\n${toPlainText(page.content)}`
+const indexedText = (page: { title: string; description: string; content: string }, extra = ''): string =>
+  `${page.title}\n${page.description}\n${toPlainText(page.content)}\n${extra}`
 
 const countSearchCharacters = (value: string): { total: number; cjk: number } => {
   let total = 0
@@ -111,21 +139,95 @@ const countSearchCharacters = (value: string): { total: number; cjk: number } =>
   return { total, cjk }
 }
 
-const cleanSearchTerms = (raw: string): string[] => {
-  const cleaned = (raw ?? '').toLowerCase().replace(/["()*:^]/g, ' ').trim()
-  if (!cleaned) return []
-  return cleaned.split(/\s+/).filter(Boolean)
+const escapeHtml = (value: string): string =>
+  value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+
+const escapeRegex = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`)
+
+const asLimit = (value: number | undefined): number =>
+  Math.min(Math.max(Math.trunc(value ?? DEFAULT_LIMIT), 1), MAX_LIMIT)
+
+const asOffset = (value: number | undefined): number =>
+  Math.max(Math.trunc(value ?? 0), 0)
+
+const isScope = (value: unknown): value is SearchScope => value === 'all' || value === 'title'
+const isSort = (value: unknown): value is SearchSort => value === 'relevance' || value === 'recent'
+
+const normalizeRequest = (
+  limitOrOptions?: number | SearchRequest,
+  filters: SearchFilters = {},
+): Required<SearchRequest> => {
+  const options = typeof limitOrOptions === 'number' ? { limit: limitOrOptions, filters } : limitOrOptions ?? {}
+  return {
+    limit: asLimit(options.limit),
+    offset: asOffset(options.offset),
+    filters: options.filters ?? {},
+    scope: isScope(options.scope) ? options.scope : 'all',
+    sort: isSort(options.sort) ? options.sort : 'relevance',
+  }
 }
 
+interface ParsedQuery {
+  readonly positive: readonly string[]
+  readonly phrases: readonly string[]
+  readonly negative: readonly string[]
+  readonly terms: readonly string[]
+}
+
+const cleanTerm = (raw: string): string =>
+  raw
+    .toLowerCase()
+    .replace(/["()*:^{}]/g, ' ')
+    .trim()
+
+const splitWords = (value: string): string[] =>
+  cleanTerm(value).split(/\s+/).map((term) => term.trim()).filter(Boolean)
+
+const parseQuery = (raw: string): ParsedQuery => {
+  const positive: string[] = []
+  const phrases: string[] = []
+  const negative: string[] = []
+  const tokenRe = /(-?)"([^"]+)"|(-?)(\S+)/g
+  for (const match of raw.matchAll(tokenRe)) {
+    const quoted = match[2]
+    const word = match[4]
+    const negated = Boolean(match[1] || match[3])
+    if (quoted !== undefined) {
+      const phrase = splitWords(quoted).join(' ')
+      if (!phrase) continue
+      if (negated) negative.push(phrase)
+      else phrases.push(phrase)
+      continue
+    }
+    for (const term of splitWords(word ?? '')) {
+      if (negated) negative.push(term)
+      else positive.push(term)
+    }
+  }
+  return { positive, phrases, negative, terms: [...positive, ...phrases, ...negative] }
+}
+
+const ftsTerm = (term: string): string => `"${term.replace(/"/g, ' ')}"*`
+const ftsPhrase = (phrase: string): string => `"${phrase.replace(/"/g, ' ')}"`
+
 /**
- * Turn raw user input into a safe FTS5 MATCH expression. We strip the FTS
- * operator characters and turn each term into a prefix query, AND-ed together.
- *   `"hello wor"` → `hello* wor*`
+ * Turn raw user input into a safe FTS5 MATCH expression. Plain words remain
+ * forgiving prefix terms, user-quoted text becomes an exact phrase, and
+ * `-term`/`-"phrase"` is translated to FTS5 NOT.
  */
-export const buildMatchQuery = (raw: string): string | null => {
-  const terms = cleanSearchTerms(raw)
-  if (terms.length === 0) return null
-  return terms.map((t) => `"${t}"*`).join(' ')
+export const buildMatchQuery = (raw: string, scope: SearchScope = 'all'): string | null => {
+  const parsed = parseQuery(raw)
+  const positives = [...parsed.positive.map(ftsTerm), ...parsed.phrases.map(ftsPhrase)]
+  if (positives.length === 0) return null
+  let body = positives.join(' ')
+  for (const term of parsed.negative) body += ` NOT ${term.includes(' ') ? ftsPhrase(term) : ftsTerm(term)}`
+  return scope === 'title' ? `title : (${body})` : body
 }
 
 const readFtsTokenizer = (db: DB, fallback: FtsTokenizer): FtsTokenizer => {
@@ -163,147 +265,241 @@ const shortQueryHint = (terms: readonly string[]): SearchShortQueryHint | undefi
       }
     : undefined
 
-export const rebuildSearchIndex = (db: DB, tokenizer: FtsTokenizer): void => {
-  db.$client.prepare('DROP TABLE IF EXISTS pages_fts').run()
-  runMigrations(db.$client, { ftsTokenizer: tokenizer })
-  const insert = db.$client.prepare(
-    'INSERT INTO pages_fts(page_id, title, description, content) VALUES (?, ?, ?, ?)',
-  )
-  for (const page of db.select().from(pages).where(eq(pages.lifecycle, 'active')).all()) {
-    insert.run(page.id, page.title, page.description, toPlainText(page.content))
+const markedSnippet = (value: string): string =>
+  escapeHtml(value).replaceAll(SNIPPET_START, '<mark>').replaceAll(SNIPPET_END, '</mark>')
+
+const hasMark = (value: string): boolean => value.includes(SNIPPET_START)
+
+const highlightedText = (value: string, terms: readonly string[]): string => {
+  let snippet = escapeHtml(value)
+  for (const term of [...terms].sort((a, b) => b.length - a.length)) {
+    const safeTerm = escapeHtml(term)
+    snippet = snippet.replace(new RegExp(escapeRegex(safeTerm), 'giu'), '<mark>$&</mark>')
+  }
+  return snippet
+}
+
+const bestTextWindow = (value: string, terms: readonly string[]): string => {
+  const lower = value.toLowerCase()
+  const first = terms
+    .map((term) => lower.indexOf(term))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0] ?? 0
+  const start = Math.max(first - 48, 0)
+  const end = Math.min(start + 160, value.length)
+  return `${start > 0 ? '…' : ''}${highlightedText(value.slice(start, end), terms)}${end < value.length ? '…' : ''}`
+}
+
+interface SnippetChoice {
+  readonly snippet: string
+  readonly kind: SearchHitKind
+  readonly anchor?: string
+}
+
+const chooseFtsSnippet = (row: {
+  titleSnippet: string
+  descriptionSnippet: string
+  contentSnippet: string
+  commentsSnippet: string
+  assetsSnippet: string
+  title: string
+  description: string
+}): SnippetChoice => {
+  const candidates: Array<{ raw: string; kind: SearchHitKind; anchor?: string }> = [
+    { raw: row.titleSnippet, kind: 'page' },
+    { raw: row.descriptionSnippet, kind: 'page' },
+    { raw: row.contentSnippet, kind: 'page' },
+    { raw: row.commentsSnippet, kind: 'comment', anchor: 'comments' },
+    { raw: row.assetsSnippet, kind: 'asset', anchor: 'attachments' },
+  ]
+  const choice = candidates.find((candidate) => hasMark(candidate.raw)) ?? candidates[0]!
+  return {
+    snippet: markedSnippet(choice.raw || row.description || row.title),
+    kind: choice.kind,
+    ...(choice.anchor ? { anchor: choice.anchor } : {}),
   }
 }
 
-export const createSearchService = (db: DB, options: SearchServiceOptions = {}): SearchService => {
+const titleNeedle = (query: string): string =>
+  parseQuery(query).phrases[0] ?? splitWords(query).join(' ')
+
+const finalScore = (
+  row: { title: string; rank: number; updatedAt: number },
+  query: string,
+  now: number,
+): number => {
+  const needle = titleNeedle(query)
+  const title = row.title.trim().toLowerCase()
+  const exactTitle = needle && title === needle ? 1 : 0
+  const prefixTitle = needle && title.startsWith(needle) ? 1 : 0
+  const ageDays = Math.max((now - row.updatedAt) / 86_400_000, 0)
+  const recencyBoost = 1 / (1 + ageDays / 30)
+  return row.rank - exactTitle * 1_000 - prefixTitle * 100 - recencyBoost * 2
+}
+
+const emptyResponse = (
+  query: string,
+  request: Required<SearchRequest>,
+  hint?: SearchTokenizerHint,
+): SearchResponse => ({
+  query,
+  hits: [],
+  total: 0,
+  limit: request.limit,
+  offset: request.offset,
+  hasMore: false,
+  ...(hint ? { tokenizerHint: hint } : {}),
+})
+
+const labelsPattern = (label: string | undefined): string | null => {
+  const clean = label?.trim().replace(/[%_"]/g, '')
+  return clean ? `%"${clean}"%` : null
+}
+
+const filterArgs = (filters: SearchFilters): unknown[] => {
+  const pathPrefix = filters.pathPrefix?.trim()
+  const label = labelsPattern(filters.label)
+  const status = filters.status?.trim()
+  const spaceKey = filters.spaceKey?.trim()
+  const locale = filters.locale?.trim()
+  const author = filters.author?.trim().toLowerCase()
+  const authorLike = author ? `%${escapeLike(author)}%` : null
+  const updatedAfter = filters.updatedAfter ?? null
+  const updatedBefore = filters.updatedBefore ?? null
+  return [
+    pathPrefix || null,
+    pathPrefix ? `${escapeLike(pathPrefix)}%` : null,
+    label,
+    label,
+    status || null,
+    status || null,
+    spaceKey || null,
+    spaceKey || null,
+    locale || null,
+    locale || null,
+    author || null,
+    author || null,
+    authorLike,
+    authorLike,
+    updatedAfter,
+    updatedAfter,
+    updatedBefore,
+    updatedBefore,
+  ]
+}
+
+const filterSql = `
+  AND (? IS NULL OR p.path LIKE ? ESCAPE '\\')
+  AND (? IS NULL OR p.labels LIKE ?)
+  AND (? IS NULL OR p.status = ?)
+  AND (? IS NULL OR p.space_key = ?)
+  AND (? IS NULL OR p.locale = ?)
+  AND (
+    ? IS NULL
+    OR p.author_id = ?
+    OR lower(coalesce(u.name, '')) LIKE ? ESCAPE '\\'
+    OR lower(coalesce(u.email, '')) LIKE ? ESCAPE '\\'
+  )
+  AND (? IS NULL OR p.updated_at >= ?)
+  AND (? IS NULL OR p.updated_at <= ?)
+`
+
+const assetTextForPage = (db: DB, content: string): string => {
+  const haystack = content.toLowerCase()
+  return db
+    .select({
+      filename: assets.filename,
+      folder: assets.folder,
+      storageName: assets.storageName,
+      deletedAt: assets.deletedAt,
+    })
+    .from(assets)
+    .all()
+    .filter((asset) => {
+      if (asset.deletedAt !== null) return false
+      if (!asset.storageName) return false
+      const aliases = [
+        asset.storageName,
+        `/assets/${asset.storageName}`,
+        asset.filename,
+      ].map((value) => value.toLowerCase())
+      return aliases.some((alias) => alias && haystack.includes(alias))
+    })
+    .map((asset) => `${asset.filename} ${asset.folder}`.trim())
+    .join('\n')
+}
+
+const commentTextForPage = (db: DB, pageId: string): string =>
+  db
+    .select({ body: pageComments.body })
+    .from(pageComments)
+    .where(eq(pageComments.pageId, pageId))
+    .all()
+    .map((comment) => toPlainText(comment.body))
+    .join('\n')
+
+export const rebuildSearchIndex = (db: DB, tokenizer: FtsTokenizer): void => {
+  db.$client.prepare('DROP TABLE IF EXISTS pages_fts').run()
+  runMigrations(db.$client, { ftsTokenizer: tokenizer })
+  const indexer = createFtsSearchIndexer(db, { configuredTokenizer: tokenizer })
+  for (const page of db.select({ id: pages.id }).from(pages).where(eq(pages.lifecycle, 'active')).all()) {
+    indexer.indexPageById(page.id)
+  }
+}
+
+export const createFtsSearchIndexer = (
+  db: DB,
+  options: { configuredTokenizer?: FtsTokenizer } = {},
+): SearchIndexer => {
   const configuredTokenizer = options.configuredTokenizer ?? 'unicode61'
-  const escapeLike = (value: string): string => value.replace(/[\\%_]/g, (char) => `\\${char}`)
-  const escapeHtml = (value: string): string =>
-    value
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/"/g, '&quot;')
-      .replace(/'/g, '&#39;')
+  const ftsInsert = db.$client.prepare(
+    'INSERT INTO pages_fts(page_id, title, description, content, comments, assets) VALUES (?, ?, ?, ?, ?, ?)',
+  )
+  const ftsDelete = db.$client.prepare('DELETE FROM pages_fts WHERE page_id = ?')
 
-  const likeSnippet = (row: { title: string; description: string; content: string }, terms: readonly string[]): string => {
-    const sources = [row.title, row.description, toPlainText(row.content)].filter(Boolean)
-    const source = sources.find((value) => terms.some((term) => value.toLowerCase().includes(term))) ?? sources[0] ?? ''
-    const lower = source.toLowerCase()
-    const first = terms
-      .map((term) => lower.indexOf(term))
-      .filter((index) => index >= 0)
-      .sort((a, b) => a - b)[0] ?? 0
-    const start = Math.max(first - 48, 0)
-    const end = Math.min(start + 140, source.length)
-    let snippet = escapeHtml(source.slice(start, end))
-    for (const term of [...terms].sort((a, b) => b.length - a.length)) {
-      const escapedTerm = escapeHtml(term)
-      snippet = snippet.replace(new RegExp(escapedTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'giu'), '<mark>$&</mark>')
-    }
-    return `${start > 0 ? '…' : ''}${snippet}${end < source.length ? '…' : ''}`
-  }
-
-  const likeRank = (row: { title: string; description: string; content: string }, terms: readonly string[]): number => {
-    const title = row.title.toLowerCase()
-    const description = row.description.toLowerCase()
-    const content = row.content.toLowerCase()
-    return terms.reduce((rank, term) => {
-      if (title.includes(term)) return rank - 10
-      if (description.includes(term)) return rank - 5
-      if (content.includes(term)) return rank - 1
-      return rank
-    }, 0)
-  }
-
-  const likeSearch = (
-    query: string,
-    terms: readonly string[],
-    limit: number,
-    filters: SearchFilters,
-    canRead?: (path: string) => boolean,
-  ): SearchResponse => {
-    const pathPrefix = filters.pathPrefix?.trim()
-    const label = filters.label?.trim()
-    const status = filters.status?.trim()
-    const spaceKey = filters.spaceKey?.trim()
-    const locale = filters.locale?.trim()
-    const fetchLimit = canRead ? Math.min(Math.max(limit * 8, 40), 400) : limit
-    const termWhere = terms
-      .map(() => '(lower(p.title) LIKE ? ESCAPE \'\\\' OR lower(p.description) LIKE ? ESCAPE \'\\\' OR lower(p.content) LIKE ? ESCAPE \'\\\')')
-      .join(' AND ')
-    const rows = db.$client.prepare(`
-      SELECT
-        p.path AS path,
-        p.title AS title,
-        p.description AS description,
-        p.content AS content
-      FROM pages p
-      WHERE p.lifecycle = 'active'
-        AND ${termWhere}
-        AND (? IS NULL OR p.path LIKE ?)
-        AND (? IS NULL OR p.labels LIKE ?)
-        AND (? IS NULL OR p.status = ?)
-        AND (? IS NULL OR p.space_key = ?)
-        AND (? IS NULL OR p.locale = ?)
-      ORDER BY p.updated_at DESC, p.path
-      LIMIT ?
-    `).all(
-      ...terms.flatMap((term) => {
-        const like = `%${escapeLike(term)}%`
-        return [like, like, like]
-      }),
-      pathPrefix || null,
-      pathPrefix ? `${pathPrefix.replace(/[%_]/g, '')}%` : null,
-      label || null,
-      label ? `%"${label.replace(/[%_"]/g, '')}"%` : null,
-      status || null,
-      status || null,
-      spaceKey || null,
-      spaceKey || null,
-      locale || null,
-      locale || null,
-      fetchLimit,
-    ) as Array<{ path: string; title: string; description: string; content: string }>
-    const visible = (canRead ? rows.filter((row) => canRead(row.path)) : rows)
-      .map((row): SearchHit => ({
-        path: row.path,
-        title: row.title,
-        snippet: likeSnippet(row, terms),
-        rank: likeRank(row, terms),
-      }))
-      .sort((a, b) => a.rank - b.rank || a.path.localeCompare(b.path))
-      .slice(0, limit)
-    const hint = shortQueryHint(terms.filter((term) => codePointLength(term) < 3))
-    return {
-      query,
-      hits: visible,
-      ...(hint ? { shortQueryHint: hint, truncatedTerms: hint.terms } : {}),
-    }
-  }
-
-  // bm25 weights line up with the FTS columns: page_id, title, description, content.
-  // Snippet markup is safe: the `content` column is stored via toPlainText(), which
-  // renders Markdown with raw-HTML disabled and strips tags, so it is already
-  // HTML-entity-encoded — the only live markup in a snippet is the <mark> we add.
   const prepareSearchStatement = () => db.$client.prepare(`
     SELECT
-      p.path  AS path,
+      p.path AS path,
       p.title AS title,
-      snippet(pages_fts, 3, '<mark>', '</mark>', '…', 12) AS snippet,
-      bm25(pages_fts, 0.0, 10.0, 5.0, 1.0) AS rank
+      p.description AS description,
+      p.updated_at AS updatedAt,
+      snippet(pages_fts, 1, '${SNIPPET_START}', '${SNIPPET_END}', '…', 12) AS titleSnippet,
+      snippet(pages_fts, 2, '${SNIPPET_START}', '${SNIPPET_END}', '…', 12) AS descriptionSnippet,
+      snippet(pages_fts, 3, '${SNIPPET_START}', '${SNIPPET_END}', '…', 18) AS contentSnippet,
+      snippet(pages_fts, 4, '${SNIPPET_START}', '${SNIPPET_END}', '…', 18) AS commentsSnippet,
+      snippet(pages_fts, 5, '${SNIPPET_START}', '${SNIPPET_END}', '…', 18) AS assetsSnippet,
+      bm25(pages_fts, 0.0, 10.0, 5.0, 1.0, 0.5, 0.5) AS rank
     FROM pages_fts
     JOIN pages p ON p.id = pages_fts.page_id
+    LEFT JOIN users u ON u.id = p.author_id
     WHERE pages_fts MATCH ?
       AND p.lifecycle = 'active'
-      AND (? IS NULL OR p.path LIKE ?)
-      AND (? IS NULL OR p.labels LIKE ?)
-      AND (? IS NULL OR p.status = ?)
-      AND (? IS NULL OR p.space_key = ?)
-      AND (? IS NULL OR p.locale = ?)
+      ${filterSql}
     ORDER BY rank
-    LIMIT ?
   `)
   let stmt = prepareSearchStatement()
+
+  const prepareLikeStatement = () => db.$client.prepare(`
+    SELECT
+      p.id AS id,
+      p.path AS path,
+      p.title AS title,
+      p.description AS description,
+      p.content AS content,
+      p.updated_at AS updatedAt
+    FROM pages p
+    LEFT JOIN users u ON u.id = p.author_id
+    WHERE p.lifecycle = 'active'
+      AND (? IS NULL OR (
+        lower(p.title) LIKE ? ESCAPE '\\'
+        OR lower(p.description) LIKE ? ESCAPE '\\'
+        OR lower(p.content) LIKE ? ESCAPE '\\'
+        OR lower(coalesce((SELECT group_concat(pc.body, char(10)) FROM page_comments pc WHERE pc.page_id = p.id), '')) LIKE ? ESCAPE '\\'
+      ))
+      ${filterSql}
+    ORDER BY p.updated_at DESC, p.path
+  `)
+  let likeStmt = prepareLikeStatement()
 
   const status = (): SearchIndexStatus => {
     const activePages = db.select().from(pages).where(eq(pages.lifecycle, 'active')).all()
@@ -311,7 +507,7 @@ export const createSearchService = (db: DB, options: SearchServiceOptions = {}):
     let indexedCharacters = 0
     let cjkCharacters = 0
     for (const page of activePages) {
-      const text = indexedText(page)
+      const text = indexedText(page, `${commentTextForPage(db, page.id)}\n${assetTextForPage(db, page.content)}`)
       if (containsCjk(text)) cjkPages += 1
       const counts = countSearchCharacters(text)
       indexedCharacters += counts.total
@@ -335,60 +531,225 @@ export const createSearchService = (db: DB, options: SearchServiceOptions = {}):
     }
   }
 
-  return {
-    search(query, limit = 20, filters = {}, canRead) {
+  const toHit = (
+    row: {
+      path: string
+      title: string
+      description: string
+      updatedAt: number
+      titleSnippet: string
+      descriptionSnippet: string
+      contentSnippet: string
+      commentsSnippet: string
+      assetsSnippet: string
+      rank: number
+    },
+    query: string,
+    now: number,
+  ): SearchHit => {
+    const chosen = chooseFtsSnippet(row)
+    return {
+      path: row.path,
+      title: row.title,
+      snippet: chosen.snippet,
+      rank: finalScore(row, query, now),
+      kind: chosen.kind,
+      updatedAt: row.updatedAt,
+      ...(chosen.anchor ? { anchor: chosen.anchor } : {}),
+    }
+  }
+
+  const likeRank = (
+    row: { title: string; description: string; content: string; updatedAt: number },
+    terms: readonly string[],
+    query: string,
+    now: number,
+  ): number => {
+    const title = row.title.toLowerCase()
+    const description = row.description.toLowerCase()
+    const content = row.content.toLowerCase()
+    const base = terms.reduce((rank, term) => {
+      if (title.includes(term)) return rank - 10
+      if (description.includes(term)) return rank - 5
+      if (content.includes(term)) return rank - 1
+      return rank
+    }, 0)
+    return finalScore({ title: row.title, rank: base, updatedAt: row.updatedAt }, query, now)
+  }
+
+  const likeSnippet = (
+    row: { id: string; title: string; description: string; content: string },
+    terms: readonly string[],
+  ): SnippetChoice => {
+    const sources: Array<{ value: string; kind: SearchHitKind; anchor?: string }> = [
+      { value: row.title, kind: 'page' },
+      { value: row.description, kind: 'page' },
+      { value: toPlainText(row.content), kind: 'page' },
+      { value: commentTextForPage(db, row.id), kind: 'comment', anchor: 'comments' },
+      { value: assetTextForPage(db, row.content), kind: 'asset', anchor: 'attachments' },
+    ]
+    const populatedSources = sources.filter((source) => source.value)
+    const source = populatedSources.find((candidate) => terms.some((term) => candidate.value.toLowerCase().includes(term))) ?? populatedSources[0]
+    if (!source) return { snippet: '', kind: 'page' }
+    return {
+      snippet: bestTextWindow(source.value, terms),
+      kind: source.kind,
+      ...(source.anchor ? { anchor: source.anchor } : {}),
+    }
+  }
+
+  const sortHits = (hits: SearchHit[], sort: SearchSort): SearchHit[] =>
+    [...hits].sort((a, b) => {
+      if (sort === 'recent') return b.updatedAt - a.updatedAt || a.rank - b.rank || a.path.localeCompare(b.path)
+      return a.rank - b.rank || b.updatedAt - a.updatedAt || a.path.localeCompare(b.path)
+    })
+
+  const page = {
+    indexPageById(pageId: string) {
+      const page = db.select().from(pages).where(eq(pages.id, pageId)).get()
+      ftsDelete.run(pageId)
+      if (!page || page.lifecycle !== 'active') return
+      ftsInsert.run(
+        page.id,
+        page.title,
+        page.description,
+        toPlainText(page.content),
+        commentTextForPage(db, page.id),
+        assetTextForPage(db, page.content),
+      )
+    },
+
+    removePage(pageId: string) {
+      ftsDelete.run(pageId)
+    },
+
+    search(query: string, request: Required<SearchRequest>, canRead?: (path: string) => boolean): SearchResponse {
       const tokenizer = readFtsTokenizer(db, configuredTokenizer)
       const hint = tokenizerHint(query, tokenizer)
-      const terms = cleanSearchTerms(query)
-      const shortTerms = trigramShortTerms(terms, tokenizer)
-      if (terms.length > 0 && shortTerms.length > 0) {
-        return likeSearch(query, terms, limit, filters, canRead)
+      const parsed = parseQuery(query)
+      const shortTerms = trigramShortTerms(parsed.terms, tokenizer)
+      const now = Date.now()
+      if (parsed.terms.length > 0 && shortTerms.length > 0) {
+        const terms = parsed.terms
+        const firstTerm = terms[0]
+        const like = firstTerm ? `%${escapeLike(firstTerm.toLowerCase())}%` : null
+        const rows = likeStmt.all(
+          like,
+          like,
+          like,
+          like,
+          like,
+          ...filterArgs(request.filters),
+        ) as Array<{ id: string; path: string; title: string; description: string; content: string; updatedAt: number }>
+        const hits = sortHits(
+          rows
+            .filter((row) => !canRead || canRead(row.path))
+            .filter((row) => {
+              const searchable = `${row.title}\n${row.description}\n${row.content}\n${commentTextForPage(db, row.id)}\n${assetTextForPage(db, row.content)}`.toLowerCase()
+              return terms.every((term) => searchable.includes(term.toLowerCase()))
+            })
+            .map((row) => {
+              const chosen = likeSnippet(row, terms)
+              return {
+                path: row.path,
+                title: row.title,
+                snippet: chosen.snippet,
+                rank: likeRank(row, parsed.terms, query, now),
+                kind: chosen.kind,
+                updatedAt: row.updatedAt,
+                ...(chosen.anchor ? { anchor: chosen.anchor } : {}),
+              }
+            }),
+          request.sort,
+        )
+        const total = hits.length
+        const pageHits = hits.slice(request.offset, request.offset + request.limit)
+        const short = shortQueryHint(shortTerms)
+        return {
+          query,
+          hits: pageHits,
+          total,
+          limit: request.limit,
+          offset: request.offset,
+          hasMore: request.offset + request.limit < total,
+          ...(hint ? { tokenizerHint: hint } : {}),
+          ...(short ? { shortQueryHint: short, truncatedTerms: short.terms } : {}),
+        }
       }
-      const match = buildMatchQuery(query)
-      if (!match) return { query, hits: [], ...(hint ? { tokenizerHint: hint } : {}) }
-      const pathPrefix = filters.pathPrefix?.trim()
-      const label = filters.label?.trim()
-      const status = filters.status?.trim()
-      const spaceKey = filters.spaceKey?.trim()
-      const locale = filters.locale?.trim()
-      // When we have to ACL-filter, over-fetch a bounded candidate window so a
-      // few denied pages don't shrink the visible result set below `limit`.
-      const fetchLimit = canRead ? Math.min(Math.max(limit * 8, 40), 400) : limit
+
+      const match = buildMatchQuery(query, request.scope)
+      if (!match) return emptyResponse(query, request, hint)
       try {
-        const rows = stmt.all(
-          match,
-          pathPrefix || null,
-          pathPrefix ? `${pathPrefix.replace(/[%_]/g, '')}%` : null,
-          label || null,
-          label ? `%"${label.replace(/[%_"]/g, '')}"%` : null,
-          status || null,
-          status || null,
-          spaceKey || null,
-          spaceKey || null,
-          locale || null,
-          locale || null,
-          fetchLimit,
-        ) as SearchHit[]
-        const visible = canRead ? rows.filter((row) => canRead(row.path)) : rows
-        return { query, hits: visible.slice(0, limit), ...(hint ? { tokenizerHint: hint } : {}) }
+        const rows = stmt.all(match, ...filterArgs(request.filters)) as Array<{
+          path: string
+          title: string
+          description: string
+          updatedAt: number
+          titleSnippet: string
+          descriptionSnippet: string
+          contentSnippet: string
+          commentsSnippet: string
+          assetsSnippet: string
+          rank: number
+        }>
+        const hits = sortHits(
+          rows
+            .filter((row) => !canRead || canRead(row.path))
+            .map((row) => toHit(row, query, now)),
+          request.sort,
+        )
+        const total = hits.length
+        return {
+          query,
+          hits: hits.slice(request.offset, request.offset + request.limit),
+          total,
+          limit: request.limit,
+          offset: request.offset,
+          hasMore: request.offset + request.limit < total,
+          ...(hint ? { tokenizerHint: hint } : {}),
+        }
       } catch {
-        // Malformed FTS expression — treat as no results rather than 500.
-        return { query, hits: [], ...(hint ? { tokenizerHint: hint } : {}) }
+        return emptyResponse(query, request, hint)
       }
+    },
+
+    rebuild(tokenizer: FtsTokenizer) {
+      rebuildSearchIndex(db, tokenizer)
+      stmt = prepareSearchStatement()
+      likeStmt = prepareLikeStatement()
+    },
+
+    status,
+  } satisfies SearchIndexer
+
+  return page
+}
+
+export const createSearchService = (db: DB, options: SearchServiceOptions = {}): SearchService => {
+  const configuredTokenizer = options.configuredTokenizer ?? 'unicode61'
+  const indexer = options.indexer ?? createFtsSearchIndexer(db, { configuredTokenizer })
+
+  return {
+    search(query, limitOrOptions?: number | SearchRequest, filtersOrCanRead?: SearchFilters | ((path: string) => boolean), maybeCanRead?: (path: string) => boolean) {
+      const request = normalizeRequest(
+        limitOrOptions,
+        typeof filtersOrCanRead === 'function' ? {} : filtersOrCanRead ?? {},
+      )
+      const canRead = typeof filtersOrCanRead === 'function' ? filtersOrCanRead : maybeCanRead
+      return indexer.search(query, request, canRead)
     },
 
     indexStatus(principal) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      return ok(status())
+      return ok(indexer.status())
     },
 
     rebuildIndex(principal, input = {}) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      rebuildSearchIndex(db, input.tokenizer ?? 'trigram')
-      stmt = prepareSearchStatement()
-      return ok(status())
+      indexer.rebuild(input.tokenizer ?? 'trigram')
+      return ok(indexer.status())
     },
   }
 }

@@ -22,6 +22,10 @@ Open the URL Vite prints, sign in as **`admin@example.com`** with the password p
 first registered account becomes admin. Search `banana`, open a page, and hit **Edit** for
 the live Markdown editor.
 
+Search supports prefix matching, quoted phrases such as `"error code 42"`,
+exclusions such as `banana -draft`, title-only mode, filters, pagination,
+recent searches, page comments, and referenced asset filenames.
+
 Japanese/CJK search: the default SQLite FTS tokenizer is `unicode61`, which is
 best for English/European prose but only matches Japanese token prefixes. Set
 `TS_WIKI_FTS_TOKENIZER=trigram` before first migration/seed for CJK substring

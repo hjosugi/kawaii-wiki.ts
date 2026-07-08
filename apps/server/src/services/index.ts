@@ -6,7 +6,7 @@ import type { DB } from '../db/client.ts'
 import type { AuthEnv, MailEnv, SearchEnv } from '../env.ts'
 import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
-import { createSearchService, type SearchService } from './search.ts'
+import { createFtsSearchIndexer, createSearchService, type SearchService } from './search.ts'
 import { createUserService, type UserService } from './users.ts'
 import { createAssetService, type AssetService } from './assets.ts'
 import { createAdminService, type AdminService } from './admin.ts'
@@ -81,17 +81,18 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   authz.ensureDefaults()
   const auth = options.auth ?? defaultAuth
   const search = options.search ?? { ftsTokenizer: 'unicode61' as const }
+  const searchIndexer = createFtsSearchIndexer(db, { configuredTokenizer: search.ftsTokenizer })
   const mail = createMailService(options.mail ?? defaultMail, {
     sender: options.mailSender,
     logger: options.logger,
   })
   return {
-    pages: createPageService(db),
-    search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer }),
+    pages: createPageService(db, searchIndexer),
+    search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer, indexer: searchIndexer }),
     users: createUserService(db),
-    assets: createAssetService(db, { urlForStorageName: options.assetUrl }),
+    assets: createAssetService(db, { urlForStorageName: options.assetUrl, searchIndexer }),
     admin: createAdminService(db, authz),
-    comments: createCommentService(db),
+    comments: createCommentService(db, searchIndexer),
     analytics: createAnalyticsService(db),
     settings: createSettingsService(db),
     authz,

@@ -282,6 +282,108 @@ describe('page + search slice (in-memory db)', () => {
     expect(pages.spaces()).toContainEqual(expect.objectContaining({ key: 'docs', pages: 1 }))
   })
 
+  test('search ranks exact titles first and can sort equal hits by recency', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    pages.create({ path: 'docs/body', title: 'Body mention', content: 'banana appears in the body' }, admin)
+    pages.create({ path: 'docs/title', title: 'Banana', content: 'plain body' }, admin)
+
+    expect(search.search('banana').hits[0]?.path).toBe('docs/title')
+
+    pages.create({ path: 'docs/old', title: 'Old', content: 'kiwi same body' }, admin)
+    pages.create({ path: 'docs/fresh', title: 'Fresh', content: 'kiwi same body' }, admin)
+    db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(1, 'docs/old')
+    db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(9_000_000_000_000, 'docs/fresh')
+
+    expect(search.search('kiwi', { sort: 'recent' }).hits[0]?.path).toBe('docs/fresh')
+  })
+
+  test('search snippets use the matching title or description column', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    pages.create({
+      path: 'docs/title-snippet',
+      title: 'Needle Atlas',
+      description: '',
+      content: 'unrelated body text',
+    }, admin)
+    pages.create({
+      path: 'docs/description-snippet',
+      title: 'Summary',
+      description: 'Needle appears in the summary',
+      content: 'another unrelated body',
+    }, admin)
+
+    expect(search.search('needle').hits[0]?.snippet).toContain('<mark>Needle</mark>')
+    expect(search.search('appears').hits[0]?.snippet).toContain('<mark>appears</mark>')
+  })
+
+  test('search paginates with total count and supports phrase, exclusion, and title scope', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    for (let i = 0; i < 25; i += 1) {
+      pages.create({ path: `bulk/${i}`, title: `Bulk ${i}`, content: 'bulkterm body' }, admin)
+    }
+    pages.create({ path: 'phrases/exact', title: 'Exact', content: 'error code 42 appears together' }, admin)
+    pages.create({ path: 'phrases/split', title: 'Split', content: 'error appears before some words and code 42 later' }, admin)
+    pages.create({ path: 'titles/banana', title: 'Banana guide', content: 'no fruit body' }, admin)
+    pages.create({ path: 'titles/body', title: 'Body guide', content: 'banana body only' }, admin)
+
+    const secondPage = search.search('bulkterm', { limit: 10, offset: 10 })
+    expect(secondPage.total).toBe(25)
+    expect(secondPage.hits.length).toBe(10)
+    expect(secondPage.hasMore).toBe(true)
+
+    expect(search.search('"error code 42"').hits.map((hit) => hit.path)).toEqual(['phrases/exact'])
+    expect(search.search('error -split').hits.map((hit) => hit.path)).not.toContain('phrases/split')
+    expect(search.search('banana', { scope: 'title' }).hits.map((hit) => hit.path)).toEqual(['titles/banana'])
+  })
+
+  test('search filters by author and updated date', () => {
+    const db = createDb(':memory:')
+    const { pages, search } = createServices(db)
+    pages.create({ path: 'filters/admin', title: 'Admin', content: 'filterterm' }, admin)
+    pages.create({ path: 'filters/viewer', title: 'Viewer', content: 'filterterm' }, admin)
+    db.$client.prepare('UPDATE pages SET author_id = ? WHERE path = ?').run(viewer.id, 'filters/viewer')
+    db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(1_000, 'filters/admin')
+    db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(9_000, 'filters/viewer')
+
+    expect(search.search('filterterm', { filters: { author: 'viewer-1' } }).hits.map((hit) => hit.path)).toEqual(['filters/viewer'])
+    expect(search.search('filterterm', { filters: { updatedAfter: 5_000 } }).hits.map((hit) => hit.path)).toEqual(['filters/viewer'])
+    expect(search.search('filterterm', { filters: { updatedBefore: 5_000 } }).hits.map((hit) => hit.path)).toEqual(['filters/admin'])
+  })
+
+  test('search indexes page comments and referenced asset filenames', () => {
+    const db = createDb(':memory:')
+    const { pages, comments, assets, search } = createServices(db)
+    pages.create({
+      path: 'docs/context',
+      title: 'Context',
+      content: 'See ![diagram](/assets/assets/a/diagram.png)',
+    }, admin)
+
+    const comment = comments.create('docs/context', 'The durable decisionterm lives in a comment.', admin)
+    expect(comment.ok).toBe(true)
+    const asset = assets.record({
+      id: 'asset-a',
+      filename: 'diagram.png',
+      storageName: 'assets/a/diagram.png',
+      folder: 'diagrams',
+      mime: 'image/png',
+      size: 100,
+      authorId: admin.id,
+    }, admin)
+    expect(asset.ok).toBe(true)
+
+    const commentHit = search.search('decisionterm').hits[0]
+    expect(commentHit).toMatchObject({ path: 'docs/context', kind: 'comment', anchor: 'comments' })
+    const assetHit = search.search('diagram').hits[0]
+    expect(assetHit).toMatchObject({ path: 'docs/context', kind: 'asset', anchor: 'attachments' })
+    const listed = assets.list(admin, undefined, 'diagram')
+    expect(listed.ok).toBe(true)
+    if (listed.ok) expect(listed.value[0]?.filename).toBe('diagram.png')
+  })
+
   test('move changes the page path and preserves search index', () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)

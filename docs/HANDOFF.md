@@ -202,14 +202,16 @@ Each item notes **where to plug in**.
       registration controls, and domain allow-listing are implemented.
 - [x] Comments — page comments with mentions, resolve/update/delete, and webhook events are implemented.
 - [ ] Tags, multi-site, i18n, SSR.
-- [ ] **Rust-backed search adapter.** Keep SQLite FTS5 as the default embedded engine, but add a
-      `SearchIndexer` interface before swapping engines. Best first external option is
+- [ ] **Rust-backed search adapter.** Keep SQLite FTS5 as the default embedded engine; the
+      `SearchIndexer` interface now exists, so future swaps no longer need page/comment/asset
+      write paths to know FTS5 details. Best first external option is
       **Meilisearch** (`https://www.meilisearch.com/docs/getting_started/overview`) for Rust-built,
       typo-tolerant, search-as-you-type UX. **Tantivy** (`https://github.com/quickwit-oss/tantivy`)
       is the lower-level Rust/Lucene-style library if we want to own the indexer. **Quickwit**
       (`https://quickwit.io/`) is larger-scale/log-search oriented and probably overkill for this
       wiki until the content volume is much higher. SQLite FTS5 trigram
-      (`https://sqlite.org/fts5.html`) remains the smallest upgrade for CJK/substring matching.
+      (`https://sqlite.org/fts5.html`) remains the smallest upgrade for CJK/substring matching;
+      typo correction is intentionally deferred to an external adapter.
 
 ---
 
@@ -235,7 +237,7 @@ apps/server/src/
     reset.ts       delete db files        (bun run db:reset)
   services/
     pages.ts       create/update/move/remove/get/list/graph — the transactional core
-    search.ts      FTS5 query (BM25, snippet) + buildMatchQuery()
+    search.ts      SearchIndexer seam + FTS5 query/index implementation
     users.ts       count/find/create
     assets.ts      record/list
     auth.ts        hashPassword/verifyPassword (Bun.password)

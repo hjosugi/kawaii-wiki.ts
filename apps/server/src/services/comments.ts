@@ -13,6 +13,7 @@ import {
 } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
 import { pageComments, pages, users, type PageComment } from '../db/schema.ts'
+import type { SearchIndexer } from './search.ts'
 
 export interface CommentView {
   readonly id: string
@@ -56,7 +57,7 @@ const toView = (comment: PageComment, authorName: string | null): CommentView =>
   updatedAt: comment.updatedAt,
 })
 
-export const createCommentService = (db: DB): CommentService => {
+export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): CommentService => {
   const findActivePage = (path: string) => {
     const page = db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
     return page?.lifecycle === 'active' ? page : null
@@ -111,6 +112,7 @@ export const createCommentService = (db: DB): CommentService => {
         updatedAt: now,
       }
       db.insert(pageComments).values(comment).run()
+      searchIndexer?.indexPageById(page.id)
       return ok(toView(comment, nameOf(comment.authorId)))
     },
 
@@ -125,6 +127,7 @@ export const createCommentService = (db: DB): CommentService => {
         .set({ body: updated.body, updatedAt: updated.updatedAt })
         .where(eq(pageComments.id, id))
         .run()
+      searchIndexer?.indexPageById(comment.pageId)
       return ok(toView(updated, nameOf(updated.authorId)))
     },
 
@@ -145,6 +148,7 @@ export const createCommentService = (db: DB): CommentService => {
       if (!comment) return err(notFound('Comment not found'))
       if (!canMutate(principal, comment)) return err(forbidden())
       db.delete(pageComments).where(eq(pageComments.id, id)).run()
+      searchIndexer?.indexPageById(comment.pageId)
       return ok({ id, path: comment.path })
     },
   }

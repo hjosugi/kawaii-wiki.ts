@@ -128,7 +128,12 @@ export interface SearchHit {
   title: string
   snippet: string
   rank: number
+  kind: 'page' | 'comment' | 'asset'
+  anchor?: string
+  updatedAt: number
 }
+export type SearchScope = 'all' | 'title'
+export type SearchSort = 'relevance' | 'recent'
 export type FtsTokenizer = 'unicode61' | 'trigram'
 export interface SearchTokenizerHint {
   kind: 'cjk-tokenizer'
@@ -145,6 +150,10 @@ export interface SearchShortQueryHint {
 export interface SearchResponse {
   query: string
   hits: SearchHit[]
+  total: number
+  limit: number
+  offset: number
+  hasMore: boolean
   tokenizerHint?: SearchTokenizerHint
   shortQueryHint?: SearchShortQueryHint
   truncatedTerms?: string[]
@@ -572,8 +581,8 @@ export const Api = {
   uploadAsset: (file: File, folder?: string) => {
     return call<AssetUpload>(client().api.assets.post({ file, folder }))
   },
-  listAssets: (folder?: string) =>
-    call<{ assets: AssetView[] }>(client().api.assets.get({ query: folder ? { folder } : {} })).then((d) => d.assets),
+  listAssets: (folder?: string, q?: string) =>
+    call<{ assets: AssetView[] }>(client().api.assets.get({ query: { ...(folder ? { folder } : {}), ...(q ? { q } : {}) } })).then((d) => d.assets),
   assetFolders: () =>
     call<{ folders: string[] }>(client().api.assets.folders.get()).then((d) => d.folders),
   trashAssets: () => call<{ assets: AssetView[] }>(client().api.assets.trash.get()).then((d) => d.assets),
@@ -599,11 +608,34 @@ export const Api = {
   // Search
   search: (
     q: string,
-    limit = 20,
-    filters: { pathPrefix?: string; label?: string; status?: string; spaceKey?: string; locale?: string } = {},
+    options: {
+      limit?: number
+      offset?: number
+      scope?: SearchScope
+      sort?: SearchSort
+      filters?: {
+        pathPrefix?: string
+        label?: string
+        status?: string
+        spaceKey?: string
+        locale?: string
+        author?: string
+        updatedAfter?: number
+        updatedBefore?: number
+      }
+    } = {},
   ) =>
     call<SearchResponse>(
-      client().api.search.get({ query: { q, limit, ...filters } }),
+      client().api.search.get({
+        query: {
+          q,
+          ...(options.limit ? { limit: options.limit } : {}),
+          ...(options.offset ? { offset: options.offset } : {}),
+          ...(options.scope ? { scope: options.scope } : {}),
+          ...(options.sort ? { sort: options.sort } : {}),
+          ...(options.filters ?? {}),
+        },
+      }),
     ),
 
   // Admin

@@ -24,7 +24,6 @@ import {
   validationError,
   validatePageInput,
   renderMarkdown,
-  toPlainText,
   extractPageLinks,
   rewritePageLinks,
   extractCalendarEvents,
@@ -50,6 +49,7 @@ import {
   type Page,
   type PageRevision,
 } from '../db/schema.ts'
+import type { SearchIndexer } from './search.ts'
 
 export interface PageSummary {
   readonly path: string
@@ -267,17 +267,8 @@ export const rewriteLinksForMove = (
   return rewritten
 }
 
-export const createPageService = (db: DB): PageService => {
-  // Prepared FTS5 statements (FTS5 has no UPSERT, so update = delete + insert).
-  const ftsInsert = db.$client.prepare(
-    'INSERT INTO pages_fts(page_id, title, description, content) VALUES (?, ?, ?, ?)',
-  )
-  const ftsDelete = db.$client.prepare('DELETE FROM pages_fts WHERE page_id = ?')
-
-  const reindex = (id: string, title: string, description: string, content: string): void => {
-    ftsDelete.run(id)
-    ftsInsert.run(id, title, description, toPlainText(content))
-  }
+export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageService => {
+  const reindex = (id: string): void => searchIndexer.indexPageById(id)
 
   const findByPath = (path: string): Page | undefined =>
     db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
@@ -364,7 +355,7 @@ export const createPageService = (db: DB): PageService => {
         .where(eq(pages.id, current.id))
         .run()
 
-      reindex(current.id, next.title, next.description, next.content)
+      reindex(current.id)
       return findById(current.id)
     })
   }
@@ -665,7 +656,7 @@ export const createPageService = (db: DB): PageService => {
 
         snapshotRevision(tx, { id, path: v.path, title: v.title, description: v.description, content: v.content }, principal, 'created', now)
 
-        reindex(id, v.title, v.description, v.content)
+        reindex(id)
         return findById(id)
       })
 
@@ -803,7 +794,7 @@ export const createPageService = (db: DB): PageService => {
           .set({ lifecycle: 'archived', updatedAt: now })
           .where(eq(pages.id, current.id))
           .run()
-        ftsDelete.run(current.id)
+        searchIndexer.removePage(current.id)
         return findById(current.id)
       })
       return ok(page)
@@ -822,7 +813,7 @@ export const createPageService = (db: DB): PageService => {
           .set({ lifecycle: 'active', updatedAt: now })
           .where(eq(pages.id, current.id))
           .run()
-        reindex(current.id, current.title, current.description, current.content)
+        reindex(current.id)
         return findById(current.id)
       })
       return ok(page)
@@ -884,10 +875,10 @@ export const createPageService = (db: DB): PageService => {
         rewriteLinksForMove(tx, current.path, v.path, {
           principal,
           now,
-          reindex: (page, content) => reindex(page.id, page.title, page.description, content),
+          reindex: (page) => reindex(page.id),
         })
 
-        reindex(current.id, current.title, current.description, current.content)
+        reindex(current.id)
         return findById(current.id)
       })
 
@@ -910,7 +901,7 @@ export const createPageService = (db: DB): PageService => {
           .run()
         tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, current.path)).run()
         tx.delete(pageRedirects).where(eq(pageRedirects.toPath, current.path)).run()
-        ftsDelete.run(current.id)
+        searchIndexer.removePage(current.id)
         return findById(current.id)
       })
 
@@ -939,7 +930,7 @@ export const createPageService = (db: DB): PageService => {
         tx.delete(pageComments).where(eq(pageComments.pageId, current.id)).run()
         tx.delete(pageRevisions).where(eq(pageRevisions.pageId, current.id)).run()
         tx.delete(pages).where(eq(pages.id, current.id)).run()
-        ftsDelete.run(current.id)
+        searchIndexer.removePage(current.id)
       })
       return ok({ path: current.path })
     },
