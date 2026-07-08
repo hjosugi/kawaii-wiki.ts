@@ -81,7 +81,7 @@ onMounted(async () => {
       </RouterLink>
 
       <form class="min-w-0 flex-1 max-w-md" @submit.prevent="submitSearch">
-        <input v-model="q" class="input w-full py-1.5 text-sm sm:text-base" :placeholder="t('search')" />
+        <input v-model="q" class="input w-full py-1.5 text-sm sm:text-base" :placeholder="t('search')" :aria-label="t('search')" />
       </form>
 
       <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">

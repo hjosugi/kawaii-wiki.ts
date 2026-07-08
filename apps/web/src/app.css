@@ -35,6 +35,21 @@ html {
   scroll-behavior: smooth;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 summary:focus-visible,
@@ -45,6 +60,67 @@ summary:focus-visible,
 
 main:focus {
   outline: none;
+}
+
+.modal-dialog-enter-active,
+.modal-dialog-leave-active {
+  transition: opacity 120ms ease;
+}
+
+.modal-dialog-enter-active .modal-dialog-panel,
+.modal-dialog-leave-active .modal-dialog-panel {
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.modal-dialog-enter-from,
+.modal-dialog-leave-to {
+  opacity: 0;
+}
+
+.modal-dialog-enter-from .modal-dialog-panel,
+.modal-dialog-leave-to .modal-dialog-panel {
+  opacity: 0;
+  transform: translateY(0.25rem) scale(0.98);
+}
+
+.skeleton-stack {
+  display: grid;
+  gap: 0.65rem;
+  max-width: 44rem;
+}
+
+.skeleton-line {
+  height: 0.85rem;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    var(--c-surface-muted) 0%,
+    color-mix(in srgb, var(--c-surface-muted) 72%, var(--c-text-muted)) 48%,
+    var(--c-surface-muted) 100%
+  );
+  background-size: 220% 100%;
+  animation: skeleton-shimmer 1.35s ease-in-out infinite;
+}
+
+.skeleton-title {
+  width: min(18rem, 70%);
+  height: 1.35rem;
+}
+
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+
+  to {
+    background-position: -120% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-line {
+    animation: none;
+  }
 }
 
 /* CodeMirror fills its pane and uses our mono stack. */

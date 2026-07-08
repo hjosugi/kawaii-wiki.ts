@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Api, type WebhookSubscriptionView } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const webhooks = ref<WebhookSubscriptionView[]>([])
 const loading = ref(false)
@@ -71,11 +72,11 @@ onMounted(load)
   <section>
     <h2 class="text-lg font-semibold mb-3">Webhooks</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
-    <p v-if="loading" class="text-gray-400 mb-3">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading webhooks" :lines="3" />
     <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_24rem] gap-4">
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+          <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
             <tr><th class="p-3 font-medium">Target</th><th class="p-3 font-medium">Events</th><th class="p-3 font-medium w-44">Actions</th></tr>
           </thead>
           <tbody>
@@ -89,10 +90,10 @@ onMounted(load)
         </table>
       </div>
       <form class="card p-4 space-y-2" @submit.prevent="createWebhook">
-        <input v-model="name" class="input" placeholder="Webhook name" />
-        <input v-model="url" class="input" placeholder="https://example.com/webhook" />
-        <input v-model="secret" class="input" placeholder="Signing secret" />
-        <textarea v-model="eventTypes" class="input min-h-20 font-mono text-sm"></textarea>
+        <input v-model="name" class="input" placeholder="Webhook name" aria-label="Webhook name" />
+        <input v-model="url" class="input" placeholder="https://example.com/webhook" aria-label="Webhook URL" />
+        <input v-model="secret" class="input" placeholder="Signing secret" aria-label="Signing secret" />
+        <textarea v-model="eventTypes" class="input min-h-20 font-mono text-sm" aria-label="Webhook event types"></textarea>
         <button class="btn-primary" type="submit" :disabled="!url || !secret || !parseEventTypes().length">Create webhook</button>
       </form>
     </div>

@@ -6,6 +6,7 @@ import { setPageMeta } from '@/lib/meta'
 import { useI18n } from '@/lib/i18n'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
+import Skeleton from '@/components/Skeleton.vue'
 
 const route = useRoute()
 const { t } = useI18n()
@@ -38,7 +39,7 @@ watch(token, load, { immediate: true })
 <template>
   <main class="min-h-screen bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100">
     <article class="mx-auto max-w-3xl px-5 py-10 sm:py-14">
-      <div v-if="loading" class="text-gray-400">{{ t('loading') }}</div>
+      <Skeleton v-if="loading" :label="t('loading')" title :lines="5" />
 
       <div v-else-if="page">
         <div class="mb-6 border-b border-gray-200 pb-5 dark:border-gray-800">

@@ -55,11 +55,11 @@ async function savePassword(): Promise<void> {
       </div>
       <button class="btn-ghost" type="button" :disabled="busy || !name.trim()" @click="saveProfile">Save</button>
     </div>
-    <input v-model="name" class="input" placeholder="Display name" />
+    <input v-model="name" class="input" placeholder="Display name" aria-label="Display name" />
 
     <div class="grid sm:grid-cols-2 gap-2">
-      <input v-model="currentPassword" class="input" type="password" placeholder="Current password" autocomplete="current-password" />
-      <input v-model="newPassword" class="input" type="password" placeholder="New password" autocomplete="new-password" />
+      <input v-model="currentPassword" class="input" type="password" placeholder="Current password" aria-label="Current password" autocomplete="current-password" />
+      <input v-model="newPassword" class="input" type="password" placeholder="New password" aria-label="New password" autocomplete="new-password" />
     </div>
     <button
       class="btn-primary"

@@ -180,6 +180,7 @@ onBeforeUnmount(() => {
       v-model="search.q.value"
       class="w-full border-0 border-b border-gray-200 dark:border-gray-800 bg-transparent px-4 py-3 text-lg outline-none"
       placeholder="Search or jump..."
+      aria-label="Search or jump"
       role="combobox"
       aria-controls="command-palette-results"
       :aria-expanded="Boolean(items.length)"
@@ -216,7 +217,7 @@ onBeforeUnmount(() => {
           <span class="block font-medium truncate">{{ item.label }}</span>
           <span class="block text-xs text-gray-500 truncate">{{ item.detail }}</span>
         </span>
-        <span v-if="index === navigation.selected.value" class="text-xs text-gray-400">Enter</span>
+        <span v-if="index === navigation.selected.value" class="text-xs text-[var(--c-text-muted)]">Enter</span>
       </button>
     </div>
   </ModalDialog>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Api, type LabelCount } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const labels = ref<LabelCount[]>([])
 const loading = ref(false)
@@ -30,13 +31,13 @@ onMounted(load)
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold tracking-tight">Tags</h1>
-        <p class="mt-1 text-sm text-gray-500">Browse pages by label</p>
+        <p class="mt-1 text-sm text-[var(--c-text-muted)]">Browse pages by label</p>
       </div>
       <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <div v-if="loading" class="text-gray-400">Loading...</div>
+    <Skeleton v-if="loading" label="Loading tags" :lines="3" />
 
     <div v-if="labels.length" class="flex flex-wrap items-center gap-x-3 gap-y-2">
       <RouterLink
@@ -47,7 +48,7 @@ onMounted(load)
         :to="{ name: 'search', query: { label: entry.label } }"
       >
         <span class="text-violet-600 dark:text-violet-400">#</span>{{ entry.label }}
-        <span class="text-xs text-gray-400">{{ entry.count }}</span>
+        <span class="text-xs text-[var(--c-text-muted)]">{{ entry.count }}</span>
       </RouterLink>
     </div>
 

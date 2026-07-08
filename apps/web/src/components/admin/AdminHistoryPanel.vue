@@ -56,11 +56,11 @@ onMounted(load)
       <div class="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <div>
           <div class="text-2xl font-bold">{{ stats?.revisions ?? 0 }}</div>
-          <div class="text-sm text-gray-400">Revisions</div>
+          <div class="text-sm text-[var(--c-text-muted)]">Revisions</div>
         </div>
         <div>
           <div class="text-2xl font-bold">{{ formatBytes(stats?.historyBytes ?? 0) }}</div>
-          <div class="text-sm text-gray-400">History data</div>
+          <div class="text-sm text-[var(--c-text-muted)]">History data</div>
         </div>
         <label class="block">
           <span class="text-xs font-medium text-gray-500">Older than days</span>

@@ -65,11 +65,11 @@ async function disableTotp(): Promise<void> {
       <button v-if="!auth.user?.totpEnabled" class="btn-ghost" type="button" :disabled="busy" @click="setupTotp">Set up</button>
     </div>
     <div v-if="secret" class="space-y-2">
-      <input class="input font-mono text-sm" :value="secret" readonly />
-      <input class="input font-mono text-xs" :value="url" readonly />
+      <input class="input font-mono text-sm" :value="secret" aria-label="Two-factor secret" readonly />
+      <input class="input font-mono text-xs" :value="url" aria-label="Two-factor setup URL" readonly />
     </div>
     <div class="flex flex-wrap gap-2">
-      <input v-model="code" class="input max-w-40" inputmode="numeric" placeholder="2FA code" autocomplete="one-time-code" />
+      <input v-model="code" class="input max-w-40" inputmode="numeric" placeholder="2FA code" aria-label="2FA code" autocomplete="one-time-code" />
       <button v-if="!auth.user?.totpEnabled" class="btn-primary" type="button" :disabled="busy || !secret || !code" @click="enableTotp">Enable</button>
       <button v-else class="btn-danger" type="button" :disabled="busy || !code" @click="disableTotp">Disable</button>
     </div>

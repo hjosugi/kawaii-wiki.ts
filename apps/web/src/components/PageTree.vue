@@ -247,7 +247,7 @@ const rows = computed<TreeRow[]>(() => {
 <template>
   <nav class="flex flex-col gap-3">
     <section v-if="starredPages.length" class="space-y-1">
-      <div class="px-2 text-[11px] uppercase tracking-wide text-gray-400 font-semibold">Starred</div>
+      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Starred</div>
       <RouterLink
         v-for="page in starredPages"
         :key="'starred:' + page.path"
@@ -260,7 +260,7 @@ const rows = computed<TreeRow[]>(() => {
     </section>
 
     <section v-if="recentPages.length" class="space-y-1">
-      <div class="px-2 text-[11px] uppercase tracking-wide text-gray-400 font-semibold">Recent</div>
+      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Recent</div>
       <RouterLink
         v-for="page in recentPages"
         :key="'recent:' + page.path"
@@ -280,6 +280,7 @@ const rows = computed<TreeRow[]>(() => {
           class="page-tree-icon"
           type="button"
           :title="row.collapsed ? 'Expand folder' : 'Collapse folder'"
+          :aria-label="`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label}`"
           @click="toggleCollapse(row.path)"
         >
           {{ row.collapsed ? '+' : '-' }}
@@ -297,11 +298,17 @@ const rows = computed<TreeRow[]>(() => {
           {{ row.label }}
         </span>
         <template v-if="row.isPage">
-          <button class="page-tree-icon" type="button" title="Star page" @click="toggleStar(row.path)">
+          <button
+            class="page-tree-icon"
+            type="button"
+            title="Star page"
+            :aria-label="`${isStarred(row.path) ? 'Unstar' : 'Star'} ${row.label}`"
+            @click="toggleStar(row.path)"
+          >
             {{ isStarred(row.path) ? '★' : '☆' }}
           </button>
-          <button class="page-tree-icon" type="button" title="Move up" @click="movePage(row.path, -1)">^</button>
-          <button class="page-tree-icon" type="button" title="Move down" @click="movePage(row.path, 1)">v</button>
+          <button class="page-tree-icon" type="button" title="Move up" :aria-label="`Move ${row.label} up`" @click="movePage(row.path, -1)">^</button>
+          <button class="page-tree-icon" type="button" title="Move down" :aria-label="`Move ${row.label} down`" @click="movePage(row.path, 1)">v</button>
         </template>
       </div>
     </template>

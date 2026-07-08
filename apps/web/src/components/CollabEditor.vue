@@ -209,24 +209,24 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <div class="flex flex-wrap items-center justify-between gap-2 mb-2">
-      <div class="flex items-center gap-1.5 text-xs" :class="synced ? 'text-green-600 dark:text-green-400' : 'text-gray-400'">
+      <div class="flex items-center gap-1.5 text-xs" :class="synced ? 'text-green-600 dark:text-green-400' : 'text-[var(--c-text-muted)]'">
         <span class="w-2 h-2 rounded-full" :class="synced ? 'bg-green-500' : 'bg-gray-400'"></span>
         {{ synced ? 'Live - collaborative editing' : 'connecting...' }}
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <button class="btn-ghost" type="button" title="Heading" @click="insertLinePrefix('## ', 'Heading')">H</button>
-        <button class="btn-ghost" type="button" title="Bold" @click="surround('**', '**', 'bold')">B</button>
-        <button class="btn-ghost" type="button" title="Link" @click="surround('[', '](https://)', 'link')">Link</button>
-        <button class="btn-ghost" type="button" title="Code" @click="surround('`', '`', 'code')">Code</button>
-        <button class="btn-ghost" type="button" title="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">Table</button>
-        <button class="btn-ghost" type="button" title="Event" @click="insertSnippet(eventSnippet())">Event</button>
-        <button class="btn-ghost" type="button" title="Upload image" :disabled="uploading" @click="uploadInput?.click()">
+        <button class="btn-ghost" type="button" title="Heading" aria-label="Heading" @click="insertLinePrefix('## ', 'Heading')">H</button>
+        <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @click="surround('**', '**', 'bold')">B</button>
+        <button class="btn-ghost" type="button" title="Link" aria-label="Link" @click="surround('[', '](https://)', 'link')">Link</button>
+        <button class="btn-ghost" type="button" title="Code" aria-label="Code" @click="surround('`', '`', 'code')">Code</button>
+        <button class="btn-ghost" type="button" title="Table" aria-label="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">Table</button>
+        <button class="btn-ghost" type="button" title="Event" aria-label="Event" @click="insertSnippet(eventSnippet())">Event</button>
+        <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @click="uploadInput?.click()">
           {{ uploading ? 'Uploading...' : 'Image' }}
         </button>
-        <button class="btn-ghost" type="button" title="Browse assets" @click="showAssets = true">
+        <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @click="showAssets = true">
           Assets
         </button>
-        <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple @change="onImageInput" />
+        <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
       </div>
     </div>
     <p v-if="uploadError" class="text-sm text-red-600 mb-2">{{ uploadError }}</p>

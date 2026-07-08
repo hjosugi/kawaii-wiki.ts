@@ -7,6 +7,7 @@ describe('i18n', () => {
 
     expect(t('save')).toBe('保存')
     expect(t('updated', { date: '2026/07/05' })).toBe('更新 2026/07/05')
+    expect(document.documentElement.lang).toBe('ja')
   })
 
   test('formats dates with the viewer locale', () => {

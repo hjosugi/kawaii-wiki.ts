@@ -490,25 +490,25 @@ watch(
 <template>
   <div class="space-y-3">
     <div class="flex flex-wrap items-center gap-2">
-      <button class="btn-ghost" type="button" title="Paragraph" @mousedown.prevent @click="formatBlock('p')">P</button>
-      <button class="btn-ghost" type="button" title="Heading 1" @mousedown.prevent @click="formatBlock('h1')">H1</button>
-      <button class="btn-ghost" type="button" title="Heading 2" @mousedown.prevent @click="formatBlock('h2')">H2</button>
-      <button class="btn-ghost" type="button" title="Heading 3" @mousedown.prevent @click="formatBlock('h3')">H3</button>
-      <button class="btn-ghost" type="button" title="Bold" @mousedown.prevent @click="runCommand('bold')">B</button>
-      <button class="btn-ghost" type="button" title="Italic" @mousedown.prevent @click="runCommand('italic')">I</button>
-      <button class="btn-ghost" type="button" title="Inline code" @mousedown.prevent @click="inlineCode">Code</button>
-      <button class="btn-ghost" type="button" title="Link" @mousedown.prevent @click="createLink">Link</button>
-      <button class="btn-ghost" type="button" title="Bulleted list" @mousedown.prevent @click="runCommand('insertUnorderedList')">List</button>
-      <button class="btn-ghost" type="button" title="Numbered list" @mousedown.prevent @click="runCommand('insertOrderedList')">1.</button>
-      <button class="btn-ghost" type="button" title="Table" @mousedown.prevent @click="insertTable">Table</button>
-      <button class="btn-ghost" type="button" title="Callout" @mousedown.prevent @click="insertCallout">Callout</button>
-      <button class="btn-ghost" type="button" title="Upload image" :disabled="uploading" @mousedown.prevent @click="uploadInput?.click()">
+      <button class="btn-ghost" type="button" title="Paragraph" aria-label="Paragraph" @mousedown.prevent @click="formatBlock('p')">P</button>
+      <button class="btn-ghost" type="button" title="Heading 1" aria-label="Heading 1" @mousedown.prevent @click="formatBlock('h1')">H1</button>
+      <button class="btn-ghost" type="button" title="Heading 2" aria-label="Heading 2" @mousedown.prevent @click="formatBlock('h2')">H2</button>
+      <button class="btn-ghost" type="button" title="Heading 3" aria-label="Heading 3" @mousedown.prevent @click="formatBlock('h3')">H3</button>
+      <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @mousedown.prevent @click="runCommand('bold')">B</button>
+      <button class="btn-ghost" type="button" title="Italic" aria-label="Italic" @mousedown.prevent @click="runCommand('italic')">I</button>
+      <button class="btn-ghost" type="button" title="Inline code" aria-label="Inline code" @mousedown.prevent @click="inlineCode">Code</button>
+      <button class="btn-ghost" type="button" title="Link" aria-label="Link" @mousedown.prevent @click="createLink">Link</button>
+      <button class="btn-ghost" type="button" title="Bulleted list" aria-label="Bulleted list" @mousedown.prevent @click="runCommand('insertUnorderedList')">List</button>
+      <button class="btn-ghost" type="button" title="Numbered list" aria-label="Numbered list" @mousedown.prevent @click="runCommand('insertOrderedList')">1.</button>
+      <button class="btn-ghost" type="button" title="Table" aria-label="Table" @mousedown.prevent @click="insertTable">Table</button>
+      <button class="btn-ghost" type="button" title="Callout" aria-label="Callout" @mousedown.prevent @click="insertCallout">Callout</button>
+      <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @mousedown.prevent @click="uploadInput?.click()">
         {{ uploading ? 'Uploading...' : 'Image' }}
       </button>
-      <button class="btn-ghost" type="button" title="Browse assets" @mousedown.prevent @click="showAssets = true">
+      <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @mousedown.prevent @click="showAssets = true">
         Assets
       </button>
-      <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple @change="onImageInput" />
+      <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
     </div>
     <p v-if="uploadError" class="text-sm text-red-600">{{ uploadError }}</p>
     <div

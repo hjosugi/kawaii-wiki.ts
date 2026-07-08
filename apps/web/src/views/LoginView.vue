@@ -195,19 +195,20 @@ onMounted(async () => {
 <template>
   <div class="max-w-sm mx-auto card p-6 mt-8">
     <h1 class="text-xl font-bold mb-1">{{ heading }}</h1>
-    <p class="text-sm text-gray-400 mb-5">
+    <p class="text-sm text-[var(--c-text-muted)] mb-5">
       {{ helperText }}
     </p>
 
     <form class="space-y-3" @submit.prevent="submit">
-      <input v-if="mode !== 'reset' && mode !== 'mfa-setup'" v-model="email" class="input" :placeholder="t('email')" autocomplete="username" />
-      <input v-if="mode === 'register'" v-model="name" class="input" :placeholder="t('displayName')" />
+      <input v-if="mode !== 'reset' && mode !== 'mfa-setup'" v-model="email" class="input" :placeholder="t('email')" :aria-label="t('email')" autocomplete="username" />
+      <input v-if="mode === 'register'" v-model="name" class="input" :placeholder="t('displayName')" :aria-label="t('displayName')" />
       <input
         v-if="mode !== 'forgot' && mode !== 'mfa-setup'"
         v-model="password"
         type="password"
         class="input"
         :placeholder="mode === 'reset' ? t('newPassword') : t('password')"
+        :aria-label="mode === 'reset' ? t('newPassword') : t('password')"
         :autocomplete="mode === 'reset' || mode === 'register' ? 'new-password' : 'current-password'"
       />
       <input
@@ -216,12 +217,13 @@ onMounted(async () => {
         class="input"
         inputmode="numeric"
         :placeholder="t('twoFactorCodeIfEnabled')"
+        :aria-label="t('twoFactorCodeIfEnabled')"
         autocomplete="one-time-code"
       />
       <div v-if="mode === 'mfa-setup'" class="space-y-2">
-        <input class="input font-mono text-sm" :value="mfaSecret" readonly />
-        <input class="input font-mono text-xs" :value="mfaUrl" readonly />
-        <input v-model="mfaCode" class="input" inputmode="numeric" :placeholder="t('twoFactorCodeIfEnabled')" autocomplete="one-time-code" />
+        <input class="input font-mono text-sm" :value="mfaSecret" aria-label="Two-factor secret" readonly />
+        <input class="input font-mono text-xs" :value="mfaUrl" aria-label="Two-factor setup URL" readonly />
+        <input v-model="mfaCode" class="input" inputmode="numeric" :placeholder="t('twoFactorCodeIfEnabled')" :aria-label="t('twoFactorCodeIfEnabled')" autocomplete="one-time-code" />
       </div>
       <p v-if="notice" class="text-sm text-emerald-600 dark:text-emerald-400">{{ notice }}</p>
       <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
@@ -272,7 +274,7 @@ onMounted(async () => {
       {{ t('haveAccount') }}
     </button>
 
-    <p v-if="mode !== 'reset'" class="text-xs text-gray-400 mt-6">
+    <p v-if="mode !== 'reset'" class="text-xs text-[var(--c-text-muted)] mt-6">
       {{ t('seededAdmin') }} <code class="font-mono">admin@example.com</code>; password comes from
       <code class="font-mono">db:seed</code>.
     </p>

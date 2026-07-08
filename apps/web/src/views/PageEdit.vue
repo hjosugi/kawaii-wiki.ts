@@ -8,6 +8,7 @@ import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
 import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n } from '@/lib/i18n'
+import Skeleton from '@/components/Skeleton.vue'
 import {
   builtInPageTemplates,
   pageTemplateToOption,
@@ -416,9 +417,9 @@ async function archive(): Promise<void> {
 <template>
   <div>
     <div class="flex flex-wrap items-center gap-3 mb-4">
-      <input v-model="title" class="input flex-1 min-w-50 text-lg font-semibold" :placeholder="t('pageTitle')" />
-      <input v-model="path" class="input font-mono text-sm max-w-xs" :placeholder="t('pathPlaceholder')" />
-      <select v-if="!isEdit" v-model="selectedTemplate" class="input max-w-56">
+      <input v-model="title" class="input flex-1 min-w-50 text-lg font-semibold" :placeholder="t('pageTitle')" :aria-label="t('pageTitle')" />
+      <input v-model="path" class="input font-mono text-sm max-w-xs" :placeholder="t('pathPlaceholder')" :aria-label="t('pathPlaceholder')" />
+      <select v-if="!isEdit" v-model="selectedTemplate" class="input max-w-56" aria-label="Page template">
         <option v-for="template in templateOptions" :key="template.key" :value="template.key">
           {{ template.icon ? `${template.icon} ` : '' }}{{ template.label }}
         </option>
@@ -429,14 +430,14 @@ async function archive(): Promise<void> {
       <button class="btn-ghost" type="button" :disabled="savingTemplate" @click="openSaveTemplate">
         Save as template
       </button>
-      <select v-model="status" class="input max-w-40">
+      <select v-model="status" class="input max-w-40" aria-label="Page status">
         <option value="draft">draft</option>
         <option value="in-review">in-review</option>
         <option value="verified">verified</option>
         <option value="outdated">outdated</option>
       </select>
-      <input v-model="reviewAtDate" class="input max-w-42" type="date" :title="t('reviewDate')" />
-      <input v-model="locale" class="input max-w-28" placeholder="locale" :title="t('locale')" />
+      <input v-model="reviewAtDate" class="input max-w-42" type="date" :title="t('reviewDate')" :aria-label="t('reviewDate')" />
+      <input v-model="locale" class="input max-w-28" placeholder="locale" :title="t('locale')" :aria-label="t('locale')" />
       <label class="inline-flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] px-3 py-2 text-sm">
         <input v-model="pinned" type="checkbox" />
         <span>Pinned</span>
@@ -447,6 +448,7 @@ async function archive(): Promise<void> {
         inputmode="numeric"
         placeholder="Nav order"
         title="Shared sidebar order"
+        aria-label="Shared sidebar order"
       />
       <button class="btn-primary" :disabled="saving || !title || !path" @click="save">
         {{ saving ? t('saving') : t('save') }}
@@ -456,9 +458,9 @@ async function archive(): Promise<void> {
     </div>
     <section v-if="showTemplateSave" class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3">
       <form class="grid gap-2 sm:grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)_auto_auto]" @submit.prevent="saveCurrentAsTemplate">
-        <input v-model="templateIcon" class="input" maxlength="24" placeholder="Icon" />
-        <input v-model="templateName" class="input" required placeholder="Template name" />
-        <input v-model="templateDescription" class="input" placeholder="Description" />
+        <input v-model="templateIcon" class="input" maxlength="24" placeholder="Icon" aria-label="Template icon" />
+        <input v-model="templateName" class="input" required placeholder="Template name" aria-label="Template name" />
+        <input v-model="templateDescription" class="input" placeholder="Description" aria-label="Template description" />
         <button class="btn-primary" type="submit" :disabled="savingTemplate || !templateName">
           {{ savingTemplate ? 'Saving...' : 'Save template' }}
         </button>
@@ -469,6 +471,7 @@ async function archive(): Promise<void> {
       v-model="labelsText"
       class="input mb-3"
       placeholder="labels, comma separated"
+      aria-label="Labels"
     />
     <div class="mb-3 flex flex-wrap items-center gap-3 text-sm">
       <span
@@ -480,12 +483,12 @@ async function archive(): Promise<void> {
       <RouterLink v-if="isEdit && originalPath" class="link-quiet" :to="'/_history/' + originalPath">
         {{ t('history') }}
       </RouterLink>
-      <span v-if="templatesLoading" class="text-[var(--c-text-muted)]">Loading templates...</span>
+      <Skeleton v-if="templatesLoading" class="w-40" label="Loading templates" :lines="1" />
       <div class="inline-flex rounded-md border border-gray-200 p-0.5 dark:border-gray-800" aria-label="Editor mode">
         <button
           type="button"
           class="px-3 py-1 rounded text-sm font-medium transition-colors"
-          :class="editorMode === 'markdown' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'"
+          :class="editorMode === 'markdown' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'"
           @click="setEditorMode('markdown')"
         >
           {{ t('markdown') }}
@@ -493,7 +496,7 @@ async function archive(): Promise<void> {
         <button
           type="button"
           class="px-3 py-1 rounded text-sm font-medium transition-colors"
-          :class="editorMode === 'visual' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800'"
+          :class="editorMode === 'visual' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'"
           @click="setEditorMode('visual')"
         >
           {{ t('visual') }}
@@ -512,6 +515,7 @@ async function archive(): Promise<void> {
       <textarea
         class="input mt-3 min-h-32 font-mono text-xs"
         :value="conflictDraft.content"
+        aria-label="Conflict draft content"
         readonly
       ></textarea>
     </section>
@@ -525,7 +529,7 @@ async function archive(): Promise<void> {
     <template v-else-if="isEdit">
       <CollabEditor v-if="useCollaborativeMarkdown" :room="originalPath" :asset-folder="assetFolder" @update:modelValue="content = $event" />
       <MarkdownEditor v-else-if="originalPath" v-model="content" :asset-folder="assetFolder" />
-      <div v-else class="text-gray-400">{{ t('loadingEditor') }}</div>
+      <Skeleton v-else :label="t('loadingEditor')" title :lines="5" />
     </template>
     <MarkdownEditor v-else v-model="content" :asset-folder="assetFolder" />
   </div>

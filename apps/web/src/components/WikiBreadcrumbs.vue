@@ -16,10 +16,10 @@ const crumbs = computed(() => {
 </script>
 
 <template>
-  <nav class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 min-w-0" aria-label="Breadcrumb">
+  <nav class="flex items-center gap-1.5 text-sm text-[var(--c-text-muted)] min-w-0" aria-label="Breadcrumb">
     <RouterLink :to="'/' + (props.homePath || 'home')" class="hover:text-gray-900 dark:hover:text-gray-100 shrink-0">Home</RouterLink>
     <template v-for="crumb in crumbs" :key="crumb.path">
-      <span class="text-gray-300 dark:text-gray-700">/</span>
+      <span class="text-gray-300 dark:text-gray-700" aria-hidden="true">/</span>
       <RouterLink
         :to="'/' + crumb.path"
         class="hover:text-gray-900 dark:hover:text-gray-100 truncate"

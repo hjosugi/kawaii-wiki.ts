@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AutomationRuleView } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const rules = ref<AutomationRuleView[]>([])
 const loading = ref(false)
@@ -145,11 +146,11 @@ onMounted(load)
   <section>
     <h2 class="text-lg font-semibold mb-3">Automation rules</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
-    <p v-if="loading" class="text-gray-400 mb-3">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading automation rules" :lines="3" />
     <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_24rem] gap-4">
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+          <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
             <tr><th class="p-3 font-medium">Rule</th><th class="p-3 font-medium">Effect</th><th class="p-3 font-medium w-24">Actions</th></tr>
           </thead>
           <tbody>
@@ -167,8 +168,8 @@ onMounted(load)
         </table>
       </div>
       <form class="card p-4 space-y-3" @submit.prevent="createRule">
-        <input v-model="name" class="input" placeholder="Rule name" />
-        <select v-model="trigger" class="input">
+        <input v-model="name" class="input" placeholder="Rule name" aria-label="Rule name" />
+        <select v-model="trigger" class="input" aria-label="Trigger">
           <option value="page.created">page.created</option>
           <option value="page.updated">page.updated</option>
           <option value="page.deleted">page.deleted</option>
@@ -176,7 +177,7 @@ onMounted(load)
           <option value="comment.created">comment.created</option>
         </select>
         <div class="grid grid-cols-2 gap-2">
-          <input v-model.number="priority" class="input" type="number" placeholder="Priority" />
+          <input v-model.number="priority" class="input" type="number" placeholder="Priority" aria-label="Priority" />
           <label class="flex items-center gap-2 text-sm">
             <input v-model="stopOnMatch" type="checkbox" />
             <span>Stop on match</span>
@@ -184,26 +185,26 @@ onMounted(load)
         </div>
         <div class="space-y-2">
           <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Conditions</div>
-          <input v-model="pathPrefix" class="input" placeholder="Path prefix, e.g. docs/runbooks" />
-          <input v-model="conditionLabel" class="input" placeholder="Existing label" />
-          <select v-model="conditionStatus" class="input"><option value="">any status</option><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
-          <input v-model="authorId" class="input" placeholder="Author/user id" />
+          <input v-model="pathPrefix" class="input" placeholder="Path prefix, e.g. docs/runbooks" aria-label="Condition path prefix" />
+          <input v-model="conditionLabel" class="input" placeholder="Existing label" aria-label="Condition label" />
+          <select v-model="conditionStatus" class="input" aria-label="Condition status"><option value="">any status</option><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
+          <input v-model="authorId" class="input" placeholder="Author/user id" aria-label="Author or user ID" />
           <div class="grid grid-cols-2 gap-2">
-            <input v-model="locale" class="input" placeholder="Locale" />
-            <input v-model="spaceKey" class="input" placeholder="Space" />
+            <input v-model="locale" class="input" placeholder="Locale" aria-label="Condition locale" />
+            <input v-model="spaceKey" class="input" placeholder="Space" aria-label="Condition space" />
           </div>
         </div>
         <div class="space-y-2">
           <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actions</div>
-          <input v-model="addLabel" class="input" placeholder="Label to add" />
-          <select v-model="setStatus" class="input"><option value="">leave status</option><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
-          <input v-model="reviewAtDate" class="input" type="date" :disabled="clearReviewAt" />
+          <input v-model="addLabel" class="input" placeholder="Label to add" aria-label="Label to add" />
+          <select v-model="setStatus" class="input" aria-label="Status to set"><option value="">leave status</option><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
+          <input v-model="reviewAtDate" class="input" type="date" :disabled="clearReviewAt" aria-label="Review date to set" />
           <label class="flex items-center gap-2 text-sm">
             <input v-model="clearReviewAt" type="checkbox" />
             <span>Clear review date</span>
           </label>
-          <input v-model="moveToPath" class="input" placeholder="Move under path" />
-          <input v-model="fireWebhookEvent" class="input" placeholder="Webhook event to fire" />
+          <input v-model="moveToPath" class="input" placeholder="Move under path" aria-label="Move under path" />
+          <input v-model="fireWebhookEvent" class="input" placeholder="Webhook event to fire" aria-label="Webhook event to fire" />
         </div>
         <button class="btn-primary" type="submit" :disabled="!hasAction">Create rule</button>
       </form>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Api, type AdminStats, type AnalyticsSummary, type SearchIndexStatus } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const stats = ref<AdminStats | null>(null)
 const analytics = ref<AnalyticsSummary | null>(null)
@@ -51,19 +52,19 @@ onMounted(load)
 <template>
   <section class="space-y-6">
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <p v-if="loading" class="text-gray-400">Loading...</p>
+    <Skeleton v-if="loading" label="Loading admin stats" title :lines="4" />
     <div v-if="stats" class="grid grid-cols-3 gap-4 max-w-xl">
       <div class="card p-4">
         <div class="text-3xl font-bold">{{ stats.users }}</div>
-        <div class="text-sm text-gray-400 mt-1">Users</div>
+        <div class="text-sm text-[var(--c-text-muted)] mt-1">Users</div>
       </div>
       <div class="card p-4">
         <div class="text-3xl font-bold">{{ stats.pages }}</div>
-        <div class="text-sm text-gray-400 mt-1">Pages</div>
+        <div class="text-sm text-[var(--c-text-muted)] mt-1">Pages</div>
       </div>
       <div class="card p-4">
         <div class="text-3xl font-bold">{{ stats.revisions }}</div>
-        <div class="text-sm text-gray-400 mt-1">Revisions</div>
+        <div class="text-sm text-[var(--c-text-muted)] mt-1">Revisions</div>
       </div>
     </div>
     <div v-if="searchIndex" class="max-w-xl">
@@ -99,7 +100,7 @@ onMounted(load)
       <h2 class="text-lg font-semibold mb-3">Insights</h2>
       <div class="card p-4">
         <div class="text-3xl font-bold">{{ analytics.totalViews }}</div>
-        <div class="text-sm text-gray-400 mt-1">Total page views</div>
+        <div class="text-sm text-[var(--c-text-muted)] mt-1">Total page views</div>
         <div v-if="analytics.topPages.length" class="mt-4 space-y-2">
           <RouterLink
             v-for="page in analytics.topPages"

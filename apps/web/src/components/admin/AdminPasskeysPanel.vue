@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { startRegistration, type PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser'
 import { Api, type PasskeyView } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const passkeys = ref<PasskeyView[]>([])
 const loading = ref(false)
@@ -58,10 +59,11 @@ onMounted(load)
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div class="font-medium">Passkeys</div>
-        <div class="text-sm text-gray-500">{{ loading ? 'Loading...' : `${passkeys.length} registered` }}</div>
+        <div v-if="!loading" class="text-sm text-gray-500">{{ passkeys.length }} registered</div>
       </div>
       <button class="btn-ghost" type="button" :disabled="busy" @click="registerPasskey">Add passkey</button>
     </div>
+    <Skeleton v-if="loading" label="Loading passkeys" :lines="2" />
     <div v-for="passkey in passkeys" :key="passkey.id" class="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-200 dark:border-gray-800 p-3">
       <div>
         <div class="font-medium">{{ passkey.name }}</div>

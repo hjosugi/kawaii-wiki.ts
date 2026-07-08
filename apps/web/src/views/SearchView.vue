@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { Api, type LabelCount, type PageSpace, type SearchHit } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import { useListNavigation, useSearch, type SearchFilters } from '@/composables/useSearch'
+import Skeleton from '@/components/Skeleton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -155,6 +156,7 @@ onMounted(async () => {
           v-model="search.q.value"
           class="input text-lg"
           :placeholder="t('searchTheWiki')"
+          :aria-label="t('searchTheWiki')"
           role="combobox"
           aria-controls="search-results"
           :aria-expanded="Boolean(search.hits.value.length)"
@@ -198,17 +200,17 @@ onMounted(async () => {
 
       <div v-if="filtersOpen" class="rounded-md border border-gray-200 p-3 dark:border-gray-800">
         <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          <input v-model.trim="pathPrefix" class="input text-sm" placeholder="Path prefix" @input="onInput" />
-          <select v-model="spaceKey" class="input text-sm" @change="runNow">
+          <input v-model.trim="pathPrefix" class="input text-sm" placeholder="Path prefix" aria-label="Path prefix" @input="onInput" />
+          <select v-model="spaceKey" class="input text-sm" aria-label="Space" @change="runNow">
             <option value="">Any space</option>
             <option v-for="space in spaces" :key="space.key" :value="space.key">{{ space.key }}</option>
           </select>
-          <input v-model.trim="locale" class="input text-sm" placeholder="Locale" @input="onInput" />
-          <select v-model="status" class="input text-sm" @change="runNow">
+          <input v-model.trim="locale" class="input text-sm" placeholder="Locale" aria-label="Locale" @input="onInput" />
+          <select v-model="status" class="input text-sm" aria-label="Status" @change="runNow">
             <option value="">Any status</option>
             <option v-for="item in statusOptions" :key="item" :value="item">{{ item }}</option>
           </select>
-          <input v-model.trim="author" class="input text-sm" placeholder="Author" @input="onInput" />
+          <input v-model.trim="author" class="input text-sm" placeholder="Author" aria-label="Author" @input="onInput" />
           <input v-model="updatedAfter" class="input text-sm" type="date" aria-label="Updated after" @change="runNow" />
           <input v-model="updatedBefore" class="input text-sm" type="date" aria-label="Updated before" @change="runNow" />
         </div>
@@ -221,7 +223,7 @@ onMounted(async () => {
             type="button"
             @click="chooseLabel(item.label)"
           >
-            {{ item.label }} <span class="text-xs text-gray-400">{{ item.count }}</span>
+            {{ item.label }} <span class="text-xs text-[var(--c-text-muted)]">{{ item.count }}</span>
           </button>
         </div>
       </div>
@@ -243,7 +245,7 @@ onMounted(async () => {
     </div>
 
     <p v-if="search.error.value" class="mb-4 text-sm text-red-600">{{ search.error.value }}</p>
-    <p v-if="search.loading.value && !search.hits.value.length" class="text-gray-500">{{ t('searching') }}</p>
+    <Skeleton v-if="search.loading.value && !search.hits.value.length" :label="t('searching')" :lines="4" />
     <p v-else-if="search.q.value && !search.hits.value.length" class="text-gray-500">{{ t('noResults', { query: search.q.value }) }}</p>
     <p v-if="resultSummary" class="mb-3 text-sm text-gray-500">{{ resultSummary }}</p>
 

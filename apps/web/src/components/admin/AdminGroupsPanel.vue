@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Api, type AdminUserView, type AuthzGroupView } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const users = ref<AdminUserView[]>([])
 const groups = ref<AuthzGroupView[]>([])
@@ -57,11 +58,11 @@ onMounted(load)
   <section>
     <h2 class="text-lg font-semibold mb-3">Groups</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
-    <p v-if="loading" class="text-gray-400 mb-3">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading groups" :lines="3" />
     <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-4">
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+          <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
             <tr><th class="p-3 font-medium">Group</th><th class="p-3 font-medium">Description</th><th class="p-3 font-medium">Members</th></tr>
           </thead>
           <tbody>
@@ -75,13 +76,13 @@ onMounted(load)
       </div>
       <div class="space-y-3">
         <form class="card p-4 space-y-2" @submit.prevent="createGroup">
-          <input v-model="groupKey" class="input" placeholder="group-key" />
-          <input v-model="groupName" class="input" placeholder="Group name" />
-          <input v-model="groupDescription" class="input" placeholder="Description" />
+          <input v-model="groupKey" class="input" placeholder="group-key" aria-label="Group key" />
+          <input v-model="groupName" class="input" placeholder="Group name" aria-label="Group name" />
+          <input v-model="groupDescription" class="input" placeholder="Description" aria-label="Group description" />
           <button class="btn-primary" type="submit" :disabled="!groupKey || !groupName">Create group</button>
         </form>
         <div class="card p-4 space-y-2">
-          <select v-model="membershipGroup" class="input">
+          <select v-model="membershipGroup" class="input" aria-label="Membership group">
             <option v-for="group in groups" :key="group.key" :value="group.key">{{ group.key }}</option>
           </select>
           <div class="flex flex-wrap gap-2">

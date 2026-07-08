@@ -6,6 +6,7 @@ import { Api, type Page, type PageRevision } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
+import Skeleton from '@/components/Skeleton.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -98,7 +99,7 @@ watch(path, load, { immediate: true })
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <div v-if="loading" class="text-gray-400">Loading...</div>
+    <Skeleton v-if="loading" label="Loading history" title :lines="5" />
 
     <div v-else class="grid grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)] gap-5">
       <aside class="card p-2">
@@ -114,7 +115,7 @@ watch(path, load, { immediate: true })
           <div class="text-xs text-gray-500">
             {{ formatDate(revision.createdAt) }}<span v-if="revision.authorName"> · {{ revision.authorName }}</span>
           </div>
-          <div class="mt-1 text-xs font-mono text-gray-400 truncate">/{{ revision.path }}</div>
+          <div class="mt-1 text-xs font-mono text-[var(--c-text-muted)] truncate">/{{ revision.path }}</div>
         </button>
         <p v-if="!revisions.length" class="p-3 text-sm text-gray-500">No revisions yet.</p>
       </aside>

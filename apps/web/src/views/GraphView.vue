@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { Api, type PageGraph } from '@/lib/api'
 import EmptyState from '@/components/EmptyState.vue'
 import InteractiveGraph from '@/components/InteractiveGraph.vue'
+import Skeleton from '@/components/Skeleton.vue'
 
 const graph = ref<PageGraph>({ nodes: [], edges: [] })
 const loading = ref(false)
@@ -28,7 +29,7 @@ onMounted(load)
     <header class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 dark:border-gray-800 pb-4">
       <div>
         <h1 class="text-2xl font-bold tracking-tight">Graph</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
+        <p class="text-sm text-[var(--c-text-muted)] mt-1">
           Internal links, missing pages, and how the wiki hangs together.
         </p>
       </div>
@@ -37,7 +38,7 @@ onMounted(load)
       </button>
     </header>
 
-    <p v-if="loading" class="text-gray-400">Loading graph...</p>
+    <Skeleton v-if="loading" label="Loading graph" title :lines="4" />
     <p v-else-if="error" class="text-sm text-red-600">{{ error }}</p>
 
     <EmptyState

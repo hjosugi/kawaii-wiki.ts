@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { calendarEventToIcs, type ExtractedCalendarEvent } from '@ts-wiki/core'
 import { Api } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const events = ref<ExtractedCalendarEvent[]>([])
 const loading = ref(false)
@@ -33,13 +34,13 @@ watch(now, load, { immediate: true })
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold tracking-tight">Events</h1>
-        <p class="mt-1 text-sm text-gray-500">Event fences across pages</p>
+        <p class="mt-1 text-sm text-[var(--c-text-muted)]">Event fences across pages</p>
       </div>
       <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <div v-if="loading" class="text-gray-400">Loading...</div>
+    <Skeleton v-if="loading" label="Loading events" :lines="4" />
 
     <section v-if="upcoming.length" class="space-y-3">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Upcoming</h2>

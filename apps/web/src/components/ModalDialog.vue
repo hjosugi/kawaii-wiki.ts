@@ -113,22 +113,25 @@ onBeforeUnmount(cleanup)
 
 <template>
   <Teleport to="body">
-    <div
-      v-if="open"
-      class="fixed inset-0 z-50 flex bg-black/40"
-      :class="containerClass"
-      @click.self="close"
-    >
-      <section
-        ref="panel"
-        role="dialog"
-        aria-modal="true"
-        :aria-label="title"
-        tabindex="-1"
-        :class="panelClass"
+    <Transition name="modal-dialog" appear>
+      <div
+        v-if="open"
+        class="modal-dialog-overlay fixed inset-0 z-50 flex bg-black/40"
+        :class="containerClass"
+        @click.self="close"
       >
-        <slot />
-      </section>
-    </div>
+        <section
+          ref="panel"
+          class="modal-dialog-panel"
+          role="dialog"
+          aria-modal="true"
+          :aria-label="title"
+          tabindex="-1"
+          :class="panelClass"
+        >
+          <slot />
+        </section>
+      </div>
+    </Transition>
   </Teleport>
 </template>

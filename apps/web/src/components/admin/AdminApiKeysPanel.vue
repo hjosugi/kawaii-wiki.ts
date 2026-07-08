@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import type { Role } from '@ts-wiki/core'
 import { Api, type ApiKeyView } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const roles: Role[] = ['viewer', 'editor', 'admin']
 const apiKeys = ref<ApiKeyView[]>([])
@@ -100,28 +101,29 @@ onMounted(load)
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <div class="font-medium">API keys</div>
-        <div class="text-sm text-gray-500">{{ loading ? 'Loading...' : `${apiKeys.length} configured` }}</div>
+        <div v-if="!loading" class="text-sm text-gray-500">{{ apiKeys.length }} configured</div>
       </div>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="message" class="text-sm text-emerald-600">{{ message }}</p>
+    <Skeleton v-if="loading" label="Loading API keys" :lines="2" />
 
     <div v-if="issuedSecret" class="rounded-md border border-emerald-200 bg-emerald-50 p-3 space-y-2 dark:border-emerald-900 dark:bg-emerald-950">
       <div class="text-sm font-medium text-emerald-900 dark:text-emerald-100">{{ issuedName }} secret</div>
       <div class="flex flex-col sm:flex-row gap-2">
-        <input class="input font-mono text-xs" :value="issuedSecret" readonly />
+        <input class="input font-mono text-xs" :value="issuedSecret" aria-label="Issued API key secret" readonly />
         <button class="btn-ghost shrink-0" type="button" @click="copySecret">Copy</button>
       </div>
       <p class="text-xs text-emerald-900 dark:text-emerald-100">This secret is shown once.</p>
     </div>
 
     <form class="grid md:grid-cols-[minmax(0,1fr)_9rem_minmax(12rem,14rem)_auto] gap-2" @submit.prevent="createApiKey">
-      <input v-model="name" class="input" placeholder="Key name" />
-      <select v-model="role" class="input">
+      <input v-model="name" class="input" placeholder="Key name" aria-label="Key name" />
+      <select v-model="role" class="input" aria-label="API key role">
         <option v-for="item in roles" :key="item" :value="item">{{ item }}</option>
       </select>
-      <input v-model="expiresAt" class="input" type="datetime-local" />
+      <input v-model="expiresAt" class="input" type="datetime-local" aria-label="API key expiration" />
       <button class="btn-primary" type="submit" :disabled="busy || !name.trim()">Create key</button>
     </form>
 

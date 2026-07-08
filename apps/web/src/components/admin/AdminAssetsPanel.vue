@@ -2,6 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AssetUsagePage, type AssetView } from '@/lib/api'
 import { displayAssetFolder } from '@/lib/assets'
+import Skeleton from '@/components/Skeleton.vue'
 
 const assets = ref<AssetView[]>([])
 const folders = ref<string[]>([])
@@ -133,12 +134,14 @@ onMounted(load)
           class="input h-9 w-56 text-sm"
           list="admin-asset-folders"
           placeholder="Folder"
+          aria-label="Asset folder"
           @change="load"
         />
         <input
           v-model.trim="query"
           class="input h-9 w-56 text-sm"
           placeholder="Search files"
+          aria-label="Search files"
           @input="load"
         />
         <datalist id="admin-asset-folders">
@@ -165,7 +168,7 @@ onMounted(load)
     </div>
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+        <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
           <tr>
             <th class="p-3 font-medium w-10">Select</th>
             <th class="p-3 font-medium">File</th>
@@ -177,7 +180,10 @@ onMounted(load)
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!assets.length"><td class="p-3 text-gray-500" colspan="7">{{ loading ? 'Loading...' : 'No uploaded assets yet.' }}</td></tr>
+          <tr v-if="loading && !assets.length">
+            <td class="p-3" colspan="7"><Skeleton label="Loading assets" :lines="3" /></td>
+          </tr>
+          <tr v-else-if="!assets.length"><td class="p-3 text-gray-500" colspan="7">No uploaded assets yet.</td></tr>
           <tr v-for="asset in assets" :key="asset.id" class="border-b border-gray-100 dark:border-gray-800/60 last:border-0">
             <td class="p-3">
               <input
@@ -187,7 +193,7 @@ onMounted(load)
                 :aria-label="`Select ${asset.filename}`"
                 @change="toggleOrphan(asset)"
               />
-              <span v-else class="text-xs text-gray-300">--</span>
+              <span v-else class="text-xs text-gray-300" aria-hidden="true">--</span>
             </td>
             <td class="p-3">
               <div class="flex items-center gap-3">
@@ -200,6 +206,7 @@ onMounted(load)
                 <input
                   class="input max-w-56 text-sm font-medium"
                   :value="asset.filename"
+                  :aria-label="`Rename ${asset.filename}`"
                   @change="renameAsset(asset, ($event.target as HTMLInputElement).value)"
                 />
               </div>
@@ -211,6 +218,7 @@ onMounted(load)
                 :value="asset.folder"
                 list="admin-asset-folders"
                 :placeholder="displayAssetFolder('')"
+                :aria-label="`Folder for ${asset.filename}`"
                 @change="updateAssetFolder(asset, ($event.target as HTMLInputElement).value)"
               />
               <div class="mt-1 text-xs text-gray-500">{{ displayAssetFolder(asset.folder) }}</div>
@@ -230,7 +238,7 @@ onMounted(load)
                 >
                   {{ page.title }}
                 </RouterLink>
-                <span v-if="usedOn(asset).length > 3" class="px-2 py-0.5 text-xs text-gray-400">
+                <span v-if="usedOn(asset).length > 3" class="px-2 py-0.5 text-xs text-[var(--c-text-muted)]">
                   +{{ usedOn(asset).length - 3 }}
                 </span>
               </div>

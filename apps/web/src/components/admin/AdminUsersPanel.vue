@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Api, type AdminStats, type AdminUserView } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
+import Skeleton from '@/components/Skeleton.vue'
 
 const auth = useAuth()
 const users = ref<AdminUserView[]>([])
@@ -80,10 +81,10 @@ onMounted(load)
   <section>
     <h2 class="text-lg font-semibold mb-3">Users</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
-    <p v-if="loading" class="text-gray-400 mb-3">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading users" :lines="3" />
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+        <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
           <tr>
             <th class="p-3 font-medium">Name</th>
             <th class="p-3 font-medium">Email</th>
@@ -114,10 +115,10 @@ onMounted(load)
               </div>
             </td>
             <td class="p-3">
-              <select class="input py-1" :value="u.role" @change="changeRole(u, ($event.target as HTMLSelectElement).value as RoleName)">
+              <select class="input py-1" :value="u.role" :aria-label="`Role for ${u.email}`" @change="changeRole(u, ($event.target as HTMLSelectElement).value as RoleName)">
                 <option v-for="r in ROLES" :key="r" :value="r">{{ r }}</option>
               </select>
-              <span v-if="u.id === auth.user?.id" class="text-xs text-gray-400 ml-2">(you)</span>
+              <span v-if="u.id === auth.user?.id" class="text-xs text-[var(--c-text-muted)] ml-2">(you)</span>
             </td>
             <td class="p-3">
               <div class="flex flex-wrap gap-2">

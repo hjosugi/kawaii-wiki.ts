@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { Api, type AdminPageView, type Page } from '@/lib/api'
 import { usePages } from '@/stores/pages'
 import { useI18n } from '@/lib/i18n'
+import Skeleton from '@/components/Skeleton.vue'
 
 const PAGE_SIZE = 25
 const STATUS_OPTIONS: Array<Page['status']> = ['draft', 'in-review', 'verified', 'outdated']
@@ -101,19 +102,19 @@ onMounted(() => load(true))
       </button>
     </div>
     <form class="mb-3 flex flex-wrap items-center gap-2" @submit.prevent="load(true)">
-      <select v-model="status" class="input h-9 w-40 text-sm">
+      <select v-model="status" class="input h-9 w-40 text-sm" aria-label="Page status">
         <option value="">Any status</option>
         <option v-for="option in STATUS_OPTIONS" :key="option" :value="option">{{ option }}</option>
       </select>
-      <input v-model.trim="label" class="input h-9 w-44 text-sm" placeholder="Label" />
-      <input v-model.trim="spaceKey" class="input h-9 w-44 text-sm" placeholder="Space" />
-      <input v-model.trim="authorId" class="input h-9 w-56 text-sm" placeholder="Author user id" />
+      <input v-model.trim="label" class="input h-9 w-44 text-sm" placeholder="Label" aria-label="Label" />
+      <input v-model.trim="spaceKey" class="input h-9 w-44 text-sm" placeholder="Space" aria-label="Space" />
+      <input v-model.trim="authorId" class="input h-9 w-56 text-sm" placeholder="Author user id" aria-label="Author user ID" />
       <button class="btn-primary" type="submit" :disabled="loading">Apply</button>
     </form>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+        <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
           <tr>
             <th class="p-3 font-medium">Page</th>
             <th class="p-3 font-medium">Status</th>
@@ -124,14 +125,17 @@ onMounted(() => load(true))
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!pages.length">
-            <td class="p-3 text-gray-500" colspan="6">{{ loading ? 'Loading...' : 'No pages match these filters.' }}</td>
+          <tr v-if="loading && !pages.length">
+            <td class="p-3" colspan="6"><Skeleton label="Loading pages" :lines="3" /></td>
+          </tr>
+          <tr v-else-if="!pages.length">
+            <td class="p-3 text-gray-500" colspan="6">No pages match these filters.</td>
           </tr>
           <tr v-for="page in pages" :key="page.path" class="border-b border-gray-100 dark:border-gray-800/60 last:border-0">
             <td class="p-3">
               <div class="font-medium">{{ page.title }}</div>
               <div class="text-xs font-mono text-gray-500">/{{ page.path }}</div>
-              <div class="mt-1 text-xs text-gray-400">{{ page.spaceKey }} · {{ page.locale }}</div>
+              <div class="mt-1 text-xs text-[var(--c-text-muted)]">{{ page.spaceKey }} · {{ page.locale }}</div>
             </td>
             <td class="p-3">
               <span class="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
@@ -147,7 +151,7 @@ onMounted(() => load(true))
                 >
                   #{{ item }}
                 </span>
-                <span v-if="!labelsFor(page).length" class="text-xs text-gray-400">None</span>
+                <span v-if="!labelsFor(page).length" class="text-xs text-[var(--c-text-muted)]">None</span>
               </div>
             </td>
             <td class="p-3 text-gray-500">

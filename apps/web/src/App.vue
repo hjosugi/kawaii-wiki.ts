@@ -53,7 +53,7 @@ watch(() => route.fullPath, async () => {
     <AppHeader v-if="!sharedLayout" />
     <DrawerSheet v-if="!sharedLayout" v-model:open="mobileNavOpen" title="Pages">
       <div class="mb-3 flex items-center justify-between gap-2">
-        <div class="text-xs uppercase tracking-wide text-gray-400 font-semibold">Pages</div>
+        <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Pages</div>
         <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">New</RouterLink>
       </div>
       <PageTree v-if="pages.list.length" :pages="pages.list" />
@@ -76,7 +76,7 @@ watch(() => route.fullPath, async () => {
     >
       <aside v-if="!sharedLayout" class="hidden md:block w-60 shrink-0 py-6">
         <div class="flex items-center justify-between gap-2 mb-2 px-2">
-          <div class="text-xs uppercase tracking-wide text-gray-400 font-semibold">Pages</div>
+          <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Pages</div>
           <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">New</RouterLink>
         </div>
         <PageTree v-if="pages.list.length" :pages="pages.list" />

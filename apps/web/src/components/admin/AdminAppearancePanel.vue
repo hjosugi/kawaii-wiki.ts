@@ -4,6 +4,7 @@ import { Api, type PublicSettings } from '@/lib/api'
 import { applyBranding } from '@/lib/branding'
 import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
 import { setDateFormatSettings } from '@/lib/i18n'
+import Skeleton from '@/components/Skeleton.vue'
 
 type EditablePublicSettings = { -readonly [K in keyof PublicSettings]: PublicSettings[K] }
 
@@ -140,12 +141,12 @@ onMounted(load)
   <section>
     <h2 class="text-lg font-semibold mb-3">Appearance</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
-    <p v-if="loading" class="mb-3 text-[var(--c-text-muted)]">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading appearance settings" :lines="4" />
     <form v-if="settings" class="card p-4 space-y-4 max-w-3xl" @submit.prevent="saveSettings">
-      <input v-model="settings.siteTitle" class="input" placeholder="Site title" />
+      <input v-model="settings.siteTitle" class="input" placeholder="Site title" aria-label="Site title" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-        <input v-model="settings.accentColor" class="input" placeholder="#7c3aed" />
-        <select v-model="settings.theme" class="input"><option value="system">system</option><option value="light">light</option><option value="dark">dark</option></select>
+        <input v-model="settings.accentColor" class="input" placeholder="#7c3aed" aria-label="Accent color" />
+        <select v-model="settings.theme" class="input" aria-label="Theme"><option value="system">system</option><option value="light">light</option><option value="dark">dark</option></select>
       </div>
       <label class="block space-y-1 text-sm">
         <span class="font-medium">Home page path</span>
@@ -173,13 +174,13 @@ onMounted(load)
         <label class="space-y-1 text-sm">
           <span class="font-medium">Logo URL</span>
           <input v-model="settings.logoUrl" class="input" placeholder="/assets/logo.png" />
-          <input class="text-sm" type="file" accept="image/*" @change="uploadBrandAsset('logo', ($event.target as HTMLInputElement).files)" />
+          <input class="text-sm" type="file" accept="image/*" aria-label="Upload logo" @change="uploadBrandAsset('logo', ($event.target as HTMLInputElement).files)" />
           <span v-if="uploading === 'logo'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
         </label>
         <label class="space-y-1 text-sm">
           <span class="font-medium">Favicon URL</span>
           <input v-model="settings.faviconUrl" class="input" placeholder="/assets/favicon.png" />
-          <input class="text-sm" type="file" accept="image/*" @change="uploadBrandAsset('favicon', ($event.target as HTMLInputElement).files)" />
+          <input class="text-sm" type="file" accept="image/*" aria-label="Upload favicon" @change="uploadBrandAsset('favicon', ($event.target as HTMLInputElement).files)" />
           <span v-if="uploading === 'favicon'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
         </label>
       </div>

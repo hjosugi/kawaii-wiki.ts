@@ -221,41 +221,41 @@ onBeforeUnmount(() => view?.destroy())
 <template>
   <div class="space-y-3">
     <div class="flex flex-wrap items-center gap-2">
-      <button class="btn-ghost" type="button" title="Heading" @click="insertLinePrefix('## ', 'Heading')">
+      <button class="btn-ghost" type="button" title="Heading" aria-label="Heading" @click="insertLinePrefix('## ', 'Heading')">
         H
       </button>
-      <button class="btn-ghost" type="button" title="Bold" @click="surround('**', '**', 'bold')">
+      <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @click="surround('**', '**', 'bold')">
         B
       </button>
-      <button class="btn-ghost" type="button" title="Link" @click="surround('[', '](https://)', 'link')">
+      <button class="btn-ghost" type="button" title="Link" aria-label="Link" @click="surround('[', '](https://)', 'link')">
         Link
       </button>
-      <button class="btn-ghost" type="button" title="Code" @click="surround('`', '`', 'code')">
+      <button class="btn-ghost" type="button" title="Code" aria-label="Code" @click="surround('`', '`', 'code')">
         Code
       </button>
-      <button class="btn-ghost" type="button" title="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">
+      <button class="btn-ghost" type="button" title="Table" aria-label="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">
         Table
       </button>
-      <button class="btn-ghost" type="button" title="Event" @click="insertSnippet(eventSnippet())">
+      <button class="btn-ghost" type="button" title="Event" aria-label="Event" @click="insertSnippet(eventSnippet())">
         Event
       </button>
-      <button class="btn-ghost" type="button" title="Infobox / profile card" @click="insertSnippet(infoboxSnippet())">
+      <button class="btn-ghost" type="button" title="Infobox / profile card" aria-label="Infobox or profile card" @click="insertSnippet(infoboxSnippet())">
         Infobox
       </button>
-      <button class="btn-ghost" type="button" title="Link / social buttons" @click="insertSnippet(linksSnippet())">
+      <button class="btn-ghost" type="button" title="Link / social buttons" aria-label="Link or social buttons" @click="insertSnippet(linksSnippet())">
         Links
       </button>
-      <button class="btn-ghost" type="button" title="Upload image" :disabled="uploading" @click="chooseImage">
+      <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @click="chooseImage">
         {{ uploading ? 'Uploading...' : 'Image' }}
       </button>
-      <button class="btn-ghost" type="button" title="Browse assets" @click="showAssets = true">
+      <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @click="showAssets = true">
         Assets
       </button>
-      <button class="btn-ghost" type="button" title="Import .ics" @click="chooseIcs">
+      <button class="btn-ghost" type="button" title="Import .ics" aria-label="Import .ics" @click="chooseIcs">
         .ics
       </button>
-      <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple @change="onImageInput" />
-      <input ref="icsInput" class="hidden" type="file" accept=".ics,text/calendar" @change="onIcsInput" />
+      <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
+      <input ref="icsInput" class="hidden" type="file" accept=".ics,text/calendar" aria-label="Import .ics file" @change="onIcsInput" />
     </div>
     <p v-if="uploadError" class="text-sm text-red-600">{{ uploadError }}</p>
     <div class="inline-flex rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)] p-1 text-sm lg:hidden">
@@ -302,7 +302,7 @@ onBeforeUnmount(() => view?.destroy())
           <h2 class="text-lg font-semibold">Import .ics</h2>
           <button class="btn-ghost" type="button" @click="showIcs = false">Close</button>
         </div>
-        <textarea v-model="icsText" class="input min-h-38 font-mono text-sm" spellcheck="false"></textarea>
+        <textarea v-model="icsText" class="input min-h-38 font-mono text-sm" spellcheck="false" aria-label="ICS content"></textarea>
         <div v-if="icsEvents.length" class="space-y-2 max-h-64 overflow-auto">
           <div
             v-for="(event, index) in icsEvents"

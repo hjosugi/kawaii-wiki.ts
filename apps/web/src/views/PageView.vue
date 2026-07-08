@@ -16,6 +16,7 @@ import PageComments from '@/components/PageComments.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import PageAttachments from '@/components/PageAttachments.vue'
 import PageToc from '@/components/PageToc.vue'
+import Skeleton from '@/components/Skeleton.vue'
 import type { PageGraph } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 
@@ -122,7 +123,7 @@ onUnmounted(stopRealtime)
 </script>
 
 <template>
-  <div v-if="loading" class="text-gray-400">{{ t('loading') }}</div>
+  <Skeleton v-if="loading" :label="t('loading')" title :lines="5" />
 
   <div v-else-if="page" class="flex gap-8">
     <article class="flex-1 min-w-0">
@@ -144,7 +145,7 @@ onUnmounted(stopRealtime)
         </div>
         <span
           class="text-xs"
-          :class="editors.length ? 'text-amber-600 dark:text-amber-400' : 'text-gray-400'"
+          :class="editors.length ? 'text-amber-600 dark:text-amber-400' : 'text-[var(--c-text-muted)]'"
         >
           <template v-if="editors.length">✏ {{ editorsLabel }}</template>
           <template v-else>{{ viewers.length }} viewing now</template>
@@ -197,6 +198,6 @@ onUnmounted(stopRealtime)
       </RouterLink>
       <RouterLink v-else to="/_login" class="btn-ghost">{{ t('signInCreate') }}</RouterLink>
     </template>
-    <p v-if="error" class="text-xs text-gray-400 mt-4">{{ error }}</p>
+    <p v-if="error" class="text-xs text-[var(--c-text-muted)] mt-4">{{ error }}</p>
   </EmptyState>
 </template>

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Api, type PageRedirectView } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+import Skeleton from '@/components/Skeleton.vue'
 
 const redirects = ref<PageRedirectView[]>([])
 const fromPath = ref('')
@@ -61,7 +62,7 @@ onMounted(load)
     <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_22rem] gap-4">
       <div class="card overflow-hidden">
         <table class="w-full text-sm">
-          <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+          <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
             <tr>
               <th class="p-3 font-medium">Alias</th>
               <th class="p-3 font-medium">Target</th>
@@ -70,8 +71,11 @@ onMounted(load)
             </tr>
           </thead>
           <tbody>
-            <tr v-if="!redirects.length">
-              <td class="p-3 text-gray-500" colspan="4">{{ loading ? 'Loading...' : 'No redirects yet.' }}</td>
+            <tr v-if="loading && !redirects.length">
+              <td class="p-3" colspan="4"><Skeleton label="Loading redirects" :lines="3" /></td>
+            </tr>
+            <tr v-else-if="!redirects.length">
+              <td class="p-3 text-gray-500" colspan="4">No redirects yet.</td>
             </tr>
             <tr v-for="redirect in redirects" :key="redirect.fromPath" class="border-b border-gray-100 dark:border-gray-800/60 last:border-0">
               <td class="p-3 font-mono text-gray-700 dark:text-gray-200">/{{ redirect.fromPath }}</td>
@@ -87,8 +91,8 @@ onMounted(load)
         </table>
       </div>
       <form class="card p-4 space-y-2" @submit.prevent="createRedirect">
-        <input v-model.trim="fromPath" class="input" placeholder="old/path" />
-        <input v-model.trim="toPath" class="input" placeholder="target/path" />
+        <input v-model.trim="fromPath" class="input" placeholder="old/path" aria-label="Old path" />
+        <input v-model.trim="toPath" class="input" placeholder="target/path" aria-label="Target path" />
         <button class="btn-primary" type="submit" :disabled="!fromPath || !toPath">Create alias</button>
       </form>
     </div>

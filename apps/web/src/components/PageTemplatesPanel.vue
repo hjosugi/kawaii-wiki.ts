@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { Api, type Page, type PageTemplate } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const emit = defineEmits<{ changed: [] }>()
 
@@ -133,31 +134,31 @@ onMounted(() => {
       </button>
     </div>
     <p v-if="error" class="mb-3 text-sm text-red-600">{{ error }}</p>
-    <p v-if="loading" class="mb-3 text-[var(--c-text-muted)]">Loading...</p>
+    <Skeleton v-if="loading" class="mb-3" label="Loading templates" :lines="3" />
 
     <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)]">
       <form class="card space-y-3 p-4" @submit.prevent="save">
         <div class="grid gap-2 sm:grid-cols-[5rem_minmax(0,1fr)]">
-          <input v-model="icon" class="input" maxlength="24" placeholder="Icon" />
-          <input v-model="name" class="input" required placeholder="Template name" />
+          <input v-model="icon" class="input" maxlength="24" placeholder="Icon" aria-label="Template icon" />
+          <input v-model="name" class="input" required placeholder="Template name" aria-label="Template name" />
         </div>
-        <input v-model="description" class="input" placeholder="Description" />
+        <input v-model="description" class="input" placeholder="Description" aria-label="Template description" />
         <div class="grid gap-2 sm:grid-cols-2">
-          <input v-model="title" class="input" placeholder="Default page title" />
-          <input v-model="path" class="input font-mono text-sm" placeholder="default/path" />
+          <input v-model="title" class="input" placeholder="Default page title" aria-label="Default page title" />
+          <input v-model="path" class="input font-mono text-sm" placeholder="default/path" aria-label="Default page path" />
         </div>
         <div class="grid gap-2 sm:grid-cols-3">
-          <select v-model="status" class="input">
+          <select v-model="status" class="input" aria-label="Default status">
             <option value="draft">draft</option>
             <option value="in-review">in-review</option>
             <option value="verified">verified</option>
             <option value="outdated">outdated</option>
           </select>
-          <input v-model="locale" class="input" placeholder="locale" />
-          <input v-model="reviewAtDate" class="input" type="date" />
+          <input v-model="locale" class="input" placeholder="locale" aria-label="Default locale" />
+          <input v-model="reviewAtDate" class="input" type="date" aria-label="Default review date" />
         </div>
-        <input v-model="labelsText" class="input" placeholder="labels, comma separated" />
-        <textarea v-model="content" class="input min-h-72 font-mono text-sm" spellcheck="false"></textarea>
+        <input v-model="labelsText" class="input" placeholder="labels, comma separated" aria-label="Default labels" />
+        <textarea v-model="content" class="input min-h-72 font-mono text-sm" spellcheck="false" aria-label="Template content"></textarea>
         <div class="flex flex-wrap gap-2">
           <button class="btn-primary" type="submit" :disabled="saving || !name">
             {{ saving ? 'Saving...' : editingId ? 'Update template' : 'Create template' }}

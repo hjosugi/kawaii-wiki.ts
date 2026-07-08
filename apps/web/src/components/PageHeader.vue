@@ -110,7 +110,7 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
     <div class="flex flex-wrap items-start justify-between gap-4 mt-3">
       <div class="min-w-0">
         <h1 class="text-3xl font-bold tracking-tight text-gray-950 dark:text-gray-50">{{ page.title }}</h1>
-        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-gray-400">
+        <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-[var(--c-text-muted)]">
           <span class="font-mono">/{{ page.path }}</span>
           <span>{{ t('space', { space: page.spaceKey }) }}</span>
           <span>{{ t('locale') }} {{ page.locale }}</span>

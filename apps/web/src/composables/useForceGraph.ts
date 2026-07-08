@@ -1,5 +1,6 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { PageGraph, PageGraphEdge, PageGraphNode } from '@/lib/api'
+import { useReducedMotion } from '@/composables/useReducedMotion'
 
 export interface SimNode extends PageGraphNode {
   x: number
@@ -22,6 +23,7 @@ export interface ForceGraphProps {
 }
 
 export const useForceGraph = (props: ForceGraphProps) => {
+  const reducedMotion = useReducedMotion()
   const selected = ref<string | null>(props.focusPath ?? null)
   const showMissing = ref(true)
   const localOnly = ref(Boolean(props.focusPath))
@@ -100,9 +102,9 @@ export const useForceGraph = (props: ForceGraphProps) => {
   const outgoing = computed(() => visibleGraph.value.edges.filter((edge) => edge.source === selected.value))
   const transform = computed(() => `translate(${pan.value.x} ${pan.value.y}) scale(${zoom.value})`)
 
-  const tick = (): void => {
+  const stepSimulation = (): boolean => {
     const items = nodes.value
-    if (items.length === 0) return
+    if (items.length === 0) return false
 
     for (let i = 0; i < items.length; i++) {
       for (let j = i + 1; j < items.length; j++) {
@@ -150,13 +152,22 @@ export const useForceGraph = (props: ForceGraphProps) => {
     }
 
     alpha *= 0.965
-    if (alpha > 0.018) raf = requestAnimationFrame(tick)
+    return alpha > 0.018
+  }
+
+  const settleSimulation = (): void => {
+    for (let i = 0; i < 90 && alpha > 0.018; i++) stepSimulation()
+  }
+
+  const tick = (): void => {
+    if (stepSimulation() && !reducedMotion.value) raf = requestAnimationFrame(tick)
   }
 
   const restart = (): void => {
     alpha = Math.max(alpha, 0.7)
     cancelAnimationFrame(raf)
-    tick()
+    if (reducedMotion.value) settleSimulation()
+    else tick()
   }
 
   const initialise = (): void => {
@@ -191,7 +202,8 @@ export const useForceGraph = (props: ForceGraphProps) => {
         : nodes.value[0]?.path ?? null
     }
     alpha = 1
-    tick()
+    if (reducedMotion.value) settleSimulation()
+    else tick()
   }
 
   const screenToGraph = (event: PointerEvent, svg: SVGSVGElement): { x: number; y: number } => {
@@ -259,14 +271,68 @@ export const useForceGraph = (props: ForceGraphProps) => {
 
   const onWheel = (event: WheelEvent): void => {
     event.preventDefault()
-    const next = Math.min(2.8, Math.max(0.45, zoom.value * (event.deltaY > 0 ? 0.9 : 1.1)))
+    zoomBy(event.deltaY > 0 ? 0.9 : 1.1)
+  }
+
+  const zoomBy = (factor: number): void => {
+    const next = Math.min(2.8, Math.max(0.45, zoom.value * factor))
     zoom.value = Number(next.toFixed(3))
+  }
+
+  const zoomIn = (): void => {
+    zoomBy(1.12)
+  }
+
+  const zoomOut = (): void => {
+    zoomBy(0.88)
+  }
+
+  const panBy = (x: number, y: number): void => {
+    pan.value = { x: pan.value.x + x, y: pan.value.y + y }
   }
 
   const resetView = (): void => {
     zoom.value = 1
     pan.value = { x: 0, y: 0 }
     initialise()
+  }
+
+  const nearestNodeInDirection = (
+    fromPath: string,
+    direction: 'up' | 'down' | 'left' | 'right',
+  ): SimNode | null => {
+    const from = nodeByPath.value.get(fromPath)
+    if (!from) return null
+    const vector = {
+      up: { x: 0, y: -1 },
+      down: { x: 0, y: 1 },
+      left: { x: -1, y: 0 },
+      right: { x: 1, y: 0 },
+    }[direction]
+
+    return nodes.value
+      .filter((node) => node.path !== fromPath)
+      .map((node) => {
+        const dx = node.x - from.x
+        const dy = node.y - from.y
+        const distance = Math.hypot(dx, dy)
+        if (!distance) return null
+        const alignment = (dx * vector.x + dy * vector.y) / distance
+        if (alignment <= 0.2) return null
+        return { node, score: distance / alignment }
+      })
+      .filter((candidate): candidate is { node: SimNode; score: number } => Boolean(candidate))
+      .sort((a, b) => a.score - b.score)[0]?.node ?? null
+  }
+
+  const selectNearestNode = (
+    fromPath: string,
+    direction: 'up' | 'down' | 'left' | 'right',
+  ): string | null => {
+    const next = nearestNodeInDirection(fromPath, direction)
+    if (!next) return null
+    selectNode(next.path)
+    return next.path
   }
 
   watch(
@@ -276,6 +342,12 @@ export const useForceGraph = (props: ForceGraphProps) => {
   )
 
   watch([linkDistance, linkStrength, repulsion], restart)
+
+  watch(reducedMotion, (reduce) => {
+    cancelAnimationFrame(raf)
+    if (reduce) settleSimulation()
+    else restart()
+  })
 
   onBeforeUnmount(() => cancelAnimationFrame(raf))
 
@@ -297,7 +369,9 @@ export const useForceGraph = (props: ForceGraphProps) => {
     incoming,
     outgoing,
     transform,
+    reducedMotion,
     selectNode,
+    selectNearestNode,
     startNodeDrag,
     moveNodeDrag,
     endNodeDrag,
@@ -305,6 +379,9 @@ export const useForceGraph = (props: ForceGraphProps) => {
     movePan,
     endPan,
     onWheel,
+    panBy,
+    zoomIn,
+    zoomOut,
     resetView,
   }
 }

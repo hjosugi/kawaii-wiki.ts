@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import type { PageGraph, PageGraphNode } from '@/lib/api'
 import { useForceGraph } from '@/composables/useForceGraph'
@@ -18,9 +19,27 @@ const props = withDefaults(
 )
 
 const router = useRouter()
+const helpId = `interactive-graph-help-${Math.random().toString(36).slice(2)}`
+const nodeElements = new Map<string, SVGGElement>()
+
 const openNode = (node: PageGraphNode): void => {
   if (node.kind === 'missing') router.push({ name: 'new', query: { path: node.path } })
   else router.push('/' + node.path)
+}
+
+const nodeTo = (node: PageGraphNode): string | { name: string; query: { path: string } } =>
+  node.kind === 'missing' ? { name: 'new', query: { path: node.path } } : '/' + node.path
+
+const nodeAriaLabel = (node: PageGraphNode): string =>
+  `${node.kind === 'missing' ? 'Missing page' : 'Page'} ${node.title}, /${node.path}`
+
+const setNodeElement = (path: string, element: unknown): void => {
+  if (element instanceof SVGGElement) nodeElements.set(path, element)
+  else nodeElements.delete(path)
+}
+
+const focusNode = (path: string): void => {
+  void nextTick(() => nodeElements.get(path)?.focus())
 }
 
 const {
@@ -40,6 +59,7 @@ const {
   outgoing,
   transform,
   selectNode,
+  selectNearestNode,
   startNodeDrag,
   moveNodeDrag,
   endNodeDrag,
@@ -47,8 +67,62 @@ const {
   movePan,
   endPan,
   onWheel,
+  panBy,
+  zoomIn,
+  zoomOut,
   resetView,
 } = useForceGraph(props)
+
+function onNodeKeydown(event: KeyboardEvent, node: PageGraphNode): void {
+  if (event.key === 'Enter') {
+    event.preventDefault()
+    openNode(node)
+    return
+  }
+  const directions = {
+    ArrowUp: 'up',
+    ArrowDown: 'down',
+    ArrowLeft: 'left',
+    ArrowRight: 'right',
+  } as const
+  const direction = directions[event.key as keyof typeof directions]
+  if (direction) {
+    event.preventDefault()
+    const next = selectNearestNode(node.path, direction)
+    if (next) focusNode(next)
+    return
+  }
+  if (event.key === '+' || event.key === '=') {
+    event.preventDefault()
+    zoomIn()
+  } else if (event.key === '-' || event.key === '_') {
+    event.preventDefault()
+    zoomOut()
+  }
+}
+
+function onCanvasKeydown(event: KeyboardEvent): void {
+  if (event.target !== event.currentTarget) return
+  if (event.key === 'ArrowUp') {
+    event.preventDefault()
+    panBy(0, 32)
+  } else if (event.key === 'ArrowDown') {
+    event.preventDefault()
+    panBy(0, -32)
+  } else if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    panBy(32, 0)
+  } else if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    panBy(-32, 0)
+  } else if (event.key === '+' || event.key === '=') {
+    event.preventDefault()
+    zoomIn()
+  } else if (event.key === '-' || event.key === '_') {
+    event.preventDefault()
+    zoomOut()
+  }
+}
 </script>
 
 <template>
@@ -59,7 +133,7 @@ const {
         <p v-if="!compact">{{ visibleGraph.nodes.length }} nodes / {{ visibleGraph.edges.length }} links</p>
       </div>
       <div class="interactive-graph-actions">
-        <button class="btn-ghost" type="button" title="Reset view" @click="resetView">Reset</button>
+        <button class="btn-ghost" type="button" title="Reset view" aria-label="Reset graph view" @click="resetView">Reset</button>
         <RouterLink v-if="compact" to="/_graph" class="btn-ghost" title="Open graph">Open</RouterLink>
       </div>
     </div>
@@ -87,16 +161,25 @@ const {
       </label>
     </div>
 
+    <p v-if="!compact" :id="helpId" class="sr-only">
+      Focus the graph canvas and use arrow keys to pan, plus and minus to zoom.
+      Focus a node and use arrow keys to move to the nearest node in that direction.
+      Press Enter on a node to open it.
+    </p>
+
     <svg
       class="interactive-graph-canvas"
       :viewBox="`0 0 ${width} ${height}`"
       role="img"
       aria-label="Interactive wiki graph"
+      :aria-describedby="compact ? undefined : helpId"
+      tabindex="0"
       @pointerdown="startPan"
       @pointermove="movePan"
       @pointerup="endPan"
       @pointercancel="endPan"
       @wheel="onWheel"
+      @keydown="onCanvasKeydown"
     >
       <rect class="interactive-graph-bg" :width="width" :height="height" />
       <g :transform="transform">
@@ -123,12 +206,16 @@ const {
             'interactive-graph-node-focus': node.path === focusPath,
             'interactive-graph-node-missing': node.kind === 'missing'
           }"
+          :ref="(element) => setNodeElement(node.path, element)"
           :transform="`translate(${node.x}, ${node.y})`"
           tabindex="0"
+          focusable="true"
           role="button"
+          :aria-label="nodeAriaLabel(node)"
           @click="selectNode(node.path)"
           @dblclick="openNode(node)"
-          @keydown.enter.prevent="openNode(node)"
+          @focus="selectNode(node.path)"
+          @keydown="onNodeKeydown($event, node)"
           @pointerdown="startNodeDrag($event, node)"
           @pointermove="moveNodeDrag($event, node)"
           @pointerup="endNodeDrag"
@@ -166,5 +253,15 @@ const {
         <p v-if="!incoming.length">No backlinks.</p>
       </div>
     </div>
+
+    <nav v-if="!compact" class="sr-only" aria-label="Graph pages as links">
+      <ul>
+        <li v-for="node in visibleGraph.nodes" :key="`fallback:${node.path}`">
+          <RouterLink :to="nodeTo(node)">
+            {{ node.title }}<span v-if="node.kind === 'missing'"> (missing)</span>
+          </RouterLink>
+        </li>
+      </ul>
+    </nav>
   </section>
 </template>

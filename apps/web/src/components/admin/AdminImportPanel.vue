@@ -65,10 +65,10 @@ async function importMarkdown(): Promise<void> {
       </section>
       <form class="card p-4 space-y-3" @submit.prevent="importMarkdown">
         <h3 class="font-semibold">Markdown import</h3>
-        <input v-model="path" class="input" placeholder="path/to/page" />
-        <textarea v-model="content" class="input min-h-40 font-mono text-sm" placeholder="Markdown with optional frontmatter"></textarea>
-        <input v-model="labels" class="input" placeholder="labels, comma separated" />
-        <select v-model="status" class="input"><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
+        <input v-model="path" class="input" placeholder="path/to/page" aria-label="Page path" />
+        <textarea v-model="content" class="input min-h-40 font-mono text-sm" placeholder="Markdown with optional frontmatter" aria-label="Markdown content"></textarea>
+        <input v-model="labels" class="input" placeholder="labels, comma separated" aria-label="Labels" />
+        <select v-model="status" class="input" aria-label="Page status"><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
         <button class="btn-primary" type="submit" :disabled="importing || !path || !content">{{ importing ? 'Importing...' : 'Import Markdown' }}</button>
       </form>
     </div>

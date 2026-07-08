@@ -3,6 +3,7 @@ import { ref, watch } from 'vue'
 import { Api, type AssetView } from '@/lib/api'
 import { displayAssetFolder } from '@/lib/assets'
 import ModalDialog from '@/components/ModalDialog.vue'
+import Skeleton from '@/components/Skeleton.vue'
 
 const props = defineProps<{ open: boolean; folder?: string }>()
 const emit = defineEmits<{
@@ -105,12 +106,14 @@ watch(() => props.folder, (folder) => {
             class="input h-9 w-48 text-sm"
             list="asset-picker-folders"
             placeholder="Folder"
+            aria-label="Asset folder"
             @change="load"
           />
           <input
             v-model.trim="query"
             class="input h-9 w-48 text-sm"
             placeholder="Search files"
+            aria-label="Search files"
             @input="load"
           />
           <datalist id="asset-picker-folders">
@@ -126,6 +129,7 @@ watch(() => props.folder, (folder) => {
           ref="uploadInput"
           class="hidden"
           type="file"
+          aria-label="Upload assets"
           multiple
           accept="image/*,.pdf,.txt,.md,.csv,.json,.zip,.docx,.xlsx,.pptx,.odt,.ods,.odp"
           @change="uploadFiles(($event.target as HTMLInputElement).files)"
@@ -134,7 +138,7 @@ watch(() => props.folder, (folder) => {
 
       <div class="max-h-[calc(84vh-4.5rem)] overflow-auto p-4">
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-        <p v-else-if="loading" class="text-gray-400">Loading...</p>
+        <Skeleton v-else-if="loading" label="Loading assets" :lines="4" />
         <p v-else-if="!assets.length" class="text-gray-500">No uploaded assets in this folder.</p>
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div

@@ -4,6 +4,7 @@ import { Api, type PageComment } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
+import Skeleton from '@/components/Skeleton.vue'
 
 const props = defineProps<{ path: string }>()
 
@@ -80,11 +81,11 @@ watch(() => props.path, load, { immediate: true })
   <section id="comments" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Comments</h2>
-      <span v-if="comments.length" class="text-xs text-gray-400">{{ comments.length }}</span>
+      <span v-if="comments.length" class="text-xs text-[var(--c-text-muted)]">{{ comments.length }}</span>
     </div>
 
     <p v-if="error" class="mt-3 text-sm text-red-600">{{ error }}</p>
-    <p v-if="loading" class="mt-3 text-sm text-gray-400">Loading...</p>
+    <Skeleton v-if="loading" class="mt-3" label="Loading comments" :lines="2" />
 
     <div v-else class="mt-3 space-y-3">
       <article
@@ -123,6 +124,7 @@ watch(() => props.path, load, { immediate: true })
         v-model="draft"
         class="input min-h-24"
         placeholder="Add a comment. Use @name to mention someone."
+        aria-label="Comment body"
       ></textarea>
       <button class="btn-primary" type="submit" :disabled="saving || !draft.trim()">
         {{ saving ? 'Posting...' : 'Post comment' }}

@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Api, type AssetView, type PageSummary } from '@/lib/api'
 import { usePages } from '@/stores/pages'
+import Skeleton from '@/components/Skeleton.vue'
 
 const pagesStore = usePages()
 const pageTrash = ref<PageSummary[]>([])
@@ -78,11 +79,14 @@ onMounted(load)
     <h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mb-2">Pages</h3>
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+        <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
           <tr><th class="p-3 font-medium">Page</th><th class="p-3 font-medium">State</th><th class="p-3 font-medium w-52">Actions</th></tr>
         </thead>
         <tbody>
-          <tr v-if="!pageTrash.length"><td class="p-3 text-gray-500" colspan="3">{{ loading ? 'Loading...' : 'No archived or trashed pages.' }}</td></tr>
+          <tr v-if="loading && !pageTrash.length">
+            <td class="p-3" colspan="3"><Skeleton label="Loading trashed pages" :lines="3" /></td>
+          </tr>
+          <tr v-else-if="!pageTrash.length"><td class="p-3 text-gray-500" colspan="3">No archived or trashed pages.</td></tr>
           <tr v-for="page in pageTrash" :key="page.path" class="border-b border-gray-100 dark:border-gray-800/60 last:border-0">
             <td class="p-3"><div class="font-medium">{{ page.title }}</div><div class="text-xs font-mono text-gray-500">/{{ page.path }}</div></td>
             <td class="p-3 text-gray-500">{{ page.lifecycle }}</td>
@@ -94,11 +98,14 @@ onMounted(load)
     <h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 mt-5 mb-2">Assets</h3>
     <div class="card overflow-hidden">
       <table class="w-full text-sm">
-        <thead class="text-left text-gray-400 border-b border-gray-200 dark:border-gray-800">
+        <thead class="text-left text-[var(--c-text-muted)] border-b border-gray-200 dark:border-gray-800">
           <tr><th class="p-3 font-medium">Asset</th><th class="p-3 font-medium">Type</th><th class="p-3 font-medium">Size</th><th class="p-3 font-medium w-52">Actions</th></tr>
         </thead>
         <tbody>
-          <tr v-if="!assetTrash.length"><td class="p-3 text-gray-500" colspan="4">{{ loading ? 'Loading...' : 'No trashed assets.' }}</td></tr>
+          <tr v-if="loading && !assetTrash.length">
+            <td class="p-3" colspan="4"><Skeleton label="Loading trashed assets" :lines="3" /></td>
+          </tr>
+          <tr v-else-if="!assetTrash.length"><td class="p-3 text-gray-500" colspan="4">No trashed assets.</td></tr>
           <tr v-for="asset in assetTrash" :key="asset.id" class="border-b border-gray-100 dark:border-gray-800/60 last:border-0">
             <td class="p-3"><div class="font-medium">{{ asset.filename }}</div><div class="text-xs font-mono text-gray-500">{{ asset.url }}</div></td>
             <td class="p-3 text-gray-500">{{ asset.mime }}</td>

@@ -47,6 +47,7 @@ describe('AppHeader', () => {
       await wrapper.find('button[aria-label="Open navigation"]').trigger('click')
       await wrapper.find('button[aria-label="Command palette"]').trigger('click')
 
+      expect(wrapper.find('input[aria-label="Search..."]').exists()).toBe(true)
       expect(mobileNav).toHaveBeenCalledTimes(1)
       expect(commandPalette).toHaveBeenCalledTimes(1)
     } finally {

@@ -195,7 +195,12 @@ const readBrowserLocale = (): Locale => {
   return normalizeLocale(window.navigator.language) ?? 'en'
 }
 
+const applyDocumentLocale = (locale: Locale): void => {
+  if (typeof document !== 'undefined') document.documentElement.lang = locale
+}
+
 const currentLocale = ref<Locale>(readBrowserLocale())
+applyDocumentLocale(currentLocale.value)
 const dateSettings = ref<{
   locale: string
   timezone: string
@@ -208,6 +213,7 @@ const dateSettings = ref<{
 
 export const setLocale = (next: Locale): void => {
   currentLocale.value = next
+  applyDocumentLocale(next)
   localStorageOrNull()?.setItem(localeStorageKey, next)
 }
 

@@ -16,7 +16,7 @@ withDefaults(defineProps<{
 
 <template>
   <nav class="text-sm" :class="sticky ? 'sticky top-20 self-start' : ''">
-    <div v-if="showTitle" class="text-xs uppercase tracking-wide text-gray-400 font-semibold mb-2">On this page</div>
+    <div v-if="showTitle" class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold mb-2">On this page</div>
     <ul class="border-l border-gray-200 dark:border-gray-800">
       <li
         v-for="e in entries"

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { Api, type BrokenLink } from '@/lib/api'
+import Skeleton from '@/components/Skeleton.vue'
 
 const links = ref<BrokenLink[]>([])
 const loading = ref(false)
@@ -37,25 +38,25 @@ onMounted(load)
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
         <h1 class="text-3xl font-bold tracking-tight">Broken links</h1>
-        <p class="mt-1 text-sm text-gray-500">Links pointing at pages that don't exist yet</p>
+        <p class="mt-1 text-sm text-[var(--c-text-muted)]">Links pointing at pages that don't exist yet</p>
       </div>
       <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
-    <div v-if="loading" class="text-gray-400">Loading...</div>
+    <Skeleton v-if="loading" label="Loading broken links" :lines="4" />
 
     <div v-if="byTarget.length" class="space-y-4">
       <div v-for="[target, sources] in byTarget" :key="target" class="card p-4">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <div class="min-w-0 font-mono text-sm">
             <span class="text-red-600">/{{ target }}</span>
-            <span class="ml-2 text-xs text-gray-400">{{ sources.length }} link{{ sources.length === 1 ? '' : 's' }}</span>
+            <span class="ml-2 text-xs text-[var(--c-text-muted)]">{{ sources.length }} link{{ sources.length === 1 ? '' : 's' }}</span>
           </div>
           <RouterLink class="btn-ghost" :to="'/' + target">Create page</RouterLink>
         </div>
-        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-gray-500">
-          <span class="text-xs uppercase tracking-wide text-gray-400">Linked from</span>
+        <div class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-sm text-[var(--c-text-muted)]">
+          <span class="text-xs uppercase tracking-wide text-[var(--c-text-muted)]">Linked from</span>
           <RouterLink v-for="source in sources" :key="source.path" class="link-quiet" :to="'/' + source.path">
             {{ source.title || source.path }}
           </RouterLink>
