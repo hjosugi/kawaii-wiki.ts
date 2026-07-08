@@ -7,6 +7,22 @@ import type { RequestIpServer } from '../rate-limit.ts'
 import { publicUser } from '../representations.ts'
 import type { BaseApp } from '../base.ts'
 
+const navLinkSchema = t.Object({
+  label: t.String(),
+  url: t.String(),
+  icon: t.Optional(t.String()),
+  children: t.Optional(t.Array(t.Object({
+    label: t.String(),
+    url: t.String(),
+    icon: t.Optional(t.String()),
+    children: t.Optional(t.Array(t.Object({
+      label: t.String(),
+      url: t.String(),
+      icon: t.Optional(t.String()),
+    }))),
+  }))),
+})
+
 export interface AdminRoutesContext {
   readonly logger: StructuredLogger
   readonly enforceCredentialLimit: (
@@ -60,17 +76,23 @@ export const createAdminRoutes = ({
           siteTitle: t.Optional(t.String()),
           accentColor: t.Optional(t.String()),
           theme: t.Optional(t.Union([t.Literal('system'), t.Literal('light'), t.Literal('dark')])),
-          navLinks: t.Optional(t.Array(t.Object({
-            label: t.String(),
-            url: t.String(),
+          homePath: t.Optional(t.String()),
+          navLinks: t.Optional(t.Array(navLinkSchema)),
+          navItems: t.Optional(t.Array(t.Object({
+            key: t.Union([
+              t.Literal('changes'),
+              t.Literal('events'),
+              t.Literal('graph'),
+              t.Literal('redirects'),
+              t.Literal('templates'),
+              t.Literal('new'),
+            ]),
+            visible: t.Boolean(),
           }))),
           logoUrl: t.Optional(t.String()),
           faviconUrl: t.Optional(t.String()),
           footerText: t.Optional(t.String()),
-          footerLinks: t.Optional(t.Array(t.Object({
-            label: t.String(),
-            url: t.String(),
-          }))),
+          footerLinks: t.Optional(t.Array(navLinkSchema)),
           customCss: t.Optional(t.String()),
           customHeadHtml: t.Optional(t.String()),
           enableMath: t.Optional(t.Boolean()),

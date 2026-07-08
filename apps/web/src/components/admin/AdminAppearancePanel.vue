@@ -6,6 +6,7 @@ import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
 
 const settings = ref<PublicSettings | null>(null)
 const navLinksText = ref('')
+const navItemsText = ref('')
 const footerLinksText = ref('')
 const saving = ref(false)
 const loading = ref(false)
@@ -13,17 +14,51 @@ const uploading = ref<'logo' | 'favicon' | null>(null)
 const error = ref<string | null>(null)
 
 function parseLinks(value: string): PublicSettings['navLinks'] {
-  return value
-    .split(/\r?\n/)
-    .map((line) => {
-      const [label = '', url = ''] = line.split('|')
-      return { label: label.trim(), url: url.trim() }
-    })
-    .filter((link) => link.label && link.url)
+  const links: PublicSettings['navLinks'] = []
+  let currentGroup: PublicSettings['navLinks'][number] | null = null
+  for (const rawLine of value.split(/\r?\n/)) {
+    const isChild = /^\s+/.test(rawLine)
+    const line = rawLine.trim()
+    if (!line) continue
+    const parts = line.split('|').map((part) => part.trim())
+    const hasIcon = parts.length >= 3
+    const icon = hasIcon ? parts[0] ?? '' : ''
+    const label = hasIcon ? parts[1] ?? '' : parts[0] ?? ''
+    const url = hasIcon ? parts[2] ?? '' : parts[1] ?? ''
+    if (!label) continue
+    const link = { label, url, icon, children: [] }
+    if (isChild && currentGroup) currentGroup.children.push(link)
+    else {
+      links.push(link)
+      currentGroup = link
+    }
+  }
+  return links
 }
 
 function formatLinks(links: PublicSettings['navLinks']): string {
-  return links.map((link) => `${link.label}|${link.url}`).join('\n')
+  return links
+    .flatMap((link) => {
+      const line = `${link.icon ? `${link.icon}|` : ''}${link.label}|${link.url}`
+      const children = link.children.map((child) => `  ${child.icon ? `${child.icon}|` : ''}${child.label}|${child.url}`)
+      return [line, ...children]
+    })
+    .join('\n')
+}
+
+function parseNavItems(value: string): PublicSettings['navItems'] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [key = '', visible = 'true'] = line.split('|').map((part) => part.trim())
+      return { key: key as PublicSettings['navItems'][number]['key'], visible: visible !== 'false' && visible !== '0' }
+    })
+}
+
+function formatNavItems(items: PublicSettings['navItems']): string {
+  return items.map((item) => `${item.key}|${item.visible ? 'true' : 'false'}`).join('\n')
 }
 
 async function load(): Promise<void> {
@@ -32,6 +67,7 @@ async function load(): Promise<void> {
   try {
     settings.value = await Api.publicSettings()
     navLinksText.value = formatLinks(settings.value.navLinks)
+    navItemsText.value = formatNavItems(settings.value.navItems)
     footerLinksText.value = formatLinks(settings.value.footerLinks)
   } catch (e) {
     error.value = (e as Error).message
@@ -49,7 +85,9 @@ async function saveSettings(): Promise<void> {
       siteTitle: settings.value.siteTitle,
       accentColor: settings.value.accentColor,
       theme: settings.value.theme,
+      homePath: settings.value.homePath,
       navLinks: parseLinks(navLinksText.value),
+      navItems: parseNavItems(navItemsText.value),
       logoUrl: settings.value.logoUrl,
       faviconUrl: settings.value.faviconUrl,
       footerText: settings.value.footerText,
@@ -63,6 +101,7 @@ async function saveSettings(): Promise<void> {
     applyBranding(settings.value)
     setMarkdownFeatureSettings(settings.value)
     navLinksText.value = formatLinks(settings.value.navLinks)
+    navItemsText.value = formatNavItems(settings.value.navItems)
     footerLinksText.value = formatLinks(settings.value.footerLinks)
   } catch (e) {
     error.value = (e as Error).message
@@ -100,6 +139,10 @@ onMounted(load)
         <input v-model="settings.accentColor" class="input" placeholder="#7c3aed" />
         <select v-model="settings.theme" class="input"><option value="system">system</option><option value="light">light</option><option value="dark">dark</option></select>
       </div>
+      <label class="block space-y-1 text-sm">
+        <span class="font-medium">Home page path</span>
+        <input v-model="settings.homePath" class="input font-mono text-sm" placeholder="home" />
+      </label>
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <label class="space-y-1 text-sm">
           <span class="font-medium">Logo URL</span>
@@ -116,7 +159,11 @@ onMounted(load)
       </div>
       <label class="block space-y-1 text-sm">
         <span class="font-medium">Header links</span>
-        <textarea v-model="navLinksText" class="input min-h-24 font-mono text-sm" placeholder="Docs|/docs&#10;Status|https://status.example.com"></textarea>
+        <textarea v-model="navLinksText" class="input min-h-24 font-mono text-sm" placeholder="📚|Docs|/docs&#10;Links|&#10;  ▶|YouTube|https://youtube.com/@handle"></textarea>
+      </label>
+      <label class="block space-y-1 text-sm">
+        <span class="font-medium">Built-in navigation</span>
+        <textarea v-model="navItemsText" class="input min-h-28 font-mono text-sm" placeholder="changes|true&#10;events|true&#10;graph|true&#10;redirects|true&#10;templates|true&#10;new|true"></textarea>
       </label>
       <label class="block space-y-1 text-sm">
         <span class="font-medium">Footer text</span>

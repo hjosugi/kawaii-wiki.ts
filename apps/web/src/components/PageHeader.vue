@@ -7,6 +7,7 @@ import { useI18n } from '@/lib/i18n'
 const props = defineProps<{
   page: Page
   canEdit: boolean
+  homePath?: string
 }>()
 
 const copied = ref(false)
@@ -104,7 +105,7 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
 
 <template>
   <header class="border-b border-gray-200 dark:border-gray-800 pb-5 mb-7">
-    <WikiBreadcrumbs :path="page.path" />
+    <WikiBreadcrumbs :path="page.path" :home-path="homePath" />
 
     <div class="flex flex-wrap items-start justify-between gap-4 mt-3">
       <div class="min-w-0">

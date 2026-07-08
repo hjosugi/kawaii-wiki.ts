@@ -18,7 +18,16 @@ const settings = ref<PublicSettings>({
   siteTitle: 'ts-wiki',
   accentColor: '#7c3aed',
   theme: 'system',
+  homePath: 'home',
   navLinks: [],
+  navItems: [
+    { key: 'changes', visible: true },
+    { key: 'events', visible: true },
+    { key: 'graph', visible: true },
+    { key: 'redirects', visible: true },
+    { key: 'templates', visible: true },
+    { key: 'new', visible: true },
+  ],
   logoUrl: '',
   faviconUrl: '',
   footerText: '',
@@ -35,6 +44,21 @@ const settings = ref<PublicSettings>({
   requireTwoFactor: false,
 })
 const accentStyle = computed(() => ({ color: settings.value.accentColor }))
+const homeTo = computed(() => `/${settings.value.homePath || 'home'}`)
+const builtInNav = computed(() => {
+  const definitions = {
+    changes: { to: '/_changes', label: t('changes'), show: true },
+    events: { to: '/_events', label: t('events'), show: true },
+    graph: { to: '/_graph', label: t('graph'), show: true },
+    redirects: { to: '/_redirects', label: t('redirects'), show: auth.canEdit },
+    templates: { to: '/_templates', label: 'Templates', show: auth.canEdit },
+    new: { to: '/_new', label: t('newPage'), show: auth.canEdit },
+  }
+  return settings.value.navItems
+    .filter((item) => item.visible)
+    .map((item) => ({ key: item.key, ...definitions[item.key] }))
+    .filter((item) => item.show)
+})
 
 function submitSearch(): void {
   const query = q.value.trim()
@@ -62,7 +86,7 @@ onMounted(async () => {
     class="sticky top-0 z-10 border-b border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur"
   >
     <div class="max-w-7xl mx-auto px-4 h-14 flex items-center gap-4">
-      <RouterLink to="/" class="flex items-center gap-1.5 font-bold text-lg shrink-0">
+      <RouterLink :to="homeTo" class="flex items-center gap-1.5 font-bold text-lg shrink-0">
         <img v-if="settings.logoUrl" :src="settings.logoUrl" alt="" class="h-7 w-7 rounded object-cover" />
         <span v-else :style="accentStyle">▲</span>
         <span>{{ settings.siteTitle }}</span>
@@ -85,20 +109,66 @@ onMounted(async () => {
         >
           {{ themeIcon }}
         </button>
-        <a
-          v-for="link in settings.navLinks"
-          :key="link.url + link.label"
-          class="btn-ghost hidden lg:inline-flex"
-          :href="link.url"
-        >
-          {{ link.label }}
-        </a>
-        <RouterLink to="/_changes" class="btn-ghost">{{ t('changes') }}</RouterLink>
-        <RouterLink to="/_events" class="btn-ghost">{{ t('events') }}</RouterLink>
-        <RouterLink to="/_graph" class="btn-ghost">{{ t('graph') }}</RouterLink>
-        <RouterLink v-if="auth.canEdit" to="/_redirects" class="btn-ghost">{{ t('redirects') }}</RouterLink>
+        <div class="hidden items-center gap-2 lg:flex">
+          <template v-for="link in settings.navLinks" :key="link.url + link.label">
+            <details v-if="link.children.length" class="relative">
+              <summary class="btn-ghost cursor-pointer list-none">
+                <span v-if="link.icon">{{ link.icon }}</span>{{ link.label }}
+              </summary>
+              <div class="absolute right-0 mt-2 min-w-44 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-1 shadow-lg">
+                <a
+                  v-for="child in link.children"
+                  :key="child.url + child.label"
+                  class="block rounded px-3 py-2 text-sm hover:bg-[var(--c-surface-muted)]"
+                  :href="child.url"
+                >
+                  <span v-if="child.icon">{{ child.icon }} </span>{{ child.label }}
+                </a>
+              </div>
+            </details>
+            <a v-else class="btn-ghost" :href="link.url">
+              <span v-if="link.icon">{{ link.icon }} </span>{{ link.label }}
+            </a>
+          </template>
+          <RouterLink
+            v-for="item in builtInNav"
+            :key="item.key"
+            :to="item.to"
+            :class="item.key === 'new' ? 'btn-primary' : 'btn-ghost'"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </div>
         <RouterLink v-if="auth.isAdmin" to="/_admin" class="btn-ghost">{{ t('admin') }}</RouterLink>
-        <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
+        <details class="relative lg:hidden">
+          <summary class="btn-ghost cursor-pointer list-none">Menu</summary>
+          <div class="absolute right-0 mt-2 flex min-w-52 flex-col rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-1 shadow-lg">
+            <template v-for="link in settings.navLinks" :key="'mobile:' + link.url + link.label">
+              <a v-if="!link.children.length" class="rounded px-3 py-2 text-sm hover:bg-[var(--c-surface-muted)]" :href="link.url">
+                <span v-if="link.icon">{{ link.icon }} </span>{{ link.label }}
+              </a>
+              <div v-else class="px-3 py-2 text-sm">
+                <div class="font-medium"><span v-if="link.icon">{{ link.icon }} </span>{{ link.label }}</div>
+                <a
+                  v-for="child in link.children"
+                  :key="'mobile-child:' + child.url + child.label"
+                  class="mt-1 block rounded px-2 py-1 text-[var(--c-text-muted)] hover:bg-[var(--c-surface-muted)]"
+                  :href="child.url"
+                >
+                  <span v-if="child.icon">{{ child.icon }} </span>{{ child.label }}
+                </a>
+              </div>
+            </template>
+            <RouterLink
+              v-for="item in builtInNav"
+              :key="'mobile:' + item.key"
+              :to="item.to"
+              class="rounded px-3 py-2 text-sm hover:bg-[var(--c-surface-muted)]"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </div>
+        </details>
         <template v-if="auth.isAuthed">
           <span class="hidden text-sm text-[var(--c-text-muted)] sm:inline">{{ auth.user?.name }}</span>
           <button class="btn-ghost" @click="auth.logout()">{{ t('signOut') }}</button>

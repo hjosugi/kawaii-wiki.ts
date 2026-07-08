@@ -114,6 +114,11 @@ and persisted custom templates in SQLite. Editors manage custom templates via
 Template metadata can prefill title, path, labels, status, locale, and review
 date without adding another page model.
 
+**Navigation settings** live in the public settings model. `homePath` controls
+root page resolution and breadcrumb home links. `navItems` stores the visible
+ordered built-in header items, while `navLinks` supports icon-bearing links and
+one level of grouped children for desktop and mobile header menus.
+
 **Types** are shared without codegen. The server exports its `App` type; `apps/web/src/lib/api.ts`
 does `treaty<App>(...)`, so every request's path, query, and body is checked against the real
 routes at compile time.

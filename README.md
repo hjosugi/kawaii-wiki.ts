@@ -3,7 +3,7 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.4.4** — a small, complete, runnable wiki: Markdown pages with visual editing,
+> **Status: v0.4.5** — a small, complete, runnable wiki: Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth, private-wiki mode, groups/page rules,
 > R2 assets, libSQL/Turso support, webhooks, persisted page templates, runtime
 > branding, and a typed API.
@@ -47,6 +47,10 @@ same manager on the Admin page. `_new` combines built-in starters with custom
 templates, and the meeting-notes starter uses the browser timezone instead of a
 hardcoded default.
 
+Navigation is configurable from **Admin → Appearance**: admins can choose the
+home page path, reorder/hide built-in header items, and add icon or grouped
+custom links that remain reachable from the mobile header menu.
+
 ## Docker
 
 Build a production image with the Vue UI baked in:
@@ -76,18 +80,18 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.4
+docker pull ghcr.io/hjosugi/ts-wiki:v0.4.5
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run --rm -v ts-wiki-data:/data \
   -e JWT_SECRET="$JWT_SECRET" \
   -e TS_WIKI_SEED_ADMIN_PASSWORD="change-me-before-first-seed" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.4 bun --filter '@ts-wiki/server' db:seed
+  ghcr.io/hjosugi/ts-wiki:v0.4.5 bun --filter '@ts-wiki/server' db:seed
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.4
+  ghcr.io/hjosugi/ts-wiki:v0.4.5
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS

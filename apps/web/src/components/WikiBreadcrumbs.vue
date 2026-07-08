@@ -3,6 +3,7 @@ import { computed } from 'vue'
 
 const props = defineProps<{
   path: string
+  homePath?: string
 }>()
 
 const crumbs = computed(() => {
@@ -16,7 +17,7 @@ const crumbs = computed(() => {
 
 <template>
   <nav class="flex items-center gap-1.5 text-sm text-gray-500 dark:text-gray-400 min-w-0" aria-label="Breadcrumb">
-    <RouterLink to="/" class="hover:text-gray-900 dark:hover:text-gray-100 shrink-0">Home</RouterLink>
+    <RouterLink :to="'/' + (props.homePath || 'home')" class="hover:text-gray-900 dark:hover:text-gray-100 shrink-0">Home</RouterLink>
     <template v-for="crumb in crumbs" :key="crumb.path">
       <span class="text-gray-300 dark:text-gray-700">/</span>
       <RouterLink

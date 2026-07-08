@@ -3,6 +3,7 @@ import {
   type Principal,
   type Result,
   err,
+  normalizePath,
   ok,
   requirePermission,
   validationError,
@@ -13,13 +14,31 @@ import { siteSettings } from '../db/schema.ts'
 export interface NavLink {
   readonly label: string
   readonly url: string
+  readonly icon: string
+  readonly children: NavLink[]
+}
+
+export interface NavLinkInput {
+  readonly label: string
+  readonly url?: string
+  readonly icon?: string
+  readonly children?: readonly NavLinkInput[]
+}
+
+export type BuiltInNavKey = 'changes' | 'events' | 'graph' | 'redirects' | 'templates' | 'new'
+
+export interface BuiltInNavItem {
+  readonly key: BuiltInNavKey
+  readonly visible: boolean
 }
 
 export interface PublicSettings {
   readonly siteTitle: string
   readonly accentColor: string
   readonly theme: 'system' | 'light' | 'dark'
+  readonly homePath: string
   readonly navLinks: NavLink[]
+  readonly navItems: BuiltInNavItem[]
   readonly logoUrl: string
   readonly faviconUrl: string
   readonly footerText: string
@@ -35,11 +54,13 @@ export interface SettingsPatch {
   readonly siteTitle?: string
   readonly accentColor?: string
   readonly theme?: 'system' | 'light' | 'dark'
-  readonly navLinks?: readonly NavLink[]
+  readonly homePath?: string
+  readonly navLinks?: readonly NavLinkInput[]
+  readonly navItems?: readonly BuiltInNavItem[]
   readonly logoUrl?: string
   readonly faviconUrl?: string
   readonly footerText?: string
-  readonly footerLinks?: readonly NavLink[]
+  readonly footerLinks?: readonly NavLinkInput[]
   readonly customCss?: string
   readonly customHeadHtml?: string
   readonly enableMath?: boolean
@@ -52,11 +73,17 @@ export interface SettingsService {
   update(principal: Principal | null, patch: SettingsPatch): Result<PublicSettings, AppError>
 }
 
+const BUILT_IN_NAV_KEYS: readonly BuiltInNavKey[] = ['changes', 'events', 'graph', 'redirects', 'templates', 'new']
+
+const DEFAULT_NAV_ITEMS: BuiltInNavItem[] = BUILT_IN_NAV_KEYS.map((key) => ({ key, visible: true }))
+
 const DEFAULT_SETTINGS: PublicSettings = {
   siteTitle: 'ts-wiki',
   accentColor: '#7c3aed',
   theme: 'system',
+  homePath: 'home',
   navLinks: [],
+  navItems: DEFAULT_NAV_ITEMS,
   logoUrl: '',
   faviconUrl: '',
   footerText: '',
@@ -77,7 +104,9 @@ const SETTING_KEYS = [
   'siteTitle',
   'accentColor',
   'theme',
+  'homePath',
   'navLinks',
+  'navItems',
   'logoUrl',
   'faviconUrl',
   'footerText',
@@ -92,18 +121,39 @@ type SettingKey = (typeof SETTING_KEYS)[number]
 
 const isSettingKey = (value: string): value is SettingKey => SETTING_KEYS.includes(value as SettingKey)
 
-const cleanNavLinks = (links: readonly NavLink[] = []): NavLink[] =>
-  links
-    .map((link) => ({
-      label: link.label.trim().slice(0, 60),
-      url: link.url.trim().slice(0, 500),
-    }))
-    .filter((link) => link.label && (/^https?:\/\//i.test(link.url) || link.url.startsWith('/')))
-    .slice(0, 12)
+const cleanHomePath = (value: string): string => normalizePath(value) || 'home'
 
 const cleanUrl = (value: string): string => {
   const clean = value.trim().slice(0, 500)
   return clean && (/^https?:\/\//i.test(clean) || clean.startsWith('/')) ? clean : ''
+}
+
+const cleanNavLinks = (links: readonly NavLinkInput[] = [], depth = 0): NavLink[] =>
+  links
+    .map((link) => {
+      const children = depth === 0 ? cleanNavLinks(link.children ?? [], 1) : []
+      return {
+        label: link.label.trim().slice(0, 60),
+        url: cleanUrl(link.url ?? ''),
+        icon: (link.icon ?? '').trim().slice(0, 16),
+        children,
+      }
+    })
+    .filter((link) => link.label && (link.url || link.children.length))
+    .slice(0, 12)
+
+const cleanNavItems = (items: readonly BuiltInNavItem[] = DEFAULT_NAV_ITEMS): BuiltInNavItem[] => {
+  const seen = new Set<BuiltInNavKey>()
+  const out: BuiltInNavItem[] = []
+  for (const item of items) {
+    if (!BUILT_IN_NAV_KEYS.includes(item.key) || seen.has(item.key)) continue
+    seen.add(item.key)
+    out.push({ key: item.key, visible: item.visible !== false })
+  }
+  for (const fallback of DEFAULT_NAV_ITEMS) {
+    if (!seen.has(fallback.key)) out.push(fallback)
+  }
+  return out
 }
 
 const parseStoredValue = (key: SettingKey, value: string): unknown => {
@@ -115,6 +165,15 @@ const parseStoredValue = (key: SettingKey, value: string): unknown => {
       return []
     }
   }
+  if (key === 'navItems') {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      return Array.isArray(parsed) ? cleanNavItems(parsed as BuiltInNavItem[]) : DEFAULT_NAV_ITEMS
+    } catch {
+      return DEFAULT_NAV_ITEMS
+    }
+  }
+  if (key === 'homePath') return cleanHomePath(value)
   if (key === 'enableMath' || key === 'enableEmoji' || key === 'enableMermaid') return value === 'true'
   return value
 }
@@ -148,7 +207,9 @@ const validatePatch = (
     siteTitle,
     accentColor,
     theme,
+    homePath: patch.homePath === undefined ? current.homePath : cleanHomePath(patch.homePath),
     navLinks: patch.navLinks === undefined ? current.navLinks : cleanNavLinks(patch.navLinks),
+    navItems: patch.navItems === undefined ? current.navItems : cleanNavItems(patch.navItems),
     logoUrl: patch.logoUrl === undefined ? current.logoUrl : cleanUrl(patch.logoUrl),
     faviconUrl: patch.faviconUrl === undefined ? current.faviconUrl : cleanUrl(patch.faviconUrl),
     footerText: patch.footerText === undefined ? current.footerText : patch.footerText.trim().slice(0, 500),
@@ -179,7 +240,9 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
       { key: 'siteTitle', value: settings.siteTitle, updatedAt: now },
       { key: 'accentColor', value: settings.accentColor, updatedAt: now },
       { key: 'theme', value: settings.theme, updatedAt: now },
+      { key: 'homePath', value: settings.homePath, updatedAt: now },
       { key: 'navLinks', value: JSON.stringify(settings.navLinks), updatedAt: now },
+      { key: 'navItems', value: JSON.stringify(settings.navItems), updatedAt: now },
       { key: 'logoUrl', value: settings.logoUrl, updatedAt: now },
       { key: 'faviconUrl', value: settings.faviconUrl, updatedAt: now },
       { key: 'footerText', value: settings.footerText, updatedAt: now },

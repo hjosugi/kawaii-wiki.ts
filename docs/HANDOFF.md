@@ -5,7 +5,7 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
 - **As of:** 2026-07-08
-- **State:** v0.4.4 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **State:** v0.4.5 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
@@ -195,9 +195,9 @@ Each item notes **where to plug in**.
       lean core; see `docs/ISSUE_RESOLUTION.md`.
 - [x] **Backlinks + linked mentions on page view** — `pages.backlinks()`, `/api/page/backlinks`,
       and `PageView.vue` show incoming links directly on the reader view.
-- [ ] **Navigation management** — evolve the generated tree into collapsible folders, recent pages,
-      starred pages, and optional manual ordering. Avoid building a heavy collection model until
-      the component behavior is proven.
+- [ ] **Navigation management** — header/root navigation is configurable through public settings
+      (`homePath`, built-in nav visibility/order, grouped custom nav links). The remaining work is
+      shared sidebar pinning/manual order and server-backed per-user nav state.
 - [x] **Markdown plugins / typed blocks** — `packages/core/src/markdown.ts` supports safe callout,
       embed, event, infobox/profile, links/social, content tabs, and Mermaid-source
       fences, plus `createRenderer({ features, plugins, fences })` and

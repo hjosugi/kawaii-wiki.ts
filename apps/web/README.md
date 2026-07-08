@@ -10,6 +10,7 @@ Vue 3 + Vite front end for the ts-wiki hands-on project.
 - search, page view, edit, login, and admin flows
 - realtime page-change updates through server-sent events
 - runtime branding through public settings and CSS variables
+- configurable home/header navigation from public settings
 - lazy Markdown enhancements for KaTeX CSS, Mermaid diagrams, and content tabs
 - built-in plus persisted page templates for new-page starters
 - keeping UI code thin while domain rules stay in `@ts-wiki/core`

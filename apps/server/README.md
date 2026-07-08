@@ -58,6 +58,10 @@ Page templates live in the `page_templates` table and are exposed through the
 editor-gated `/api/templates` CRUD API. Template metadata can prefill page
 title, path, labels, status, locale, and review date when a new page is created.
 
+Public settings also carry navigation configuration: `homePath`, ordered
+`navItems` for built-in header links, and grouped/icon `navLinks` for custom
+navigation.
+
 For production seeding, set `TS_WIKI_SEED_ADMIN_PASSWORD` or capture the generated
 password from the `db:seed` output. The seed script never falls back to a shared
 default admin password.

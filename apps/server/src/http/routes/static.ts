@@ -81,7 +81,7 @@ const injectSeoIntoHtml = (html: string, seo: SeoMeta): string => {
   return withTitle.replace('</head>', `${seoTags(seo)}\n  </head>`)
 }
 
-const pagePathForShellRequest = (pathname: string): string | null => {
+const pagePathForShellRequest = (pathname: string, homePath: string): string | null => {
   const raw = pathname === '/ui' ? '/' : pathname.startsWith('/ui/') ? pathname.slice('/ui'.length) : pathname
   let decoded: string
   try {
@@ -90,7 +90,7 @@ const pagePathForShellRequest = (pathname: string): string | null => {
     return null
   }
   const trimmed = decoded.replace(/^\/+|\/+$/g, '')
-  if (!trimmed) return 'home'
+  if (!trimmed) return homePath
   if (trimmed.startsWith('_') || trimmed.includes('\\') || trimmed.includes('\0')) return null
   return trimmed
 }
@@ -130,7 +130,7 @@ export const createStaticRoutes = ({
   const shellResponse = async (pathname: string, principal: Principal | null): Promise<Response> => {
     const shareToken = shareTokenForShellRequest(pathname)
     const shared = shareToken ? services.shares.resolve(shareToken) : null
-    const pagePath = shared?.ok ? null : pagePathForShellRequest(pathname)
+    const pagePath = shared?.ok ? null : pagePathForShellRequest(pathname, services.settings.public().homePath)
     const resolved = pagePath && (principal || !env.auth.privateWiki) && canReadPage(principal, pagePath)
       ? services.pages.resolveByPath(pagePath)
       : null

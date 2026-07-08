@@ -32,8 +32,9 @@ const attachments = ref<AssetView[]>([])
 const error = ref<string | null>(null)
 const loading = ref(false)
 const redirectedFrom = ref<string[]>([])
+const homePath = ref('home')
 
-const path = computed(() => paramToPath(route.params.path) || 'home')
+const path = computed(() => paramToPath(route.params.path) || homePath.value)
 const routeRedirectedFrom = computed(() => typeof route.query.redirectedFrom === 'string' ? route.query.redirectedFrom : null)
 const { viewers } = usePresence(path)
 const editors = computed(() => viewers.value.filter((v) => v.mode === 'editing'))
@@ -89,6 +90,12 @@ async function load(): Promise<void> {
 
 watch(path, load, { immediate: true })
 
+Api.publicSettings()
+  .then((settings) => {
+    homePath.value = settings.homePath || 'home'
+  })
+  .catch(() => {})
+
 // Realtime: when THIS page changes elsewhere, refresh it in place (no flash).
 async function reloadInPlace(): Promise<void> {
   try {
@@ -119,7 +126,7 @@ onUnmounted(stopRealtime)
 
   <div v-else-if="page" class="flex gap-8">
     <article class="flex-1 min-w-0">
-      <PageHeader :page="page" :can-edit="auth.canEdit" />
+      <PageHeader :page="page" :can-edit="auth.canEdit" :home-path="homePath" />
       <p v-if="redirectedFrom.length" class="mb-4 text-sm text-gray-500">
         Redirected from /{{ redirectedFrom[0] }}
       </p>

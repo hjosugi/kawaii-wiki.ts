@@ -1343,7 +1343,19 @@ describe('http app settings', () => {
 
     const defaults = await app.handle(new Request('http://localhost/api/settings/public'))
     expect(defaults.status).toBe(200)
-    expect(await defaults.json()).toMatchObject({ siteTitle: 'ts-wiki', accentColor: '#7c3aed' })
+    expect(await defaults.json()).toMatchObject({
+      siteTitle: 'ts-wiki',
+      accentColor: '#7c3aed',
+      homePath: 'home',
+      navItems: [
+        { key: 'changes', visible: true },
+        { key: 'events', visible: true },
+        { key: 'graph', visible: true },
+        { key: 'redirects', visible: true },
+        { key: 'templates', visible: true },
+        { key: 'new', visible: true },
+      ],
+    })
 
     const updated = await app.handle(
       new Request('http://localhost/api/admin/settings', {
@@ -1356,7 +1368,18 @@ describe('http app settings', () => {
           siteTitle: 'Docs',
           accentColor: '#2563eb',
           theme: 'system',
-          navLinks: [{ label: 'Home', url: '/' }],
+          homePath: '/docs/start',
+          navLinks: [{
+            label: 'Community',
+            url: '',
+            icon: '!',
+            children: [{ label: 'Forum', url: 'https://forum.example', icon: '?' }],
+          }],
+          navItems: [
+            { key: 'new', visible: true },
+            { key: 'graph', visible: false },
+            { key: 'events', visible: true },
+          ],
           logoUrl: '/assets/logo.png',
           faviconUrl: '/assets/favicon.png',
           footerText: 'Licensed under 0BSD',
@@ -1372,10 +1395,20 @@ describe('http app settings', () => {
     expect(updated.status).toBe(200)
 
     const publicSettings = await app.handle(new Request('http://localhost/api/settings/public'))
-    expect(await publicSettings.json()).toMatchObject({
+    const settingsBody = await publicSettings.json() as {
+      navItems: Array<{ key: string; visible: boolean }>
+      navLinks: unknown[]
+    }
+    expect(settingsBody).toMatchObject({
       siteTitle: 'Docs',
       accentColor: '#2563eb',
-      navLinks: [{ label: 'Home', url: '/' }],
+      homePath: 'docs/start',
+      navLinks: [{
+        label: 'Community',
+        url: '',
+        icon: '!',
+        children: [{ label: 'Forum', url: 'https://forum.example', icon: '?' }],
+      }],
       logoUrl: '/assets/logo.png',
       faviconUrl: '/assets/favicon.png',
       footerText: 'Licensed under 0BSD',
@@ -1386,6 +1419,12 @@ describe('http app settings', () => {
       enableEmoji: false,
       enableMermaid: true,
     })
+    expect(settingsBody.navItems.slice(0, 4)).toEqual([
+      { key: 'new', visible: true },
+      { key: 'graph', visible: false },
+      { key: 'events', visible: true },
+      { key: 'changes', visible: true },
+    ])
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('env branding defaults seed public settings and can allow trusted head HTML', async () => {
@@ -2833,6 +2872,33 @@ describe('http app web serving', () => {
 
     const missingFile = await app.handle(new Request('http://localhost/ui/assets/missing.js'))
     expect(missingFile.status).toBe(404)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('uses the configured home page for root shell metadata', async () => {
+    const { app } = createFixture(undefined, { webDist: true })
+    const { token } = await register(app, 'admin@example.com')
+
+    const settings = await app.handle(
+      new Request('http://localhost/api/admin/settings', {
+        method: 'PUT',
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        body: JSON.stringify({ homePath: 'docs/start' }),
+      }),
+    )
+    expect(settings.status).toBe(200)
+    const created = await app.handle(jsonRequest('/api/pages', {
+      path: 'docs/start',
+      title: 'Custom Home',
+      description: 'Root landing page',
+      content: 'Welcome home',
+    }, token))
+    expect(created.status).toBe(200)
+
+    const shell = await app.handle(new Request('http://localhost/'))
+    expect(shell.status).toBe(200)
+    const html = await shell.text()
+    expect(html).toContain('<title>Custom Home · ts-wiki-test</title>')
+    expect(html).toContain('<meta name="description" content="Root landing page" />')
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('keeps private wiki shell metadata generic for anonymous requests', async () => {

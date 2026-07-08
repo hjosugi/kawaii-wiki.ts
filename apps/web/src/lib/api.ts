@@ -410,11 +410,13 @@ export interface PublicSettings {
   siteTitle: string
   accentColor: string
   theme: 'system' | 'light' | 'dark'
-  navLinks: Array<{ label: string; url: string }>
+  homePath: string
+  navLinks: NavLink[]
+  navItems: BuiltInNavItem[]
   logoUrl: string
   faviconUrl: string
   footerText: string
-  footerLinks: Array<{ label: string; url: string }>
+  footerLinks: NavLink[]
   customCss: string
   customHeadHtml: string
   enableMath: boolean
@@ -425,6 +427,17 @@ export interface PublicSettings {
   mailConfigured: boolean
   requireEmailVerification: boolean
   requireTwoFactor: boolean
+}
+export type BuiltInNavKey = 'changes' | 'events' | 'graph' | 'redirects' | 'templates' | 'new'
+export interface BuiltInNavItem {
+  key: BuiltInNavKey
+  visible: boolean
+}
+export interface NavLink {
+  label: string
+  url: string
+  icon: string
+  children: NavLink[]
 }
 export interface RealtimeTicket {
   ticket: string
