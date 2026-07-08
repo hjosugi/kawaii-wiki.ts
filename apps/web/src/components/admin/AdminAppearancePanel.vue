@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { Api, type PublicSettings } from '@/lib/api'
 import { applyBranding } from '@/lib/branding'
+import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
 
 const settings = ref<PublicSettings | null>(null)
 const navLinksText = ref('')
@@ -55,8 +56,12 @@ async function saveSettings(): Promise<void> {
       footerLinks: parseLinks(footerLinksText.value),
       customCss: settings.value.customCss,
       customHeadHtml: settings.value.customHeadHtml,
+      enableMath: settings.value.enableMath,
+      enableEmoji: settings.value.enableEmoji,
+      enableMermaid: settings.value.enableMermaid,
     })
     applyBranding(settings.value)
+    setMarkdownFeatureSettings(settings.value)
     navLinksText.value = formatLinks(settings.value.navLinks)
     footerLinksText.value = formatLinks(settings.value.footerLinks)
   } catch (e) {
@@ -130,6 +135,21 @@ onMounted(load)
         <textarea v-model="settings.customHeadHtml" class="input min-h-28 font-mono text-sm" placeholder="<script defer data-domain=&quot;wiki.example.com&quot; src=&quot;https://plausible.io/js/script.js&quot;></script>"></textarea>
         <span class="text-xs text-[var(--c-text-muted)]">Applied only when TS_WIKI_ALLOW_HEAD_INJECTION is enabled on the server.</span>
       </label>
+      <fieldset class="space-y-2 rounded-[var(--radius)] border border-[var(--c-border)] p-3 text-sm">
+        <legend class="px-1 font-medium">Markdown features</legend>
+        <label class="flex items-center gap-2">
+          <input v-model="settings.enableEmoji" type="checkbox" />
+          <span>Emoji shortcodes</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input v-model="settings.enableMath" type="checkbox" />
+          <span>KaTeX math</span>
+        </label>
+        <label class="flex items-center gap-2">
+          <input v-model="settings.enableMermaid" type="checkbox" />
+          <span>Mermaid diagrams</span>
+        </label>
+      </fieldset>
       <button class="btn-primary" type="submit" :disabled="saving">{{ saving ? 'Saving...' : 'Save appearance' }}</button>
     </form>
   </section>

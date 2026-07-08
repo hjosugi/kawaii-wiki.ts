@@ -1363,6 +1363,9 @@ describe('http app settings', () => {
           footerLinks: [{ label: 'Terms', url: '/terms' }],
           customCss: ':root { --radius: 0.75rem; }',
           customHeadHtml: '<script src="https://analytics.example/script.js"></script>',
+          enableMath: true,
+          enableEmoji: false,
+          enableMermaid: true,
         }),
       }),
     )
@@ -1379,6 +1382,9 @@ describe('http app settings', () => {
       footerLinks: [{ label: 'Terms', url: '/terms' }],
       customCss: ':root { --radius: 0.75rem; }',
       customHeadHtml: '',
+      enableMath: true,
+      enableEmoji: false,
+      enableMermaid: true,
     })
   }, HTTP_TEST_TIMEOUT_MS)
 
@@ -1419,6 +1425,41 @@ describe('http app settings', () => {
     expect(await publicSettings.json()).toMatchObject({
       customHeadHtml: '<meta name="x-test" content="ok">',
     })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('markdown feature settings affect saved page rendering', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+
+    const disabled = await app.handle(jsonRequest('/api/pages', {
+      path: 'docs/math-off',
+      title: 'Math off',
+      content: '$x^2$ :sparkles:',
+    }, token))
+    expect(disabled.status).toBe(200)
+    expect((await disabled.json()).page.renderedHtml).not.toContain('katex')
+
+    const settings = await app.handle(
+      new Request('http://localhost/api/admin/settings', {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ enableMath: true, enableEmoji: true }),
+      }),
+    )
+    expect(settings.status).toBe(200)
+
+    const enabled = await app.handle(jsonRequest('/api/pages', {
+      path: 'docs/math-on',
+      title: 'Math on',
+      content: '$x^2$ :sparkles:',
+    }, token))
+    expect(enabled.status).toBe(200)
+    const page = (await enabled.json()).page as { renderedHtml: string }
+    expect(page.renderedHtml).toContain('katex')
+    expect(page.renderedHtml).toContain('✨')
   }, HTTP_TEST_TIMEOUT_MS)
 })
 

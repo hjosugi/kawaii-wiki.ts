@@ -548,6 +548,66 @@ html {
   border: 1px solid var(--c-border);
 }
 
+.wiki-mermaid-rendered {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  overflow-x: auto;
+}
+
+.wiki-mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.wiki-tabs {
+  margin: 1.25rem 0;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+}
+
+.wiki-tabs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  padding: 0.5rem;
+  border-bottom: 1px solid var(--c-border);
+  background: var(--c-surface-muted);
+}
+
+.wiki-tab {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: var(--radius);
+  color: var(--c-text-muted);
+  font-size: 0.875rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.wiki-tab[aria-selected='true'] {
+  background: var(--c-surface);
+  color: var(--c-accent);
+  box-shadow: inset 0 0 0 1px var(--c-border);
+}
+
+.wiki-tab:focus-visible {
+  outline: 2px solid var(--c-accent);
+  outline-offset: 2px;
+}
+
+.wiki-tabs-panels {
+  padding: 1rem;
+}
+
+.wiki-tab-panel h3:first-child {
+  margin-top: 0;
+}
+
 @media (max-width: 720px) {
   .wiki-event-card {
     flex-direction: column;

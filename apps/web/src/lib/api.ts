@@ -398,6 +398,9 @@ export interface PublicSettings {
   footerLinks: Array<{ label: string; url: string }>
   customCss: string
   customHeadHtml: string
+  enableMath: boolean
+  enableEmoji: boolean
+  enableMermaid: boolean
   privateWiki: boolean
   registration: 'open' | 'off'
   mailConfigured: boolean

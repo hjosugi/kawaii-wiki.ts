@@ -24,3 +24,21 @@ declare module 'markdown-it-imsize' {
   const plugin: (md: MarkdownIt, options?: { readonly autofill?: boolean }) => void
   export default plugin
 }
+
+declare module 'markdown-it-katex' {
+  import type MarkdownIt from 'markdown-it'
+  interface KatexOptions {
+    readonly throwOnError?: boolean
+    readonly strict?: boolean | string
+    displayMode?: boolean
+  }
+  const plugin: (md: MarkdownIt, options?: KatexOptions) => void
+  export default plugin
+}
+
+declare module 'markdown-it-emoji' {
+  import type MarkdownIt from 'markdown-it'
+  export const bare: (md: MarkdownIt) => void
+  export const light: (md: MarkdownIt) => void
+  export const full: (md: MarkdownIt) => void
+}

@@ -5,8 +5,9 @@ import { Api, type AssetView, type Page, type PageBacklink } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { onWikiEvent } from '@/lib/realtime'
-import { vCodeCopy } from '@/lib/codeCopy'
 import { usePresence } from '@/composables/usePresence'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import { attachmentsForPage } from '@/lib/assets'
 import { setPageMeta } from '@/lib/meta'
 import EmptyState from '@/components/EmptyState.vue'
@@ -22,6 +23,7 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const { t } = useI18n()
+const { markdownFeatures } = useMarkdownFeatures()
 
 const page = ref<Page | null>(null)
 const graph = ref<PageGraph>({ nodes: [], edges: [] })
@@ -141,7 +143,7 @@ onUnmounted(stopRealtime)
           <template v-else>{{ viewers.length }} viewing now</template>
         </span>
       </div>
-      <div v-code-copy class="prose dark:prose-invert max-w-none" v-html="page.renderedHtml"></div>
+      <div v-markdown-enhance="markdownFeatures" class="prose dark:prose-invert max-w-none" v-html="page.renderedHtml"></div>
       <PageAttachments :assets="attachments" />
       <section v-if="backlinks.length" class="mt-10 border-t border-gray-200 dark:border-gray-800 pt-5">
         <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Linked from</h2>

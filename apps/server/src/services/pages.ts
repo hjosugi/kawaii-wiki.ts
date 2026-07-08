@@ -24,6 +24,7 @@ import {
   validationError,
   validatePageInput,
   renderMarkdown,
+  type RenderResult,
   extractPageLinks,
   rewritePageLinks,
   extractCalendarEvents,
@@ -238,19 +239,21 @@ export interface RewriteLinksForMoveOptions {
     page: Pick<Page, 'id' | 'title' | 'description'>,
     content: string,
   ) => void
+  readonly renderMarkdown?: (content: string) => RenderResult
 }
 
 export const rewriteLinksForMove = (
   tx: PageWriteTransaction,
   oldPath: string,
   newPath: string,
-  { principal, now, reindex }: RewriteLinksForMoveOptions,
+  { principal, now, reindex, renderMarkdown: renderMarkdownOverride }: RewriteLinksForMoveOptions,
 ): number => {
+  const render = renderMarkdownOverride ?? renderMarkdown
   let rewritten = 0
   for (const page of tx.select().from(pages).where(eq(pages.lifecycle, 'active')).all()) {
     const content = rewritePageLinks(page.content, oldPath, newPath)
     if (content === page.content) continue
-    const { html, toc } = renderMarkdown(content)
+    const { html, toc } = render(content)
     snapshotRevision(tx, page, principal, 'updated', now)
     tx.update(pages)
       .set({
@@ -267,7 +270,16 @@ export const rewriteLinksForMove = (
   return rewritten
 }
 
-export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageService => {
+export interface PageServiceOptions {
+  readonly renderMarkdown?: (content: string) => RenderResult
+}
+
+export const createPageService = (
+  db: DB,
+  searchIndexer: SearchIndexer,
+  options: PageServiceOptions = {},
+): PageService => {
+  const renderPageMarkdown = options.renderMarkdown ?? renderMarkdown
   const reindex = (id: string): void => searchIndexer.indexPageById(id)
 
   const findByPath = (path: string): Page | undefined =>
@@ -328,7 +340,7 @@ export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageSer
     principal: Principal | null,
     revisionAction: 'updated' | null,
   ): Page => {
-    const { html, toc } = renderMarkdown(next.content)
+    const { html, toc } = renderPageMarkdown(next.content)
     const now = Date.now()
 
     return db.transaction((tx) => {
@@ -481,7 +493,7 @@ export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageSer
       for (const page of allPages) {
         for (const link of extractPageLinks(page.content)) {
           if (link.path === page.path || existing.has(link.path)) continue
-          const key = `${page.path} ${link.path} ${link.kind}`
+          const key = `${page.path}\u0000${link.path}\u0000${link.kind}`
           if (seen.has(key)) continue
           seen.add(key)
           out.push({ path: page.path, title: page.title, target: link.path, label: link.label, kind: link.kind })
@@ -625,7 +637,7 @@ export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageSer
       const existing = findByPath(v.path)
       if (existing) return err(pathConflict(existing, v.path))
 
-      const { html, toc } = renderMarkdown(v.content)
+      const { html, toc } = renderPageMarkdown(v.content)
       const now = Date.now()
       const id = crypto.randomUUID()
 
@@ -876,6 +888,7 @@ export const createPageService = (db: DB, searchIndexer: SearchIndexer): PageSer
           principal,
           now,
           reindex: (page) => reindex(page.id),
+          renderMarkdown: renderPageMarkdown,
         })
 
         reindex(current.id)

@@ -3,6 +3,7 @@
  * built here from a single `DB` dependency and passed down explicitly.
  */
 import type { DB } from '../db/client.ts'
+import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
 import type { AuthEnv, BrandingEnv, MailEnv, SearchEnv } from '../env.ts'
 import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
@@ -91,26 +92,44 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   const search = options.search ?? { ftsTokenizer: 'unicode61' as const }
   const branding = options.branding ?? defaultBranding
   const searchIndexer = createFtsSearchIndexer(db, { configuredTokenizer: search.ftsTokenizer })
+  const settings = createSettingsService(db, {
+    defaults: {
+      ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
+      ...(branding.accentColor ? { accentColor: branding.accentColor } : {}),
+      ...(branding.theme ? { theme: branding.theme } : {}),
+    },
+    allowHeadInjection: branding.allowHeadInjection,
+  })
+  const rendererCache = new Map<string, MarkdownRenderer>()
+  const rendererForSettings = (): MarkdownRenderer => {
+    const publicSettings = settings.public()
+    const key = `${publicSettings.enableMath ? 'math' : 'no-math'}:${publicSettings.enableEmoji ? 'emoji' : 'no-emoji'}`
+    const cached = rendererCache.get(key)
+    if (cached) return cached
+    const renderer = createRenderer({
+      features: {
+        math: publicSettings.enableMath,
+        emoji: publicSettings.enableEmoji,
+      },
+    })
+    rendererCache.set(key, renderer)
+    return renderer
+  }
   const mail = createMailService(options.mail ?? defaultMail, {
     sender: options.mailSender,
     logger: options.logger,
   })
   return {
-    pages: createPageService(db, searchIndexer),
+    pages: createPageService(db, searchIndexer, {
+      renderMarkdown: (content) => rendererForSettings().renderMarkdown(content),
+    }),
     search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer, indexer: searchIndexer }),
     users: createUserService(db),
     assets: createAssetService(db, { urlForStorageName: options.assetUrl, searchIndexer }),
     admin: createAdminService(db, authz),
     comments: createCommentService(db, searchIndexer),
     analytics: createAnalyticsService(db),
-    settings: createSettingsService(db, {
-      defaults: {
-        ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
-        ...(branding.accentColor ? { accentColor: branding.accentColor } : {}),
-        ...(branding.theme ? { theme: branding.theme } : {}),
-      },
-      allowHeadInjection: branding.allowHeadInjection,
-    }),
+    settings,
     authz,
     oidc: createOidcService(db, auth, authz),
     passkeys: createPasskeyService(db, auth),

@@ -49,6 +49,11 @@ values from the web UI. Custom head HTML/JavaScript is intentionally disabled
 unless `TS_WIKI_ALLOW_HEAD_INJECTION=true`; custom CSS does not require that
 escape hatch.
 
+Admin appearance settings also control Markdown features. Emoji shortcodes are
+enabled by default; KaTeX math and Mermaid diagram rendering are opt-in. Page
+writes render with the current settings, while Mermaid stays client-side and
+falls back to escaped source when disabled.
+
 For production seeding, set `TS_WIKI_SEED_ADMIN_PASSWORD` or capture the generated
 password from the `db:seed` output. The seed script never falls back to a shared
 default admin password.

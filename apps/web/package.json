@@ -1,6 +1,6 @@
 {
   "name": "@ts-wiki/web",
-  "version": "0.4.2",
+  "version": "0.4.3",
   "license": "0BSD",
   "private": true,
   "type": "module",
@@ -23,6 +23,8 @@
     "codemirror": "^6.0.1",
     "diff": "^9.0.0",
     "highlight.js": "^11.11.1",
+    "katex": "^0.17.0",
+    "mermaid": "^11.16.0",
     "pinia": "^3.0.3",
     "vue": "^3.5.18",
     "vue-router": "^4.5.1",

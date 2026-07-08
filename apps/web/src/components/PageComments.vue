@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { renderMarkdown } from '@ts-wiki/core'
 import { Api, type PageComment } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 
 const props = defineProps<{ path: string }>()
 
@@ -12,13 +13,14 @@ const draft = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
+const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 
 const formatDate = (value: number): string =>
   new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 
 // Comments render through the same safe (raw-HTML-disabled) Markdown pipeline as
 // pages, so links/code/emphasis work without any XSS surface.
-const renderBody = (body: string): string => renderMarkdown(body).html
+const renderBody = (body: string): string => markdownRenderer.value.renderMarkdown(body).html
 
 const canChange = (comment: PageComment): boolean =>
   auth.isAdmin || Boolean(auth.user?.id && auth.user.id === comment.authorId)
@@ -93,7 +95,11 @@ watch(() => props.path, load, { immediate: true })
       >
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
-            <div class="prose dark:prose-invert max-w-none text-sm" v-html="renderBody(comment.body)"></div>
+            <div
+              v-markdown-enhance="markdownFeatures"
+              class="prose dark:prose-invert max-w-none text-sm"
+              v-html="renderBody(comment.body)"
+            ></div>
             <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
               <span v-if="comment.authorName" class="font-medium text-gray-700 dark:text-gray-300">{{ comment.authorName }}</span>
               <span>{{ formatDate(comment.createdAt) }}</span>

@@ -8,10 +8,11 @@ import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
-import { renderMarkdown } from '@ts-wiki/core'
 import { Api, getToken } from '@/lib/api'
 import { WS_BASE_URL } from '@/lib/url'
 import { useAuth } from '@/stores/auth'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import AssetPicker from '@/components/AssetPicker.vue'
 
 const props = defineProps<{ room: string; assetFolder?: string }>()
@@ -24,7 +25,8 @@ const synced = ref(false)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
 const showAssets = ref(false)
-const preview = computed(() => renderMarkdown(text.value).html)
+const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
+const preview = computed(() => markdownRenderer.value.renderMarkdown(text.value).html)
 const auth = useAuth()
 
 let view: EditorView | null = null
@@ -231,6 +233,7 @@ onBeforeUnmount(() => {
       <div ref="host" class="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-800"></div>
       <div
         class="prose dark:prose-invert max-w-none rounded-lg border border-gray-200 dark:border-gray-800 p-5 overflow-auto bg-white dark:bg-gray-900"
+        v-markdown-enhance="markdownFeatures"
         v-html="preview"
       ></div>
     </div>

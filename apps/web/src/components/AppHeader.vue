@@ -6,6 +6,7 @@ import { useAuth } from '@/stores/auth'
 import { useI18n } from '@/lib/i18n'
 import { useTheme, applySiteDefault } from '@/composables/useTheme'
 import { applyBranding } from '@/lib/branding'
+import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
 
 const router = useRouter()
 const auth = useAuth()
@@ -24,6 +25,9 @@ const settings = ref<PublicSettings>({
   footerLinks: [],
   customCss: '',
   customHeadHtml: '',
+  enableMath: false,
+  enableEmoji: true,
+  enableMermaid: false,
   privateWiki: false,
   registration: 'open',
   mailConfigured: false,
@@ -45,6 +49,7 @@ onMounted(async () => {
   try {
     settings.value = await Api.publicSettings()
     applyBranding(settings.value)
+    setMarkdownFeatureSettings(settings.value)
     applySiteDefault(settings.value.theme)
   } catch {
     /* keep defaults */

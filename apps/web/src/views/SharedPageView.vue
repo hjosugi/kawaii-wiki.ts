@@ -4,9 +4,12 @@ import { useRoute } from 'vue-router'
 import { Api, type Page } from '@/lib/api'
 import { setPageMeta } from '@/lib/meta'
 import { useI18n } from '@/lib/i18n'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 
 const route = useRoute()
 const { t } = useI18n()
+const { markdownFeatures } = useMarkdownFeatures()
 
 const page = ref<Page | null>(null)
 const loading = ref(false)
@@ -45,7 +48,7 @@ watch(token, load, { immediate: true })
           <h1 class="text-3xl font-bold tracking-tight text-gray-950 dark:text-gray-50">{{ page.title }}</h1>
           <p class="mt-2 font-mono text-sm text-gray-500">/{{ page.path }}</p>
         </div>
-        <div class="prose max-w-none dark:prose-invert" v-html="page.renderedHtml"></div>
+        <div v-markdown-enhance="markdownFeatures" class="prose max-w-none dark:prose-invert" v-html="page.renderedHtml"></div>
       </div>
 
       <div v-else class="rounded border border-gray-200 bg-white p-6 shadow-sm dark:border-gray-800 dark:bg-gray-900">

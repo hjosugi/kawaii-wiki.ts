@@ -26,6 +26,9 @@ export interface PublicSettings {
   readonly footerLinks: NavLink[]
   readonly customCss: string
   readonly customHeadHtml: string
+  readonly enableMath: boolean
+  readonly enableEmoji: boolean
+  readonly enableMermaid: boolean
 }
 
 export interface SettingsPatch {
@@ -39,6 +42,9 @@ export interface SettingsPatch {
   readonly footerLinks?: readonly NavLink[]
   readonly customCss?: string
   readonly customHeadHtml?: string
+  readonly enableMath?: boolean
+  readonly enableEmoji?: boolean
+  readonly enableMermaid?: boolean
 }
 
 export interface SettingsService {
@@ -57,6 +63,9 @@ const DEFAULT_SETTINGS: PublicSettings = {
   footerLinks: [],
   customCss: '',
   customHeadHtml: '',
+  enableMath: false,
+  enableEmoji: true,
+  enableMermaid: false,
 }
 
 export interface SettingsServiceOptions {
@@ -75,6 +84,9 @@ const SETTING_KEYS = [
   'footerLinks',
   'customCss',
   'customHeadHtml',
+  'enableMath',
+  'enableEmoji',
+  'enableMermaid',
 ] as const
 type SettingKey = (typeof SETTING_KEYS)[number]
 
@@ -103,6 +115,7 @@ const parseStoredValue = (key: SettingKey, value: string): unknown => {
       return []
     }
   }
+  if (key === 'enableMath' || key === 'enableEmoji' || key === 'enableMermaid') return value === 'true'
   return value
 }
 
@@ -142,6 +155,9 @@ const validatePatch = (
     footerLinks: patch.footerLinks === undefined ? current.footerLinks : cleanNavLinks(patch.footerLinks),
     customCss,
     customHeadHtml,
+    enableMath: patch.enableMath ?? current.enableMath,
+    enableEmoji: patch.enableEmoji ?? current.enableEmoji,
+    enableMermaid: patch.enableMermaid ?? current.enableMermaid,
   })
 }
 
@@ -170,6 +186,9 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
       { key: 'footerLinks', value: JSON.stringify(settings.footerLinks), updatedAt: now },
       { key: 'customCss', value: settings.customCss, updatedAt: now },
       { key: 'customHeadHtml', value: settings.customHeadHtml, updatedAt: now },
+      { key: 'enableMath', value: String(settings.enableMath), updatedAt: now },
+      { key: 'enableEmoji', value: String(settings.enableEmoji), updatedAt: now },
+      { key: 'enableMermaid', value: String(settings.enableMermaid), updatedAt: now },
     ]
     const stmt = db.$client.prepare(`
       INSERT INTO site_settings(key, value, updated_at)

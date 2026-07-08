@@ -6,12 +6,13 @@ import { markdown } from '@codemirror/lang-markdown'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import {
-  renderMarkdown,
   parseIcsEvents,
   calendarEventToFence,
   type CalendarEvent,
 } from '@ts-wiki/core'
 import { Api } from '@/lib/api'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import AssetPicker from '@/components/AssetPicker.vue'
 
 const props = defineProps<{ modelValue: string; assetFolder?: string }>()
@@ -26,9 +27,10 @@ const showIcs = ref(false)
 const showAssets = ref(false)
 const icsText = ref('')
 let view: EditorView | null = null
+const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 
 // Live preview shares the EXACT renderer the server uses on save.
-const preview = computed(() => renderMarkdown(props.modelValue).html)
+const preview = computed(() => markdownRenderer.value.renderMarkdown(props.modelValue).html)
 const icsEvents = computed(() => parseIcsEvents(icsText.value))
 
 const pad = (value: number): string => String(value).padStart(2, '0')
@@ -261,6 +263,7 @@ onBeforeUnmount(() => view?.destroy())
       ></div>
       <div
         class="prose dark:prose-invert max-w-none rounded-lg border border-gray-200 dark:border-gray-800 p-5 overflow-auto bg-white dark:bg-gray-900"
+        v-markdown-enhance="markdownFeatures"
         v-html="preview"
       ></div>
     </div>

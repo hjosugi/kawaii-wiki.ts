@@ -99,11 +99,14 @@ separate from custom CSS and only leaves the server when
 `TS_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 **Markdown rendering** is still pure and isomorphic, but now has an extension
-seam. `createRenderer({ plugins, fences })` creates isolated markdown-it
-instances for tests or embedding, while `registerFenceRenderer(info, render)`
-adds a process-wide typed-fence renderer to the default pipeline. Built-ins
-cover event, callout, infobox/profile, links/social, embed, and Mermaid-source
-fences.
+seam. `createRenderer({ features, plugins, fences })` creates isolated
+markdown-it instances for tests or embedding, while
+`registerFenceRenderer(info, render)` adds a process-wide typed-fence renderer
+to the default pipeline. Built-ins cover event, callout, infobox/profile,
+links/social, embed, Mermaid-source, and content-tabs fences. Optional renderer
+features add emoji shortcodes and KaTeX math. Mermaid is intentionally rendered
+client-side only when the public `enableMermaid` setting is on; the server
+stores escaped source as the fallback.
 
 **Types** are shared without codegen. The server exports its `App` type; `apps/web/src/lib/api.ts`
 does `treaty<App>(...)`, so every request's path, query, and body is checked against the real

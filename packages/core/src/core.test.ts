@@ -298,6 +298,33 @@ javascript:alert(1)
 
     expect(renderMarkdown('```audit-test\nlogged\n```').html).toContain('<aside>logged</aside>')
   })
+
+  test('supports opt-in math and emoji renderer features', () => {
+    expect(renderMarkdown('$x^2$ and :sparkles:').html).not.toContain('katex')
+    expect(renderMarkdown(':sparkles:').html).toContain(':sparkles:')
+
+    const renderer = createRenderer({ features: { math: true, emoji: true } })
+    const { html } = renderer.renderMarkdown('$x^2$ and :sparkles:')
+
+    expect(html).toContain('katex')
+    expect(html).toContain('✨')
+  })
+
+  test('renders tabs fences as progressively-enhanceable tab sections', () => {
+    const { html } = renderMarkdown(`\`\`\`tabs
+## macOS
+Use \`brew\`.
+
+## Windows
+Use winget.
+\`\`\``)
+
+    expect(html).toContain('data-wiki-tabs')
+    expect(html).toContain('role="tablist"')
+    expect(html).toContain('role="tabpanel"')
+    expect(html).toContain('Use <code>brew</code>.')
+    expect(html).toContain('Use winget.')
+  })
 })
 
 describe('permissions', () => {

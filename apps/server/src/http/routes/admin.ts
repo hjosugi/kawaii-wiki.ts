@@ -73,6 +73,9 @@ export const createAdminRoutes = ({
           }))),
           customCss: t.Optional(t.String()),
           customHeadHtml: t.Optional(t.String()),
+          enableMath: t.Optional(t.Boolean()),
+          enableEmoji: t.Optional(t.Boolean()),
+          enableMermaid: t.Optional(t.Boolean()),
         }),
       },
     )

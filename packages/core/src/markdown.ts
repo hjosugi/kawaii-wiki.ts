@@ -12,6 +12,8 @@ import anchor from 'markdown-it-anchor'
 import footnote from 'markdown-it-footnote'
 import taskLists from 'markdown-it-task-lists'
 import imsize from 'markdown-it-imsize'
+import katexPlugin from 'markdown-it-katex'
+import { full as emojiPlugin } from 'markdown-it-emoji'
 import hljs from 'highlight.js'
 import { slugifyHeading } from './slug.ts'
 import { parseMarkdownFrontmatter } from './frontmatter.ts'
@@ -37,7 +39,13 @@ export interface MarkdownRenderer {
 export type MarkdownPlugin = (md: MarkdownIt) => void
 export type FenceRenderer = (content: string, info: string, md: MarkdownIt) => string | null
 
+export interface MarkdownFeatureOptions {
+  readonly math?: boolean
+  readonly emoji?: boolean
+}
+
 export interface MarkdownRendererOptions {
+  readonly features?: MarkdownFeatureOptions
   readonly plugins?: readonly MarkdownPlugin[]
   readonly fences?: Record<string, FenceRenderer>
 }
@@ -572,6 +580,65 @@ const renderEmbedBlock = (content: string): string | null => {
 const renderMermaidBlock = (content: string): string =>
   `<pre class="wiki-diagram wiki-mermaid"><code>${escapeHtml(content)}</code></pre>`
 
+const hashString = (value: string): string => {
+  let hash = 5381
+  for (let i = 0; i < value.length; i += 1) hash = ((hash << 5) + hash) ^ value.charCodeAt(i)
+  return (hash >>> 0).toString(36)
+}
+
+interface TabItem {
+  readonly title: string
+  readonly body: string
+}
+
+const TABS_HEADING = /^(#{1,6})\s+(.+?)\s*$/
+
+const parseTabsBlock = (content: string): TabItem[] => {
+  const tabs: Array<{ title: string; lines: string[] }> = []
+  let current: { title: string; lines: string[] } | null = null
+
+  for (const line of content.split(/\r?\n/)) {
+    const heading = line.match(TABS_HEADING)
+    if (heading) {
+      if (current) tabs.push(current)
+      current = { title: heading[2]!.trim(), lines: [] }
+      continue
+    }
+    if (current) current.lines.push(line)
+  }
+  if (current) tabs.push(current)
+
+  return tabs
+    .map((tab) => ({ title: tab.title, body: tab.lines.join('\n').trim() }))
+    .filter((tab) => tab.title)
+}
+
+const renderTabsBlock = (content: string, renderer: MarkdownIt = md): string | null => {
+  const tabs = parseTabsBlock(content)
+  if (!tabs.length) return null
+  const baseId = `wiki-tabs-${hashString(content)}`
+  const tabLinks = tabs.map((tab, index) => {
+    const slug = slugifyHeading(tab.title) || `tab-${index + 1}`
+    const tabId = `${baseId}-tab-${index}-${slug}`
+    const panelId = `${baseId}-panel-${index}-${slug}`
+    return `<a class="wiki-tab" id="${escapeAttr(tabId)}" href="#${escapeAttr(panelId)}" role="tab" aria-controls="${escapeAttr(panelId)}" aria-selected="${index === 0 ? 'true' : 'false'}">${renderer.renderInline(tab.title)}</a>`
+  })
+  const panels = tabs.map((tab, index) => {
+    const slug = slugifyHeading(tab.title) || `tab-${index + 1}`
+    const tabId = `${baseId}-tab-${index}-${slug}`
+    const panelId = `${baseId}-panel-${index}-${slug}`
+    const body = tab.body ? renderer.render(tab.body) : ''
+    return `<section class="wiki-tab-panel" id="${escapeAttr(panelId)}" role="tabpanel" aria-labelledby="${escapeAttr(tabId)}">
+      <h3>${renderer.renderInline(tab.title)}</h3>
+      ${body}
+    </section>`
+  })
+  return `<div class="wiki-tabs" data-wiki-tabs>
+    <div class="wiki-tabs-list" role="tablist">${tabLinks.join('')}</div>
+    <div class="wiki-tabs-panels">${panels.join('')}</div>
+  </div>`
+}
+
 const headingLevel = (tag: string): number => Number.parseInt(tag.slice(1), 10) || 0
 
 const WIKI_LINK = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
@@ -593,6 +660,7 @@ const builtinFenceRenderers = new Map<string, FenceRenderer>([
   ['social', (content) => renderLinksBlock(content)],
   ['embed', (content) => renderEmbedBlock(content)],
   ['mermaid', (content) => renderMermaidBlock(content)],
+  ['tabs', (content, _info, renderer) => renderTabsBlock(content, renderer)],
 ])
 
 const registeredFenceRenderers = new Map<string, FenceRenderer>()
@@ -655,6 +723,9 @@ const createMarkdownIt = (rendererOptions: MarkdownRendererOptions = {}): Markdo
     .use(footnote)
     .use(taskLists, { label: true })
     .use(imsize)
+
+  if (rendererOptions.features?.emoji) renderer.use(emojiPlugin)
+  if (rendererOptions.features?.math) renderer.use(katexPlugin, { throwOnError: false, strict: false })
 
   for (const plugin of rendererOptions.plugins ?? []) plugin(renderer)
 
