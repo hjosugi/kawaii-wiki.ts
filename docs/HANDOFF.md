@@ -5,7 +5,7 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
 - **As of:** 2026-07-08
-- **State:** v0.4.9 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **State:** v0.4.10 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
@@ -25,11 +25,12 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Groups + page rules | ✅ | role default groups, memberships, path ACL rules, deny precedence |
 | Assets upload | ✅ | local or R2 bytes, DB metadata, upload/picker UI, logo/favicon reuse |
 | Elysia HTTP app + Eden type | ✅ | exports `App`; error mapping centralised |
-| Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, tree sidebar, graph view, empty states, runtime branding |
+| Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, desktop tree sidebar plus mobile drawer, graph view, empty states, runtime branding |
 | Markdown editor (CodeMirror + visual mode) | ✅ | Markdown remains canonical; visual mode round-trips common blocks |
 | Webhooks + automation | ✅ | signed deliveries, retry history, event automation rules with priority/conditions/actions |
 | Site configuration | ✅ | runtime branding, nav settings, default locale/timezone/date format, webhook retry policy, shared `PublicSettings` shape |
 | Tests / typecheck / build | ✅ | core/server Bun tests + web Vitest tests; all 3 packages typecheck; web builds |
+| Mobile shell | ✅ | compact header, touch-visible command palette trigger, focus-managed navigation drawer, collapsible page TOC below `xl` |
 | Auth route guards in router | ✅ | global router guard gates editor/admin routes |
 
 ### Verified during release batches (evidence)

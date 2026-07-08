@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import AppFooter from '@/components/AppFooter.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ShortcutsHelp from '@/components/ShortcutsHelp.vue'
+import DrawerSheet from '@/components/DrawerSheet.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageTree from '@/components/PageTree.vue'
 import { useAuth } from '@/stores/auth'
@@ -14,18 +15,49 @@ const auth = useAuth()
 const pages = usePages()
 const route = useRoute()
 const sharedLayout = computed(() => route.name === 'shared')
+const mobileNavOpen = ref(false)
 
 const refreshPagesForWikiLayout = (): void => {
   if (!sharedLayout.value) void pages.refresh()
 }
 
-onMounted(refreshPagesForWikiLayout)
+const openMobileNavigation = (): void => {
+  mobileNavOpen.value = true
+}
+
+onMounted(() => {
+  refreshPagesForWikiLayout()
+  window.addEventListener('open-mobile-navigation', openMobileNavigation)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('open-mobile-navigation', openMobileNavigation)
+})
 watch(sharedLayout, refreshPagesForWikiLayout)
+watch(() => route.fullPath, () => {
+  mobileNavOpen.value = false
+})
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col">
     <AppHeader v-if="!sharedLayout" />
+    <DrawerSheet v-if="!sharedLayout" v-model:open="mobileNavOpen" title="Pages">
+      <div class="mb-3 flex items-center justify-between gap-2">
+        <div class="text-xs uppercase tracking-wide text-gray-400 font-semibold">Pages</div>
+        <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">New</RouterLink>
+      </div>
+      <PageTree v-if="pages.list.length" :pages="pages.list" />
+      <EmptyState
+        v-else
+        title="No pages yet"
+        message="Create the first page to start shaping the wiki."
+      >
+        <template #actions>
+          <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">New page</RouterLink>
+          <RouterLink v-else to="/_login" class="btn-ghost">Sign in</RouterLink>
+        </template>
+      </EmptyState>
+    </DrawerSheet>
     <CommandPalette v-if="!sharedLayout" />
     <ShortcutsHelp v-if="!sharedLayout" />
     <div

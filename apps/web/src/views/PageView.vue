@@ -150,6 +150,17 @@ onUnmounted(stopRealtime)
           <template v-else>{{ viewers.length }} viewing now</template>
         </span>
       </div>
+      <details
+        v-if="toc.length"
+        class="mb-5 rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)] xl:hidden"
+      >
+        <summary class="cursor-pointer list-none px-3 py-2 text-sm font-medium">
+          On this page
+        </summary>
+        <div class="border-t border-[var(--c-border)] p-3">
+          <PageToc :entries="toc" :sticky="false" :show-title="false" />
+        </div>
+      </details>
       <div v-markdown-enhance="markdownFeatures" class="prose dark:prose-invert max-w-none" v-html="page.renderedHtml"></div>
       <PageAttachments :assets="attachments" />
       <section v-if="backlinks.length" class="mt-10 border-t border-gray-200 dark:border-gray-800 pt-5">
