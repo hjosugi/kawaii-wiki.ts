@@ -9,6 +9,7 @@ Vue 3 + Vite front end for the ts-wiki hands-on project.
 - Markdown editing with CodeMirror
 - search, page view, edit, login, and admin flows
 - realtime page-change updates through server-sent events
+- runtime branding through public settings and CSS variables
 - keeping UI code thin while domain rules stay in `@ts-wiki/core`
 
 ## Run
@@ -43,8 +44,10 @@ bun --filter '@ts-wiki/web' typecheck
 | `src/main.ts` | app bootstrap and plugin setup |
 | `src/App.vue` | top-level layout and route shell |
 | `src/lib/api.ts` | typed client contract with the server |
+| `src/lib/branding.ts` | applies title, favicon, custom CSS, and trusted head HTML |
 | `src/stores/auth.ts` | login/session state |
 | `src/views/PageEdit.vue` | Markdown editing flow |
+| `src/app.css` / `uno.config.ts` | theme variables and token-backed shortcuts |
 
 ## Exercises
 

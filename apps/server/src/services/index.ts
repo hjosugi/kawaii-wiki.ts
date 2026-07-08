@@ -3,7 +3,7 @@
  * built here from a single `DB` dependency and passed down explicitly.
  */
 import type { DB } from '../db/client.ts'
-import type { AuthEnv, MailEnv, SearchEnv } from '../env.ts'
+import type { AuthEnv, BrandingEnv, MailEnv, SearchEnv } from '../env.ts'
 import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
 import { createFtsSearchIndexer, createSearchService, type SearchService } from './search.ts'
@@ -31,6 +31,7 @@ export interface ServiceOptions {
   readonly assetUrl?: (storageName: string) => string
   readonly auth?: AuthEnv
   readonly search?: SearchEnv
+  readonly branding?: BrandingEnv
   readonly mail?: MailEnv
   readonly mailSender?: MailSender
   readonly logger?: StructuredLogger
@@ -76,11 +77,19 @@ const defaultMail: MailEnv = {
   timeoutMs: 10_000,
 }
 
+const defaultBranding: BrandingEnv = {
+  siteTitle: null,
+  accentColor: null,
+  theme: null,
+  allowHeadInjection: false,
+}
+
 export const createServices = (db: DB, options: ServiceOptions = {}): Services => {
   const authz = createAuthzService(db)
   authz.ensureDefaults()
   const auth = options.auth ?? defaultAuth
   const search = options.search ?? { ftsTokenizer: 'unicode61' as const }
+  const branding = options.branding ?? defaultBranding
   const searchIndexer = createFtsSearchIndexer(db, { configuredTokenizer: search.ftsTokenizer })
   const mail = createMailService(options.mail ?? defaultMail, {
     sender: options.mailSender,
@@ -94,7 +103,14 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     admin: createAdminService(db, authz),
     comments: createCommentService(db, searchIndexer),
     analytics: createAnalyticsService(db),
-    settings: createSettingsService(db),
+    settings: createSettingsService(db, {
+      defaults: {
+        ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
+        ...(branding.accentColor ? { accentColor: branding.accentColor } : {}),
+        ...(branding.theme ? { theme: branding.theme } : {}),
+      },
+      allowHeadInjection: branding.allowHeadInjection,
+    }),
     authz,
     oidc: createOidcService(db, auth, authz),
     passkeys: createPasskeyService(db, auth),

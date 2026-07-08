@@ -27,6 +27,21 @@ export interface RenderResult {
   readonly toc: TocEntry[]
 }
 
+export interface MarkdownRenderer {
+  readonly markdown: MarkdownIt
+  renderMarkdown(content: string): RenderResult
+  extractPageLinks(content: string): PageLink[]
+  toPlainText(content: string): string
+}
+
+export type MarkdownPlugin = (md: MarkdownIt) => void
+export type FenceRenderer = (content: string, info: string, md: MarkdownIt) => string | null
+
+export interface MarkdownRendererOptions {
+  readonly plugins?: readonly MarkdownPlugin[]
+  readonly fences?: Record<string, FenceRenderer>
+}
+
 export interface PageLink {
   readonly path: string
   readonly label: string
@@ -370,14 +385,14 @@ const calloutType = (raw: string | undefined): string => {
   return slug || 'info'
 }
 
-const renderCalloutBlock = (content: string): string => {
+const renderCalloutBlock = (content: string, renderer: MarkdownIt = md): string => {
   const { fields, body } = parseKeyedBlock(content, CALLOUT_KEYS)
   // Callout types are open-ended: the four built-ins have styles, and any other
   // name emits `wiki-callout-<name>` for custom theming (unknown → neutral base
   // style, not silently coerced to info).
   const type = calloutType(fields.get('type'))
   const title = fields.get('title') ?? type
-  const renderedBody = body ? md.render(body) : ''
+  const renderedBody = body ? renderer.render(body) : ''
 
   return `<aside class="wiki-callout wiki-callout-${escapeAttr(type)}">
     <div class="wiki-callout-title">${escapeHtml(title)}</div>
@@ -451,7 +466,7 @@ const parseInfobox = (content: string): InfoboxData => {
  * make it work for talent profiles, game characters, projects, etc. Field
  * values and title/caption render as inline Markdown so links and emphasis work.
  */
-const renderInfoboxBlock = (content: string): string => {
+const renderInfoboxBlock = (content: string, renderer: MarkdownIt = md): string => {
   const { title, image, caption, fields, body } = parseInfobox(content)
   const parts: string[] = []
   if (image && isSafeMediaUrl(image)) {
@@ -459,15 +474,15 @@ const renderInfoboxBlock = (content: string): string => {
       `<div class="wiki-infobox-media"><img src="${escapeAttr(image)}" alt="${escapeAttr(title ?? '')}" loading="lazy" /></div>`,
     )
   }
-  if (title) parts.push(`<div class="wiki-infobox-title">${md.renderInline(title)}</div>`)
-  if (caption) parts.push(`<div class="wiki-infobox-caption">${md.renderInline(caption)}</div>`)
+  if (title) parts.push(`<div class="wiki-infobox-title">${renderer.renderInline(title)}</div>`)
+  if (caption) parts.push(`<div class="wiki-infobox-caption">${renderer.renderInline(caption)}</div>`)
   if (fields.length) {
     const rows = fields
-      .map((f) => `<div class="wiki-infobox-row"><dt>${escapeHtml(f.label)}</dt><dd>${md.renderInline(f.value)}</dd></div>`)
+      .map((f) => `<div class="wiki-infobox-row"><dt>${escapeHtml(f.label)}</dt><dd>${renderer.renderInline(f.value)}</dd></div>`)
       .join('')
     parts.push(`<dl class="wiki-infobox-fields">${rows}</dl>`)
   }
-  if (body) parts.push(`<div class="wiki-infobox-body">${md.render(body)}</div>`)
+  if (body) parts.push(`<div class="wiki-infobox-body">${renderer.render(body)}</div>`)
   return `<aside class="wiki-infobox">${parts.join('')}</aside>`
 }
 
@@ -557,55 +572,6 @@ const renderEmbedBlock = (content: string): string | null => {
 const renderMermaidBlock = (content: string): string =>
   `<pre class="wiki-diagram wiki-mermaid"><code>${escapeHtml(content)}</code></pre>`
 
-const md: MarkdownIt = new MarkdownIt({
-  html: false, // never trust raw HTML in wiki content
-  linkify: true,
-  typographer: true,
-  breaks: false,
-  highlight(code, lang): string {
-    if (lang && hljs.getLanguage(lang)) {
-      try {
-        const out = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
-        return `<pre class="hljs"><code class="language-${lang}">${out}</code></pre>`
-      } catch {
-        /* fall through to escaped output */
-      }
-    }
-    return `<pre class="hljs"><code>${escapeHtml(code)}</code></pre>`
-  },
-})
-  .use(anchor, {
-    slugify: slugifyHeading,
-    level: [1, 2, 3],
-    tabIndex: false,
-  })
-  .use(footnote)
-  .use(taskLists, { label: true })
-  .use(imsize)
-
-const defaultFence = md.renderer.rules.fence
-md.renderer.rules.fence = (tokens, idx, options, env, self): string => {
-  const token = tokens[idx]
-  if (!token) return ''
-  const info = token?.info.trim().split(/\s+/)[0]?.toLowerCase()
-  if (info === 'event') {
-    const rendered = renderEventCard(token.content)
-    if (rendered) return rendered
-  }
-  if (info === 'callout') return renderCalloutBlock(token.content)
-  if (info === 'infobox' || info === 'profile') return renderInfoboxBlock(token.content)
-  if (info === 'links' || info === 'social') {
-    const rendered = renderLinksBlock(token.content)
-    if (rendered) return rendered
-  }
-  if (info === 'embed') {
-    const rendered = renderEmbedBlock(token.content)
-    if (rendered) return rendered
-  }
-  if (info === 'mermaid') return renderMermaidBlock(token.content)
-  return defaultFence ? defaultFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
-}
-
 const headingLevel = (tag: string): number => Number.parseInt(tag.slice(1), 10) || 0
 
 const WIKI_LINK = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
@@ -618,30 +584,99 @@ const wikiLinkPath = (rawPath: string): string =>
     .filter(Boolean)
     .join('/')
 
-md.inline.ruler.before('emphasis', 'wikilink', (state, silent) => {
-  if (state.src.charCodeAt(state.pos) !== 0x5b || state.src.charCodeAt(state.pos + 1) !== 0x5b) {
-    return false
-  }
-  const end = state.src.indexOf(']]', state.pos + 2)
-  if (end === -1) return false
-  const raw = state.src.slice(state.pos + 2, end)
-  const [rawPath = '', rawLabel = ''] = raw.split('|')
-  const path = wikiLinkPath(rawPath)
-  if (!path) return false
+const builtinFenceRenderers = new Map<string, FenceRenderer>([
+  ['event', (content) => renderEventCard(content)],
+  ['callout', (content, _info, renderer) => renderCalloutBlock(content, renderer)],
+  ['infobox', (content, _info, renderer) => renderInfoboxBlock(content, renderer)],
+  ['profile', (content, _info, renderer) => renderInfoboxBlock(content, renderer)],
+  ['links', (content) => renderLinksBlock(content)],
+  ['social', (content) => renderLinksBlock(content)],
+  ['embed', (content) => renderEmbedBlock(content)],
+  ['mermaid', (content) => renderMermaidBlock(content)],
+])
 
-  if (!silent) {
-    const open = state.push('link_open', 'a', 1)
-    open.attrs = [
-      ['href', `/${path}`],
-      ['data-wiki-link', path],
-    ]
-    const text = state.push('text', '', 0)
-    text.content = rawLabel.trim() || rawPath.trim()
-    state.push('link_close', 'a', -1)
+const registeredFenceRenderers = new Map<string, FenceRenderer>()
+
+export const registerFenceRenderer = (info: string, render: FenceRenderer): void => {
+  const key = info.trim().toLowerCase()
+  if (key) registeredFenceRenderers.set(key, render)
+}
+
+const installWikiLinkRule = (renderer: MarkdownIt): void => {
+  renderer.inline.ruler.before('emphasis', 'wikilink', (state, silent) => {
+    if (state.src.charCodeAt(state.pos) !== 0x5b || state.src.charCodeAt(state.pos + 1) !== 0x5b) {
+      return false
+    }
+    const end = state.src.indexOf(']]', state.pos + 2)
+    if (end === -1) return false
+    const raw = state.src.slice(state.pos + 2, end)
+    const [rawPath = '', rawLabel = ''] = raw.split('|')
+    const path = wikiLinkPath(rawPath)
+    if (!path) return false
+
+    if (!silent) {
+      const open = state.push('link_open', 'a', 1)
+      open.attrs = [
+        ['href', `/${path}`],
+        ['data-wiki-link', path],
+      ]
+      const text = state.push('text', '', 0)
+      text.content = rawLabel.trim() || rawPath.trim()
+      state.push('link_close', 'a', -1)
+    }
+    state.pos = end + 2
+    return true
+  })
+}
+
+const createMarkdownIt = (rendererOptions: MarkdownRendererOptions = {}): MarkdownIt => {
+  const renderer = new MarkdownIt({
+    html: false, // never trust raw HTML in wiki content
+    linkify: true,
+    typographer: true,
+    breaks: false,
+    highlight(code, lang): string {
+      if (lang && hljs.getLanguage(lang)) {
+        try {
+          const out = hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+          return `<pre class="hljs"><code class="language-${lang}">${out}</code></pre>`
+        } catch {
+          /* fall through to escaped output */
+        }
+      }
+      return `<pre class="hljs"><code>${escapeHtml(code)}</code></pre>`
+    },
+  })
+    .use(anchor, {
+      slugify: slugifyHeading,
+      level: [1, 2, 3],
+      tabIndex: false,
+    })
+    .use(footnote)
+    .use(taskLists, { label: true })
+    .use(imsize)
+
+  for (const plugin of rendererOptions.plugins ?? []) plugin(renderer)
+
+  const optionFences = new Map<string, FenceRenderer>(
+    Object.entries(rendererOptions.fences ?? {}).map(([key, value]) => [key.trim().toLowerCase(), value]),
+  )
+  const defaultFence = renderer.renderer.rules.fence
+  renderer.renderer.rules.fence = (tokens, idx, options, env, self): string => {
+    const token = tokens[idx]
+    if (!token) return ''
+    const info = token.info.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+    const render = optionFences.get(info) ?? registeredFenceRenderers.get(info) ?? builtinFenceRenderers.get(info)
+    const rendered = render?.(token.content, info, renderer)
+    if (rendered) return rendered
+    return defaultFence ? defaultFence(tokens, idx, options, env, self) : self.renderToken(tokens, idx, options)
   }
-  state.pos = end + 2
-  return true
-})
+
+  installWikiLinkRule(renderer)
+  return renderer
+}
+
+const md: MarkdownIt = createMarkdownIt()
 
 interface LinkToken {
   readonly type: string
@@ -678,10 +713,10 @@ const addUniqueLink = (links: PageLink[], seen: Set<string>, link: PageLink): vo
  * Render Markdown to sanitized HTML and extract a configurable table of
  * contents in a single parse pass.
  */
-export const renderMarkdown = (content: string): RenderResult => {
+const renderMarkdownWith = (renderer: MarkdownIt, content: string): RenderResult => {
   const frontmatter = parseMarkdownFrontmatter(content ?? '')
   const env: Record<string, unknown> = {}
-  const tokens = md.parse(frontmatter.content, env)
+  const tokens = renderer.parse(frontmatter.content, env)
   const toc: TocEntry[] = []
   const tocEnabled = frontmatter.toc !== false
   const tocDepth = frontmatter.tocDepth ?? 3
@@ -703,12 +738,14 @@ export const renderMarkdown = (content: string): RenderResult => {
     }
   }
 
-  const html = md.renderer.render(tokens, md.options, env)
+  const html = renderer.renderer.render(tokens, renderer.options, env)
   return { html, toc }
 }
 
+export const renderMarkdown = (content: string): RenderResult => renderMarkdownWith(md, content)
+
 /** Extract internal page links for graph/backlinks features. */
-export const extractPageLinks = (content: string): PageLink[] => {
+const extractPageLinksWith = (renderer: MarkdownIt, content: string): PageLink[] => {
   const links: PageLink[] = []
   const seen = new Set<string>()
 
@@ -719,7 +756,7 @@ export const extractPageLinks = (content: string): PageLink[] => {
     addUniqueLink(links, seen, { path, label, kind: 'wikilink' })
   }
 
-  const tokens = md.parse(content ?? '', {})
+  const tokens = renderer.parse(content ?? '', {})
   const visit = (items: readonly LinkToken[]): void => {
     for (const token of items) {
       if (token.type === 'link_open') {
@@ -738,6 +775,8 @@ export const extractPageLinks = (content: string): PageLink[] => {
 
   return links
 }
+
+export const extractPageLinks = (content: string): PageLink[] => extractPageLinksWith(md, content)
 
 const MARKDOWN_LINK = /(!?)\[([^\]\n]+)\]\(([^)\s]+)\)/g
 
@@ -778,6 +817,21 @@ export const toPlainText = (content: string): string =>
     .html.replace(/<[^>]+>/g, ' ')
     .replace(/\s+/g, ' ')
     .trim()
+
+export const createRenderer = (options: MarkdownRendererOptions = {}): MarkdownRenderer => {
+  const renderer = createMarkdownIt(options)
+  const render = (content: string): RenderResult => renderMarkdownWith(renderer, content)
+  return {
+    markdown: renderer,
+    renderMarkdown: render,
+    extractPageLinks: (content: string): PageLink[] => extractPageLinksWith(renderer, content),
+    toPlainText: (content: string): string =>
+      render(content)
+        .html.replace(/<[^>]+>/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim(),
+  }
+}
 
 /** Build a short plain-text summary (auto-description when none is provided). */
 export const summarize = (content: string, maxLength = 200): string => {

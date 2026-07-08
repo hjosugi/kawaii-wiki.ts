@@ -20,6 +20,12 @@ export interface PublicSettings {
   readonly accentColor: string
   readonly theme: 'system' | 'light' | 'dark'
   readonly navLinks: NavLink[]
+  readonly logoUrl: string
+  readonly faviconUrl: string
+  readonly footerText: string
+  readonly footerLinks: NavLink[]
+  readonly customCss: string
+  readonly customHeadHtml: string
 }
 
 export interface SettingsPatch {
@@ -27,6 +33,12 @@ export interface SettingsPatch {
   readonly accentColor?: string
   readonly theme?: 'system' | 'light' | 'dark'
   readonly navLinks?: readonly NavLink[]
+  readonly logoUrl?: string
+  readonly faviconUrl?: string
+  readonly footerText?: string
+  readonly footerLinks?: readonly NavLink[]
+  readonly customCss?: string
+  readonly customHeadHtml?: string
 }
 
 export interface SettingsService {
@@ -39,9 +51,31 @@ const DEFAULT_SETTINGS: PublicSettings = {
   accentColor: '#7c3aed',
   theme: 'system',
   navLinks: [],
+  logoUrl: '',
+  faviconUrl: '',
+  footerText: '',
+  footerLinks: [],
+  customCss: '',
+  customHeadHtml: '',
 }
 
-const SETTING_KEYS = ['siteTitle', 'accentColor', 'theme', 'navLinks'] as const
+export interface SettingsServiceOptions {
+  readonly defaults?: Partial<Pick<PublicSettings, 'siteTitle' | 'accentColor' | 'theme'>>
+  readonly allowHeadInjection?: boolean
+}
+
+const SETTING_KEYS = [
+  'siteTitle',
+  'accentColor',
+  'theme',
+  'navLinks',
+  'logoUrl',
+  'faviconUrl',
+  'footerText',
+  'footerLinks',
+  'customCss',
+  'customHeadHtml',
+] as const
 type SettingKey = (typeof SETTING_KEYS)[number]
 
 const isSettingKey = (value: string): value is SettingKey => SETTING_KEYS.includes(value as SettingKey)
@@ -55,8 +89,13 @@ const cleanNavLinks = (links: readonly NavLink[] = []): NavLink[] =>
     .filter((link) => link.label && (/^https?:\/\//i.test(link.url) || link.url.startsWith('/')))
     .slice(0, 12)
 
+const cleanUrl = (value: string): string => {
+  const clean = value.trim().slice(0, 500)
+  return clean && (/^https?:\/\//i.test(clean) || clean.startsWith('/')) ? clean : ''
+}
+
 const parseStoredValue = (key: SettingKey, value: string): unknown => {
-  if (key === 'navLinks') {
+  if (key === 'navLinks' || key === 'footerLinks') {
     try {
       const parsed = JSON.parse(value) as unknown
       return Array.isArray(parsed) ? cleanNavLinks(parsed as NavLink[]) : []
@@ -67,7 +106,11 @@ const parseStoredValue = (key: SettingKey, value: string): unknown => {
   return value
 }
 
-const validatePatch = (current: PublicSettings, patch: SettingsPatch): Result<PublicSettings, AppError> => {
+const validatePatch = (
+  current: PublicSettings,
+  patch: SettingsPatch,
+  allowHeadInjection: boolean,
+): Result<PublicSettings, AppError> => {
   const siteTitle = patch.siteTitle === undefined ? current.siteTitle : patch.siteTitle.trim().slice(0, 80)
   if (!siteTitle) return err(validationError('Site title is required', 'siteTitle'))
 
@@ -81,20 +124,36 @@ const validatePatch = (current: PublicSettings, patch: SettingsPatch): Result<Pu
     return err(validationError('Unknown theme', 'theme'))
   }
 
+  const customCss = patch.customCss === undefined ? current.customCss : patch.customCss.slice(0, 20_000)
+  const customHeadHtml = !allowHeadInjection
+    ? ''
+    : patch.customHeadHtml === undefined
+      ? current.customHeadHtml
+      : patch.customHeadHtml.slice(0, 20_000)
+
   return ok({
     siteTitle,
     accentColor,
     theme,
     navLinks: patch.navLinks === undefined ? current.navLinks : cleanNavLinks(patch.navLinks),
+    logoUrl: patch.logoUrl === undefined ? current.logoUrl : cleanUrl(patch.logoUrl),
+    faviconUrl: patch.faviconUrl === undefined ? current.faviconUrl : cleanUrl(patch.faviconUrl),
+    footerText: patch.footerText === undefined ? current.footerText : patch.footerText.trim().slice(0, 500),
+    footerLinks: patch.footerLinks === undefined ? current.footerLinks : cleanNavLinks(patch.footerLinks),
+    customCss,
+    customHeadHtml,
   })
 }
 
-export const createSettingsService = (db: DB): SettingsService => {
+export const createSettingsService = (db: DB, options: SettingsServiceOptions = {}): SettingsService => {
+  const defaults = { ...DEFAULT_SETTINGS, ...options.defaults }
+  const allowHeadInjection = options.allowHeadInjection ?? false
   const read = (): PublicSettings => {
-    const next: Record<SettingKey, unknown> = { ...DEFAULT_SETTINGS }
+    const next: Record<SettingKey, unknown> = { ...defaults }
     for (const row of db.select().from(siteSettings).all()) {
       if (isSettingKey(row.key)) next[row.key] = parseStoredValue(row.key, row.value)
     }
+    if (!allowHeadInjection) next.customHeadHtml = ''
     return next as unknown as PublicSettings
   }
 
@@ -105,6 +164,12 @@ export const createSettingsService = (db: DB): SettingsService => {
       { key: 'accentColor', value: settings.accentColor, updatedAt: now },
       { key: 'theme', value: settings.theme, updatedAt: now },
       { key: 'navLinks', value: JSON.stringify(settings.navLinks), updatedAt: now },
+      { key: 'logoUrl', value: settings.logoUrl, updatedAt: now },
+      { key: 'faviconUrl', value: settings.faviconUrl, updatedAt: now },
+      { key: 'footerText', value: settings.footerText, updatedAt: now },
+      { key: 'footerLinks', value: JSON.stringify(settings.footerLinks), updatedAt: now },
+      { key: 'customCss', value: settings.customCss, updatedAt: now },
+      { key: 'customHeadHtml', value: settings.customHeadHtml, updatedAt: now },
     ]
     const stmt = db.$client.prepare(`
       INSERT INTO site_settings(key, value, updated_at)
@@ -119,7 +184,7 @@ export const createSettingsService = (db: DB): SettingsService => {
     update(principal, patch) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const next = validatePatch(read(), patch)
+      const next = validatePatch(read(), patch, allowHeadInjection)
       if (!next.ok) return next
       write(next.value)
       return next

@@ -4,8 +4,8 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 [../README.md](../README.md); this document is the **developer handoff**: current status, why
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
-- **As of:** 2026-07-05
-- **State:** v0.3 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **As of:** 2026-07-08
+- **State:** v0.4.2 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
@@ -17,15 +17,15 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Area | Status | Notes |
 |---|---|---|
 | Monorepo + Bun workspaces | ✅ | `packages/*`, `apps/*`; root scripts orchestrate via `bun --filter` |
-| `@ts-wiki/core` (pure domain) | ✅ | Result, errors, slug, permissions, markdown+TOC/link extraction, validation |
+| `@ts-wiki/core` (pure domain) | ✅ | Result, errors, slug, permissions, markdown+TOC/link extraction, renderer plugin seam, validation |
 | DB schema + FTS5 migration | ✅ | SQLite default plus libSQL/Turso embedded-replica support |
 | Pages service (CRUD) | ✅ | transactional: render + revision + FTS index together |
 | Search service (FTS5/BM25) | ✅ | weighted columns, snippets, prefix queries |
 | Users + auth | ✅ | local password, expiring/revocable JWT, OIDC, TOTP, passkeys, private mode; first account → admin |
 | Groups + page rules | ✅ | role default groups, memberships, path ACL rules, deny precedence |
-| Assets upload | ✅ | local or R2 bytes, DB metadata, upload/picker UI |
+| Assets upload | ✅ | local or R2 bytes, DB metadata, upload/picker UI, logo/favicon reuse |
 | Elysia HTTP app + Eden type | ✅ | exports `App`; error mapping centralised |
-| Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, tree sidebar, graph view, empty states |
+| Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, tree sidebar, graph view, empty states, runtime branding |
 | Markdown editor (CodeMirror + visual mode) | ✅ | Markdown remains canonical; visual mode round-trips common blocks |
 | Webhooks + automation | ✅ | signed deliveries, retry history, page metadata automation rules |
 | Tests / typecheck / build | ✅ | core/server Bun tests + web Vitest tests; all 3 packages typecheck; web builds |
@@ -120,6 +120,10 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
    audit logs cover auth, page/admin mutations, asset uploads, Git sync, and collab autosave.
 11. **Realtime auth split.** SSE and Yjs collab require tokens. Presence is cosmetic in public
    mode, but private wiki mode requires a valid token before opening the socket.
+12. **Custom head HTML is gated twice.** The server suppresses stored
+   `customHeadHtml` unless `TS_WIKI_ALLOW_HEAD_INJECTION=true`; the web app then
+   recreates trusted `<script>` tags so analytics snippets actually execute.
+   Treat this as admin-trusted code, not user content.
 
 ---
 
@@ -176,6 +180,11 @@ Each item notes **where to plug in**.
       worth the extra model.
 - [x] **Global router auth guard** — `router.beforeEach` gates admin/edit routes and preserves a
       redirect query for login.
+- [x] **Runtime branding and theming layer** — Admin → Appearance controls site title,
+      accent color, light/dark/system default, logo, favicon, footer text/links,
+      custom CSS, and gated custom head HTML. CSS variables (`--c-bg`,
+      `--c-surface`, `--c-text`, `--c-border`, `--c-accent`, `--radius`) drive
+      app chrome and rendered Markdown blocks.
 
 **Medium**
 - [x] **Event extraction + event index** — `pages.events()` and `/api/events/index` extract event
@@ -189,7 +198,9 @@ Each item notes **where to plug in**.
       starred pages, and optional manual ordering. Avoid building a heavy collection model until
       the component behavior is proven.
 - [x] **Markdown plugins / typed blocks** — `packages/core/src/markdown.ts` supports safe callout,
-      embed, event, and Mermaid-source fences, shared by server render and live preview.
+      embed, event, infobox/profile, links/social, and Mermaid-source fences, plus
+      `createRenderer({ plugins, fences })` and `registerFenceRenderer()` seams
+      shared by server render and live preview.
 - [x] **"Blocks"** (Wiki.js's best idea) — the current typed-fence approach covers the useful
       lightweight subset without introducing framework-specific custom elements yet.
 - [x] **Roles/permissions UI + user management** — admin users, role changes, default groups,
@@ -223,7 +234,8 @@ packages/core/src/
   errors.ts        AppError union + httpStatus()                (pure)
   slug.ts          normalizePath / slugifyHeading (Unicode)     (pure)
   permissions.ts   Role, Action, can()                          (pure)
-  markdown.ts      renderMarkdown() → {html, toc}, event cards, extractPageLinks(), toPlainText
+  markdown.ts      createRenderer(), registerFenceRenderer(), renderMarkdown() → {html, toc},
+                   typed fences, extractPageLinks(), toPlainText
   page.ts          validatePageInput()                          (pure)
   core.test.ts     unit tests for all of the above
 
@@ -240,6 +252,7 @@ apps/server/src/
     search.ts      SearchIndexer seam + FTS5 query/index implementation
     users.ts       count/find/create
     assets.ts      record/list
+    settings.ts    public appearance settings; custom CSS and gated custom head HTML
     auth.ts        hashPassword/verifyPassword (Bun.password)
     index.ts       createServices(db) — composition root
   http/
@@ -250,10 +263,11 @@ apps/server/src/
 
 apps/web/src/
   lib/api.ts       Eden Treaty client + Api.* methods (the only place treaty is used)
+  lib/branding.ts  applies runtime title/favicon/custom CSS/custom head HTML
   stores/          auth.ts, pages.ts (Pinia)
   router/index.ts  routes (/_login /_search /_graph /_new /_edit/:path /:path) + paramToPath()
-  components/      AppHeader.vue, MarkdownEditor.vue, InteractiveGraph.vue, PageHeader.vue,
-                   PageTree.vue, WikiBreadcrumbs.vue, EmptyState.vue, PageToc.vue
+  components/      AppHeader.vue, AppFooter.vue, MarkdownEditor.vue, InteractiveGraph.vue,
+                   PageHeader.vue, PageTree.vue, WikiBreadcrumbs.vue, EmptyState.vue, PageToc.vue
   views/           PageView.vue, PageEdit.vue, SearchView.vue, GraphView.vue, LoginView.vue
   main.ts, App.vue, app.css, uno.config.ts, vite.config.ts
 ```
@@ -272,8 +286,11 @@ in `services/` → register in `services/index.ts` → routes in `http/app.ts`.
 **Add a permission** → extend `Action` + matrix in `core/permissions.ts` → `can(principal, action)`
 in the service method.
 
-**Add a Markdown feature** → a markdown-it plugin in `core/markdown.ts`. It's isomorphic, so the
-server's render-on-save and the editor's live preview both pick it up automatically.
+**Add a Markdown feature** → prefer a typed fence renderer via
+`registerFenceRenderer('name', render)` when the syntax is block-shaped, or
+`createRenderer({ plugins })` for isolated markdown-it experiments/tests. The
+pipeline is isomorphic, so server render-on-save and editor live preview can
+share the same core behavior.
 
 ---
 
@@ -283,7 +300,7 @@ server's render-on-save and the editor's live preview both pick it up automatica
 bun install
 bun run db:seed     # admin@example.com / password  + sample pages
 bun run dev         # server :4000 + web :5180
-bun run test        # 28 tests
+bun run test        # core/server Bun tests + web Vitest tests
 bun run typecheck   # all workspaces
 bun run build       # web production build
 ```

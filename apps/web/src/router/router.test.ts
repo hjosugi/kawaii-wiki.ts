@@ -2,7 +2,27 @@ import { describe, expect, test, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { createWikiRouter } from './index'
 import { Api, setToken } from '@/lib/api'
+import type { PublicSettings } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
+
+const makePublicSettings = (overrides: Partial<PublicSettings> = {}): PublicSettings => ({
+  siteTitle: 'ts-wiki',
+  accentColor: '#7c3aed',
+  theme: 'system',
+  navLinks: [],
+  logoUrl: '',
+  faviconUrl: '',
+  footerText: '',
+  footerLinks: [],
+  customCss: '',
+  customHeadHtml: '',
+  privateWiki: false,
+  registration: 'open',
+  mailConfigured: false,
+  requireEmailVerification: false,
+  requireTwoFactor: false,
+  ...overrides,
+})
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
@@ -14,13 +34,19 @@ vi.mock('@/lib/api', async (importOriginal) => {
         siteTitle: 'ts-wiki',
         accentColor: '#7c3aed',
         theme: 'system',
-	        navLinks: [],
-	        privateWiki: false,
-	        registration: 'open',
-	        mailConfigured: false,
-	        requireEmailVerification: false,
-	        requireTwoFactor: false,
-	      })),
+        navLinks: [],
+        logoUrl: '',
+        faviconUrl: '',
+        footerText: '',
+        footerLinks: [],
+        customCss: '',
+        customHeadHtml: '',
+        privateWiki: false,
+        registration: 'open',
+        mailConfigured: false,
+        requireEmailVerification: false,
+        requireTwoFactor: false,
+      })),
     },
   }
 })
@@ -29,17 +55,7 @@ describe('router auth guard', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     setToken(null)
-    vi.mocked(Api.publicSettings).mockResolvedValue({
-      siteTitle: 'ts-wiki',
-      accentColor: '#7c3aed',
-      theme: 'system',
-	      navLinks: [],
-	      privateWiki: false,
-	      registration: 'open',
-	      mailConfigured: false,
-	      requireEmailVerification: false,
-	      requireTwoFactor: false,
-	    })
+    vi.mocked(Api.publicSettings).mockResolvedValue(makePublicSettings())
   })
 
   test('redirects anonymous editors/admins to login', async () => {
@@ -70,17 +86,10 @@ describe('router auth guard', () => {
   })
 
   test('redirects anonymous page reads when private wiki is enabled', async () => {
-    vi.mocked(Api.publicSettings).mockResolvedValueOnce({
-      siteTitle: 'ts-wiki',
-      accentColor: '#7c3aed',
-      theme: 'system',
-	      navLinks: [],
-	      privateWiki: true,
-	      registration: 'off',
-	      mailConfigured: false,
-	      requireEmailVerification: false,
-	      requireTwoFactor: false,
-	    })
+    vi.mocked(Api.publicSettings).mockResolvedValueOnce(makePublicSettings({
+      privateWiki: true,
+      registration: 'off',
+    }))
     const router = createWikiRouter()
 
     await router.push('/docs/private')
@@ -91,37 +100,26 @@ describe('router auth guard', () => {
   })
 
   test('allows anonymous shared links when private wiki is enabled', async () => {
-    vi.mocked(Api.publicSettings).mockResolvedValueOnce({
-      siteTitle: 'ts-wiki',
-      accentColor: '#7c3aed',
-      theme: 'system',
-	      navLinks: [],
-	      privateWiki: true,
-	      registration: 'off',
-	      mailConfigured: false,
-	      requireEmailVerification: false,
-	      requireTwoFactor: false,
-	    })
+    vi.mocked(Api.publicSettings).mockResolvedValueOnce(makePublicSettings({
+      privateWiki: true,
+      registration: 'off',
+    }))
     const router = createWikiRouter()
 
     await router.push('/_share/share-token')
     await router.isReady()
 
-	  expect(router.currentRoute.value.name).toBe('shared')
-	})
+    expect(router.currentRoute.value.name).toBe('shared')
+  })
 
   test('allows anonymous password reset and email verification links when private wiki is enabled', async () => {
-    vi.mocked(Api.publicSettings).mockResolvedValueOnce({
-      siteTitle: 'ts-wiki',
-      accentColor: '#7c3aed',
-      theme: 'system',
-      navLinks: [],
+    vi.mocked(Api.publicSettings).mockResolvedValueOnce(makePublicSettings({
       privateWiki: true,
       registration: 'off',
       mailConfigured: true,
       requireEmailVerification: true,
       requireTwoFactor: true,
-    })
+    }))
     const router = createWikiRouter()
 
     await router.push('/_reset?token=abc')

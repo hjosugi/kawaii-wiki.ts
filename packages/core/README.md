@@ -9,6 +9,7 @@ Pure TypeScript domain package shared by the server and web app.
 - validation and normalization before persistence
 - permission checks expressed as a small policy table
 - Markdown rendering and slug generation without HTTP or database dependencies
+- Markdown renderer extension seams for plugins and typed fence blocks
 
 ## Run
 
@@ -27,12 +28,12 @@ bun --filter '@ts-wiki/core' typecheck
 | `src/errors.ts` | typed application errors |
 | `src/page.ts` | page input validation |
 | `src/permissions.ts` | central authorization policy |
-| `src/markdown.ts` | Markdown to HTML pipeline |
+| `src/markdown.ts` | Markdown to HTML pipeline, `createRenderer()`, `registerFenceRenderer()` |
 | `src/slug.ts` | Unicode-safe slug behavior |
 
 ## Exercises
 
 1. Add a new permission action and cover it with a test.
 2. Add validation for a new page field without importing server code.
-3. Extend Markdown rendering and keep the function deterministic.
+3. Extend Markdown rendering with `createRenderer({ plugins, fences })` and keep it deterministic.
 4. Add a failing test first, then update the pure function.

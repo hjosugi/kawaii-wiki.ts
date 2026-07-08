@@ -58,6 +58,12 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
     from: 'ts-wiki <no-reply@localhost>',
     timeoutMs: 10_000,
   },
+  branding: {
+    siteTitle: null,
+    accentColor: null,
+    theme: null,
+    allowHeadInjection: false,
+  },
   assetStorage: {
     type: 'local',
     dataDir,
@@ -1351,6 +1357,12 @@ describe('http app settings', () => {
           accentColor: '#2563eb',
           theme: 'system',
           navLinks: [{ label: 'Home', url: '/' }],
+          logoUrl: '/assets/logo.png',
+          faviconUrl: '/assets/favicon.png',
+          footerText: 'Licensed under 0BSD',
+          footerLinks: [{ label: 'Terms', url: '/terms' }],
+          customCss: ':root { --radius: 0.75rem; }',
+          customHeadHtml: '<script src="https://analytics.example/script.js"></script>',
         }),
       }),
     )
@@ -1361,6 +1373,51 @@ describe('http app settings', () => {
       siteTitle: 'Docs',
       accentColor: '#2563eb',
       navLinks: [{ label: 'Home', url: '/' }],
+      logoUrl: '/assets/logo.png',
+      faviconUrl: '/assets/favicon.png',
+      footerText: 'Licensed under 0BSD',
+      footerLinks: [{ label: 'Terms', url: '/terms' }],
+      customCss: ':root { --radius: 0.75rem; }',
+      customHeadHtml: '',
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('env branding defaults seed public settings and can allow trusted head HTML', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({
+        ...env,
+        branding: {
+          siteTitle: 'Env Wiki',
+          accentColor: '#10b981',
+          theme: 'dark',
+          allowHeadInjection: true,
+        },
+      }),
+    })
+    const { token } = await register(app, 'admin@example.com')
+
+    const defaults = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(await defaults.json()).toMatchObject({
+      siteTitle: 'Env Wiki',
+      accentColor: '#10b981',
+      theme: 'dark',
+    })
+
+    const updated = await app.handle(
+      new Request('http://localhost/api/admin/settings', {
+        method: 'PUT',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ customHeadHtml: '<meta name="x-test" content="ok">' }),
+      }),
+    )
+    expect(updated.status).toBe(200)
+
+    const publicSettings = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(await publicSettings.json()).toMatchObject({
+      customHeadHtml: '<meta name="x-test" content="ok">',
     })
   }, HTTP_TEST_TIMEOUT_MS)
 })

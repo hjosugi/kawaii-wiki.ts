@@ -83,6 +83,13 @@ export interface MailEnv {
   readonly timeoutMs: number
 }
 
+export interface BrandingEnv {
+  readonly siteTitle: string | null
+  readonly accentColor: string | null
+  readonly theme: 'system' | 'light' | 'dark' | null
+  readonly allowHeadInjection: boolean
+}
+
 export interface Env {
   readonly port: number
   readonly database: DatabaseConfig
@@ -98,6 +105,7 @@ export interface Env {
   readonly assetUpload: AssetUploadEnv
   readonly webhooks: WebhookEnv
   readonly mail: MailEnv
+  readonly branding: BrandingEnv
   readonly assetStorage: AssetStorageConfig
   readonly git: GitEnv
   readonly realtime: RealtimeEnv
@@ -134,6 +142,22 @@ const parseFtsTokenizer = (value: string | undefined): FtsTokenizer => {
   const tokenizer = value?.trim().toLowerCase() || 'unicode61'
   if (tokenizer === 'unicode61' || tokenizer === 'trigram') return tokenizer
   throw new Error('TS_WIKI_FTS_TOKENIZER must be either "unicode61" or "trigram".')
+}
+
+const parseTheme = (value: string | undefined): BrandingEnv['theme'] => {
+  const theme = value?.trim().toLowerCase()
+  if (!theme) return null
+  if (theme === 'system' || theme === 'light' || theme === 'dark') return theme
+  throw new Error('TS_WIKI_THEME must be "system", "light", or "dark".')
+}
+
+const parseAccentColor = (value: string | undefined): string | null => {
+  const color = value?.trim()
+  if (!color) return null
+  if (!/^#[0-9a-f]{6}$/i.test(color)) {
+    throw new Error('TS_WIKI_ACCENT_COLOR must be a hex color like #7c3aed.')
+  }
+  return color
 }
 
 const parseBoolean = (value: string | undefined): boolean =>
@@ -302,6 +326,13 @@ const loadMailEnv = (source: EnvSource, publicOrigin: string): MailEnv => ({
   timeoutMs: parsePositiveInteger(source.TS_WIKI_SMTP_TIMEOUT_MS, 10_000, 'TS_WIKI_SMTP_TIMEOUT_MS'),
 })
 
+const loadBrandingEnv = (source: EnvSource): BrandingEnv => ({
+  siteTitle: optionalTrimmed(source.TS_WIKI_SITE_TITLE) ?? optionalTrimmed(source.TS_WIKI_SITE_NAME),
+  accentColor: parseAccentColor(source.TS_WIKI_ACCENT_COLOR),
+  theme: parseTheme(source.TS_WIKI_THEME),
+  allowHeadInjection: parseBoolean(source.TS_WIKI_ALLOW_HEAD_INJECTION),
+})
+
 export const loadEnv = (source: EnvSource = process.env): Env => {
   const production = isProduction(source)
   const dataDir = source.DATA_DIR ?? './data'
@@ -333,6 +364,7 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
       allowPrivateTargets: parseBoolean(source.TS_WIKI_WEBHOOK_ALLOW_PRIVATE),
     },
     mail: loadMailEnv(source, auth.publicOrigin),
+    branding: loadBrandingEnv(source),
     assetStorage: loadAssetStorage(source, dataDir),
     git: {
       // NB: namespaced TS_WIKI_GIT_* — plain GIT_DIR / GIT_AUTHOR_* are reserved

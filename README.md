@@ -3,9 +3,9 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.3** — a small, complete, runnable wiki: Markdown pages with visual editing,
+> **Status: v0.4.2** — a small, complete, runnable wiki: Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth, private-wiki mode, groups/page rules,
-> R2 assets, libSQL/Turso support, webhooks, and a typed API.
+> R2 assets, libSQL/Turso support, webhooks, runtime branding, and a typed API.
 
 ## Quick start
 
@@ -31,6 +31,13 @@ best for English/European prose but only matches Japanese token prefixes. Set
 `TS_WIKI_FTS_TOKENIZER=trigram` before first migration/seed for CJK substring
 search. For an existing database, back it up and run
 `TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
+
+Admins can customize the wiki from **Admin → Appearance**: site title, accent
+color, light/dark/system default, logo, favicon, header links, footer text,
+footer links, and custom CSS. Initial defaults can be seeded with
+`TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR`, and `TS_WIKI_THEME`. Trusted
+custom head HTML/analytics snippets are disabled by default and require
+`TS_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 ## Docker
 
@@ -61,18 +68,18 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.0
+docker pull ghcr.io/hjosugi/ts-wiki:v0.4.2
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run --rm -v ts-wiki-data:/data \
   -e JWT_SECRET="$JWT_SECRET" \
   -e TS_WIKI_SEED_ADMIN_PASSWORD="change-me-before-first-seed" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.0 bun --filter '@ts-wiki/server' db:seed
+  ghcr.io/hjosugi/ts-wiki:v0.4.2 bun --filter '@ts-wiki/server' db:seed
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.0
+  ghcr.io/hjosugi/ts-wiki:v0.4.2
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS
@@ -120,6 +127,10 @@ Set `TS_WIKI_PRIVATE=true` to require login for page/search/realtime read routes
 Set `TS_WIKI_REGISTRATION=off` to disable self-registration after the first
 admin bootstrap. JWT lifetime is configurable with `TS_WIKI_JWT_TTL_SECONDS`,
 and uploads are capped by `ASSET_MAX_BYTES` (default 25 MiB).
+
+Branding defaults are configurable with `TS_WIKI_SITE_TITLE`,
+`TS_WIKI_ACCENT_COLOR`, and `TS_WIKI_THEME`. Custom head HTML is admin-trusted
+and only exposed when `TS_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 ## License
 

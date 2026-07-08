@@ -89,6 +89,22 @@ Comments and referenced asset filenames are indexed into the owning page result.
 > Lightweight typo tolerance remains a future external-engine concern: SQLite FTS5 trigram helps
 > CJK/substring matching, but portable spell-correction is deferred behind `SearchIndexer`.
 
+**Theming and branding** are runtime settings, not rebuild-time constants. The
+server exposes safe public settings for site title, accent color, theme, logo,
+favicon, footer text/links, header links, and custom CSS. The web app maps the
+appearance settings onto CSS variables (`--c-bg`, `--c-surface`, `--c-text`,
+`--c-border`, `--c-accent`, `--radius`) so primary controls, rendered blocks,
+and code blocks can update without recompiling. Custom head HTML is deliberately
+separate from custom CSS and only leaves the server when
+`TS_WIKI_ALLOW_HEAD_INJECTION=true`.
+
+**Markdown rendering** is still pure and isomorphic, but now has an extension
+seam. `createRenderer({ plugins, fences })` creates isolated markdown-it
+instances for tests or embedding, while `registerFenceRenderer(info, render)`
+adds a process-wide typed-fence renderer to the default pipeline. Built-ins
+cover event, callout, infobox/profile, links/social, embed, and Mermaid-source
+fences.
+
 **Types** are shared without codegen. The server exports its `App` type; `apps/web/src/lib/api.ts`
 does `treaty<App>(...)`, so every request's path, query, and body is checked against the real
 routes at compile time.
@@ -168,10 +184,10 @@ search state are not fully represented by Markdown files.
 
 ## Intentionally simple (for now)
 
-Kept out of v0 on purpose, easy to add later: page rename/move, per-page ACLs & groups,
-multi-site, asset image management UI, OAuth/OIDC strategies, comments, page history UI, i18n,
-SSR. The architecture has seams for all of them (e.g. `permissions.ts`, the storage-agnostic
-service layer, the `assets` table).
+Kept out of v0 on purpose, easy to add later: multi-site, i18n, SSR, and
+heavier editor/plugin marketplaces. The architecture has seams for them (e.g.
+`permissions.ts`, the storage-agnostic service layer, `assets`, `SearchIndexer`,
+and the Markdown renderer factory).
 
 ## Reference code
 

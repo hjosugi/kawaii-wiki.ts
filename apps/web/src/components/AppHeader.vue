@@ -5,6 +5,7 @@ import { Api, type PublicSettings } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { useI18n } from '@/lib/i18n'
 import { useTheme, applySiteDefault } from '@/composables/useTheme'
+import { applyBranding } from '@/lib/branding'
 
 const router = useRouter()
 const auth = useAuth()
@@ -17,6 +18,12 @@ const settings = ref<PublicSettings>({
   accentColor: '#7c3aed',
   theme: 'system',
   navLinks: [],
+  logoUrl: '',
+  faviconUrl: '',
+  footerText: '',
+  footerLinks: [],
+  customCss: '',
+  customHeadHtml: '',
   privateWiki: false,
   registration: 'open',
   mailConfigured: false,
@@ -37,13 +44,8 @@ function openCommandPalette(): void {
 onMounted(async () => {
   try {
     settings.value = await Api.publicSettings()
-    if (document.documentElement.dataset.tsWikiMeta !== 'page') {
-      document.title = settings.value.siteTitle
-    }
+    applyBranding(settings.value)
     applySiteDefault(settings.value.theme)
-    if (settings.value.accentColor) {
-      document.documentElement.style.setProperty('--accent', settings.value.accentColor)
-    }
   } catch {
     /* keep defaults */
   }
@@ -52,11 +54,12 @@ onMounted(async () => {
 
 <template>
   <header
-    class="sticky top-0 z-10 border-b border-gray-200 dark:border-gray-800 bg-white/80 dark:bg-gray-950/80 backdrop-blur"
+    class="sticky top-0 z-10 border-b border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur"
   >
     <div class="max-w-7xl mx-auto px-4 h-14 flex items-center gap-4">
       <RouterLink to="/" class="flex items-center gap-1.5 font-bold text-lg shrink-0">
-        <span :style="accentStyle">▲</span>
+        <img v-if="settings.logoUrl" :src="settings.logoUrl" alt="" class="h-7 w-7 rounded object-cover" />
+        <span v-else :style="accentStyle">▲</span>
         <span>{{ settings.siteTitle }}</span>
       </RouterLink>
 
@@ -92,7 +95,7 @@ onMounted(async () => {
         <RouterLink v-if="auth.isAdmin" to="/_admin" class="btn-ghost">{{ t('admin') }}</RouterLink>
         <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
         <template v-if="auth.isAuthed">
-          <span class="text-sm text-gray-500 hidden sm:inline">{{ auth.user?.name }}</span>
+          <span class="hidden text-sm text-[var(--c-text-muted)] sm:inline">{{ auth.user?.name }}</span>
           <button class="btn-ghost" @click="auth.logout()">{{ t('signOut') }}</button>
         </template>
         <RouterLink v-else to="/_login" class="btn-ghost">{{ t('signIn') }}</RouterLink>

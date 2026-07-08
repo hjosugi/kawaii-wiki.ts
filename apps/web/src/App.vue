@@ -2,6 +2,7 @@
 import { computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
+import AppFooter from '@/components/AppFooter.vue'
 import CommandPalette from '@/components/CommandPalette.vue'
 import ShortcutsHelp from '@/components/ShortcutsHelp.vue'
 import EmptyState from '@/components/EmptyState.vue'
@@ -53,5 +54,6 @@ watch(sharedLayout, refreshPagesForWikiLayout)
         <RouterView />
       </main>
     </div>
+    <AppFooter v-if="!sharedLayout" />
   </div>
 </template>

@@ -3,6 +3,8 @@ import {
   can,
   normalizePath,
   renderMarkdown,
+  createRenderer,
+  registerFenceRenderer,
   extractPageLinks,
   rewritePageLinks,
   extractCalendarEvents,
@@ -266,6 +268,35 @@ javascript:alert(1)
     // Width-only is allowed; javascript: URLs never become an <img>.
     expect(renderMarkdown('![c](/c.png =50x)').html).toContain('width="50"')
     expect(renderMarkdown('![x](javascript:alert(1) =10x10)').html).not.toContain('<img')
+  })
+
+  test('supports custom renderer instances with fence renderers and plugins', () => {
+    const renderer = createRenderer({
+      plugins: [(md) => {
+        md.inline.ruler.before('emphasis', 'bangbang', (state, silent) => {
+          if (!state.src.startsWith('!!', state.pos)) return false
+          if (!silent) {
+            const token = state.push('text', '', 0)
+            token.content = 'custom'
+          }
+          state.pos += 2
+          return true
+        })
+      }],
+      fences: {
+        badge: (content) => `<span class="badge">${content.trim()}</span>`,
+      },
+    })
+
+    expect(renderer.renderMarkdown('!!\n\n```badge\nOK\n```').html).toContain('<span class="badge">OK</span>')
+    expect(renderer.renderMarkdown('!!').html).toContain('custom')
+    expect(renderMarkdown('```badge\nOK\n```').html).not.toContain('class="badge"')
+  })
+
+  test('registerFenceRenderer extends the default renderer', () => {
+    registerFenceRenderer('audit-test', (content) => `<aside>${content.trim()}</aside>`)
+
+    expect(renderMarkdown('```audit-test\nlogged\n```').html).toContain('<aside>logged</aside>')
   })
 })
 

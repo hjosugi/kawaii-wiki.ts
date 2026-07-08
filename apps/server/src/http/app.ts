@@ -114,6 +114,7 @@ export const createApp = ({
     assetUrl: assetStorage.url,
     auth: env.auth,
     search: env.search,
+    branding: env.branding,
     mail: env.mail,
     mailSender,
     logger,

@@ -392,6 +392,12 @@ export interface PublicSettings {
   accentColor: string
   theme: 'system' | 'light' | 'dark'
   navLinks: Array<{ label: string; url: string }>
+  logoUrl: string
+  faviconUrl: string
+  footerText: string
+  footerLinks: Array<{ label: string; url: string }>
+  customCss: string
+  customHeadHtml: string
   privateWiki: boolean
   registration: 'open' | 'off'
   mailConfigured: boolean

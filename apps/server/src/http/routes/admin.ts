@@ -64,6 +64,15 @@ export const createAdminRoutes = ({
             label: t.String(),
             url: t.String(),
           }))),
+          logoUrl: t.Optional(t.String()),
+          faviconUrl: t.Optional(t.String()),
+          footerText: t.Optional(t.String()),
+          footerLinks: t.Optional(t.Array(t.Object({
+            label: t.String(),
+            url: t.String(),
+          }))),
+          customCss: t.Optional(t.String()),
+          customHeadHtml: t.Optional(t.String()),
         }),
       },
     )

@@ -132,6 +132,24 @@ describe('loadEnv', () => {
     expect(() => loadEnv({ ASSET_MAX_BYTES: '-1' })).toThrow(/ASSET_MAX_BYTES/)
   })
 
+  test('parses initial branding and customization settings', () => {
+    const env = loadEnv({
+      TS_WIKI_SITE_TITLE: 'Knowledge Base',
+      TS_WIKI_ACCENT_COLOR: '#2563eb',
+      TS_WIKI_THEME: 'dark',
+      TS_WIKI_ALLOW_HEAD_INJECTION: 'true',
+    })
+
+    expect(env.branding).toEqual({
+      siteTitle: 'Knowledge Base',
+      accentColor: '#2563eb',
+      theme: 'dark',
+      allowHeadInjection: true,
+    })
+    expect(() => loadEnv({ TS_WIKI_ACCENT_COLOR: 'blue' })).toThrow(/TS_WIKI_ACCENT_COLOR/)
+    expect(() => loadEnv({ TS_WIKI_THEME: 'sepia' })).toThrow(/TS_WIKI_THEME/)
+  })
+
   test('parses webhook private-target escape hatch', () => {
     expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: 'true' }).webhooks.allowPrivateTargets).toBe(true)
     expect(loadEnv({ TS_WIKI_WEBHOOK_ALLOW_PRIVATE: '1' }).webhooks.allowPrivateTargets).toBe(true)

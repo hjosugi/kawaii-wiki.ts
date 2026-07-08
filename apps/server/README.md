@@ -42,6 +42,13 @@ Set `TS_WIKI_PRIVATE=true` to require login for page/search/realtime read
 routes. Set `TS_WIKI_REGISTRATION=off` to disable self-registration after the
 first-admin bootstrap.
 
+Initial appearance settings can come from the environment:
+`TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR` (`#rrggbb`), and
+`TS_WIKI_THEME` (`system`, `light`, or `dark`). Admins can later edit the same
+values from the web UI. Custom head HTML/JavaScript is intentionally disabled
+unless `TS_WIKI_ALLOW_HEAD_INJECTION=true`; custom CSS does not require that
+escape hatch.
+
 For production seeding, set `TS_WIKI_SEED_ADMIN_PASSWORD` or capture the generated
 password from the `db:seed` output. The seed script never falls back to a shared
 default admin password.
