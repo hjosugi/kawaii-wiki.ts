@@ -1,10 +1,12 @@
 import { t } from 'elysia'
 import {
+  notFound,
   type Principal,
 } from '@ts-wiki/core'
+import { isUserActive } from '../../services/users.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
-import { unwrap } from '../errors.ts'
+import { HttpError, unwrap } from '../errors.ts'
 import { requireHttpPermission } from '../permissions.ts'
 import {
   removedPagePayload,
@@ -14,6 +16,7 @@ import {
   type PageWriteEffectsInput,
 } from '../page-write.ts'
 import { commentSnapshot } from '../representations.ts'
+import { publicUserProfile } from '../representations.ts'
 import type { BaseApp } from '../base.ts'
 
 export interface PageRoutesContext {
@@ -37,6 +40,29 @@ export const createPageRoutes = ({
     .get('/api/pages', ({ services, principal }) => {
       requirePageRead(principal)
       return { pages: services.pages.list() }
+    })
+    .get('/api/users/:id/profile', ({ params, services, principal }) => {
+      requirePageRead(principal)
+      const user = services.users.findById(params.id)
+      if (!isUserActive(user)) throw new HttpError(notFound('User profile not found'))
+      const readablePages = services.pages.list().filter((page) => canReadPage(principal, page.path))
+      const byPath = new Map(readablePages.map((page) => [page.path, page]))
+      const profile = publicUserProfile(user)
+      const favoritePages = profile.profileFavoritePages.flatMap((path) => {
+        const page = byPath.get(path)
+        return page ? [page] : []
+      })
+      const authoredPages = readablePages
+        .filter((page) => page.authorId === user.id)
+        .sort((a, b) => b.updatedAt - a.updatedAt)
+        .slice(0, 8)
+      return {
+        profile,
+        favoritePages,
+        authoredPages,
+      }
+    }, {
+      params: t.Object({ id: t.String() }),
     })
     .get('/api/spaces', ({ services, principal }) => {
       requirePageRead(principal)

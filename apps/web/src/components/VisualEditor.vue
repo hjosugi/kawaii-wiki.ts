@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { Api } from '@/lib/api'
 import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
+import { clipboardHttpUrl, linkPreviewToEmbedFence } from '@/lib/linkPreview'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 import AssetPicker from '@/components/AssetPicker.vue'
 import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
@@ -406,6 +407,22 @@ function insertHtml(html: string): void {
   syncFromDom()
 }
 
+function selectionRangeInEditor(): Range | null {
+  const root = editor.value
+  const selection = window.getSelection()
+  if (!root || !selection?.rangeCount || !root.contains(selection.anchorNode)) return null
+  return selection.getRangeAt(0).cloneRange()
+}
+
+function restoreSelectionRange(range: Range | null): void {
+  if (!range) return
+  const root = editor.value
+  if (!root || !root.contains(range.commonAncestorContainer)) return
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
 function formatBlock(tag: 'p' | 'h1' | 'h2' | 'h3'): void {
   runCommand('formatBlock', tag.toUpperCase())
 }
@@ -482,8 +499,37 @@ description:
 \`\`\`
 `
 
+const youtubeSnippet = (): string => `\`\`\`youtube
+url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+title:
+\`\`\`
+`
+
+const twitchSnippet = (): string => `\`\`\`twitch
+channel: twitch
+title:
+\`\`\`
+`
+
+const streamSnippet = (): string => {
+  const base = eventSnippet().replace('title: Event title', 'title: Stream title')
+  return base.replace('url:\n', 'url:\nplatform: YouTube\nchannelUrl: https://youtube.com/@handle\n')
+}
+
 function insertMarkdownSnippet(markdown: string): void {
   insertHtml(markdownToEditableHtml(markdown) + '<p><br></p>')
+}
+
+async function insertPendingLinkPreview(url: string): Promise<void> {
+  const range = selectionRangeInEditor()
+  try {
+    const preview = await Api.unfurl(url)
+    restoreSelectionRange(range)
+    insertMarkdownSnippet(linkPreviewToEmbedFence(preview))
+  } catch {
+    restoreSelectionRange(range)
+    insertHtml(`<a href="${escapeAttr(url)}">${escapeHtml(url)}</a>`)
+  }
 }
 
 function chooseImage(): void {
@@ -502,6 +548,9 @@ const visualActions: VisualAction[] = [
   { id: 'table', group: 'insert', label: 'toolbarTable', icon: '| |', detail: 'Insert a two-column table', keywords: ['table', '表'], run: insertTable },
   { id: 'callout', group: 'insert', label: 'toolbarCallout', icon: '!', detail: 'Insert a highlighted note block', keywords: ['callout', 'note', 'メモ'], run: insertCallout },
   { id: 'event', group: 'insert', label: 'toolbarEvent', icon: 'Cal', detail: 'Insert an event card block', keywords: ['event', 'calendar', '予定'], run: () => insertMarkdownSnippet(eventSnippet()) },
+  { id: 'stream', group: 'insert', label: 'toolbarStream', icon: 'Live', detail: 'Insert a stream schedule block', keywords: ['stream', 'live', '配信'], run: () => insertMarkdownSnippet(streamSnippet()) },
+  { id: 'youtube', group: 'insert', label: 'toolbarYouTube', icon: 'YT', detail: 'Insert a click-to-load YouTube embed', keywords: ['youtube', 'video', '動画'], run: () => insertMarkdownSnippet(youtubeSnippet()) },
+  { id: 'twitch', group: 'insert', label: 'toolbarTwitch', icon: 'Tw', detail: 'Insert a click-to-load Twitch embed', keywords: ['twitch', 'stream', 'clip'], run: () => insertMarkdownSnippet(twitchSnippet()) },
   { id: 'infobox', group: 'insert', label: 'toolbarInfobox', icon: 'ID', detail: 'Insert a profile or info card', keywords: ['infobox', 'profile'], run: () => insertMarkdownSnippet(infoboxSnippet()) },
   { id: 'embed', group: 'insert', label: 'toolbarEmbed', icon: '<>', detail: 'Insert a rich link card', keywords: ['embed', 'bookmark'], run: () => insertMarkdownSnippet(embedSnippet()) },
   { id: 'links', group: 'insert', label: 'toolbarLinks', icon: '@', detail: 'Insert social/link buttons', keywords: ['links', 'social'], run: () => insertMarkdownSnippet(linksSnippet()) },
@@ -629,9 +678,15 @@ async function onImageInput(event: Event): Promise<void> {
 
 function onPaste(event: ClipboardEvent): void {
   const files = clipboardImageFiles(event.clipboardData)
-  if (!files.length) return
+  if (files.length) {
+    event.preventDefault()
+    prepareImageUpload(files)
+    return
+  }
+  const url = clipboardHttpUrl(event.clipboardData)
+  if (!url) return
   event.preventDefault()
-  prepareImageUpload(files)
+  void insertPendingLinkPreview(url)
 }
 
 function onDrop(event: DragEvent): void {

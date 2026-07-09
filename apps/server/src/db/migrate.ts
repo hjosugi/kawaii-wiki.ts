@@ -152,6 +152,10 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
 	      disabled_at   INTEGER,
 	      token_invalid_before INTEGER NOT NULL DEFAULT 0,
 	      email_verified_at INTEGER,
+	      profile_bio TEXT NOT NULL DEFAULT '',
+	      profile_cover_url TEXT NOT NULL DEFAULT '',
+	      profile_links TEXT NOT NULL DEFAULT '[]',
+	      profile_favorite_pages TEXT NOT NULL DEFAULT '[]',
 	      created_at    INTEGER NOT NULL
 	    );
 
@@ -377,6 +381,23 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     );
     CREATE INDEX IF NOT EXISTS user_preferences_user_idx ON user_preferences(user_id);
 
+    CREATE TABLE IF NOT EXISTS link_previews (
+      url          TEXT PRIMARY KEY,
+      kind         TEXT NOT NULL,
+      provider     TEXT NOT NULL DEFAULT '',
+      title        TEXT NOT NULL DEFAULT '',
+      description  TEXT NOT NULL DEFAULT '',
+      image        TEXT,
+      author       TEXT,
+      site_name    TEXT,
+      content_type TEXT,
+      data         TEXT NOT NULL DEFAULT '{}',
+      fetched_at   INTEGER NOT NULL,
+      expires_at   INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS link_previews_expires_idx ON link_previews(expires_at);
+    CREATE INDEX IF NOT EXISTS link_previews_kind_idx ON link_previews(kind);
+
     CREATE TABLE IF NOT EXISTS assets (
       id         TEXT PRIMARY KEY,
       filename   TEXT NOT NULL,
@@ -490,6 +511,23 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
   addColumn(sqlite, 'users', 'disabled_at', 'INTEGER')
   addColumn(sqlite, 'users', 'token_invalid_before', 'INTEGER NOT NULL DEFAULT 0')
   addColumn(sqlite, 'users', 'email_verified_at', 'INTEGER')
+  addColumn(sqlite, 'users', 'profile_bio', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'users', 'profile_cover_url', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'users', 'profile_links', "TEXT NOT NULL DEFAULT '[]'")
+  addColumn(sqlite, 'users', 'profile_favorite_pages', "TEXT NOT NULL DEFAULT '[]'")
+  addColumn(sqlite, 'link_previews', 'kind', "TEXT NOT NULL DEFAULT 'unfurl'")
+  addColumn(sqlite, 'link_previews', 'provider', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'link_previews', 'title', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'link_previews', 'description', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'link_previews', 'image', 'TEXT')
+  addColumn(sqlite, 'link_previews', 'author', 'TEXT')
+  addColumn(sqlite, 'link_previews', 'site_name', 'TEXT')
+  addColumn(sqlite, 'link_previews', 'content_type', 'TEXT')
+  addColumn(sqlite, 'link_previews', 'data', "TEXT NOT NULL DEFAULT '{}'")
+  addColumn(sqlite, 'link_previews', 'fetched_at', 'INTEGER NOT NULL DEFAULT 0')
+  addColumn(sqlite, 'link_previews', 'expires_at', 'INTEGER NOT NULL DEFAULT 0')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS link_previews_expires_idx ON link_previews(expires_at);')
+  sqlite.exec('CREATE INDEX IF NOT EXISTS link_previews_kind_idx ON link_previews(kind);')
   addColumn(sqlite, 'automation_rules', 'priority', 'INTEGER NOT NULL DEFAULT 0')
   addColumn(sqlite, 'automation_rules', 'stop_on_match', 'INTEGER NOT NULL DEFAULT 0')
   sqlite.exec('CREATE INDEX IF NOT EXISTS automation_rules_order_idx ON automation_rules(enabled, priority, created_at);')

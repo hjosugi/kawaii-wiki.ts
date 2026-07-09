@@ -815,29 +815,53 @@ describe('http app auth', () => {
   test('users can update profile and rotate their own password with audit logs', async () => {
     const { logger, events } = captureLogger()
     const { app } = createFixture(undefined, { logger })
-    const { token } = await register(app, 'admin@example.com')
+    const admin = await register(app, 'admin@example.com')
 
     const profile = await app.handle(
       new Request('http://localhost/api/auth/profile', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
-        body: JSON.stringify({ name: 'Ada Admin' }),
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${admin.token}` },
+        body: JSON.stringify({
+          name: 'Ada Admin',
+          bio: 'Hello **fans**',
+          coverUrl: 'https://example.com/cover.jpg',
+          links: [{ label: 'YouTube', url: 'https://youtube.com/@ada' }],
+          favoritePages: ['docs/favorite'],
+        }),
       }),
     )
     expect(profile.status).toBe(200)
-    expect((await profile.json()).user.name).toBe('Ada Admin')
+    expect(await profile.json()).toMatchObject({
+      user: {
+        name: 'Ada Admin',
+        profileBio: 'Hello **fans**',
+        profileCoverUrl: 'https://example.com/cover.jpg',
+        profileLinks: [{ label: 'YouTube', url: 'https://youtube.com/@ada' }],
+        profileFavoritePages: ['docs/favorite'],
+      },
+    })
+
+    await createPage(app, admin.token, 'docs/favorite', 'favorite')
+    await createPage(app, admin.token, 'docs/authored', 'authored')
+    const publicProfile = await app.handle(new Request(`http://localhost/api/users/${admin.user.id}/profile`))
+    expect(publicProfile.status).toBe(200)
+    expect(await publicProfile.json()).toMatchObject({
+      profile: { id: admin.user.id, name: 'Ada Admin', profileBio: 'Hello **fans**' },
+      favoritePages: [expect.objectContaining({ path: 'docs/favorite' })],
+      authoredPages: expect.arrayContaining([expect.objectContaining({ path: 'docs/authored' })]),
+    })
 
     const password = await app.handle(
       new Request('http://localhost/api/auth/password', {
         method: 'PUT',
-        headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+        headers: { 'content-type': 'application/json', authorization: `Bearer ${admin.token}` },
         body: JSON.stringify({ currentPassword: 'password', newPassword: 'new-password' }),
       }),
     )
     expect(password.status).toBe(200)
 
     const oldToken = await app.handle(new Request('http://localhost/api/auth/me', {
-      headers: { authorization: `Bearer ${token}` },
+      headers: { authorization: `Bearer ${admin.token}` },
     }))
     expect(oldToken.status).toBe(401)
 
@@ -2707,6 +2731,63 @@ describe('http app page utilities', () => {
     expect((await analytics.json()).topPages).toContainEqual(
       expect.objectContaining({ path: 'docs/target', views: 1 }),
     )
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('unfurls links for editors and reads YouTube RSS for page readers', async () => {
+    const calls: string[] = []
+    const { app } = createFixture(undefined, {
+      webhookFetcher: async (url) => {
+        calls.push(url)
+        if (url.includes('/feeds/videos.xml')) {
+          return new Response(`<?xml version="1.0" encoding="UTF-8"?>
+            <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/">
+              <entry>
+                <yt:videoId>video123</yt:videoId>
+                <title>Latest stream</title>
+                <link rel="alternate" href="https://www.youtube.com/watch?v=video123"/>
+                <author><name>Test Channel</name></author>
+                <published>2026-07-09T12:00:00+00:00</published>
+                <media:group><media:thumbnail url="https://i.ytimg.com/vi/video123/hqdefault.jpg"/></media:group>
+              </entry>
+            </feed>`, { headers: { 'content-type': 'application/atom+xml' } })
+        }
+        return new Response(`<!doctype html>
+          <html><head>
+            <meta property="og:title" content="OG title">
+            <meta property="og:description" content="OG description">
+            <meta property="og:image" content="https://example.com/og.jpg">
+          </head></html>`, { headers: { 'content-type': 'text/html' } })
+      },
+    })
+    const admin = await register(app, 'admin@example.com')
+    const viewer = await register(app, 'viewer@example.com')
+
+    const forbiddenPreview = await app.handle(new Request('http://localhost/api/unfurl?url=https://example.com/page', {
+      headers: { authorization: `Bearer ${viewer.token}` },
+    }))
+    expect(forbiddenPreview.status).toBe(403)
+
+    const preview = await app.handle(new Request('http://localhost/api/unfurl?url=https://example.com/page?utm_source=x', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(preview.status).toBe(200)
+    expect(await preview.json()).toMatchObject({
+      preview: {
+        title: 'OG title',
+        description: 'OG description',
+        image: 'https://example.com/og.jpg',
+      },
+    })
+
+    const latest = await app.handle(new Request('http://localhost/api/youtube/latest?channelId=UCaaaaaaaaaaaaaaaaaaaaaa&limit=1'))
+    expect(latest.status).toBe(200)
+    expect(await latest.json()).toMatchObject({
+      channel: {
+        channelId: 'UCaaaaaaaaaaaaaaaaaaaaaa',
+        videos: [{ id: 'video123', title: 'Latest stream' }],
+      },
+    })
+    expect(calls).toHaveLength(2)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('moving a page leaves redirects from previous paths', async () => {

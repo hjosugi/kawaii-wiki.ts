@@ -146,6 +146,10 @@ export const createAuthProviderService = (
       disabledAt: null,
       tokenInvalidBefore: 0,
       emailVerifiedAt: now,
+      profileBio: '',
+      profileCoverUrl: '',
+      profileLinks: '[]',
+      profileFavoritePages: '[]',
       createdAt: now,
     }
     db.insert(users).values(user).run()

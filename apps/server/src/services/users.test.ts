@@ -28,9 +28,21 @@ describe('user service', () => {
     if (!duplicate.ok) expect(duplicate.error.kind).toBe('conflict')
 
     const principal: Principal = { id: created.value.id, role: 'viewer' }
-    const updated = users.updateProfile(principal, { name: 'Updated Name' })
+    const updated = users.updateProfile(principal, {
+      name: 'Updated Name',
+      bio: 'Hello **profile**',
+      coverUrl: 'https://example.com/cover.jpg',
+      links: [{ label: 'YouTube', url: 'https://youtube.com/@example' }],
+      favoritePages: ['Docs/Home', 'docs/home', ''],
+    })
     expect(updated.ok).toBe(true)
-    if (updated.ok) expect(updated.value.name).toBe('Updated Name')
+    if (updated.ok) {
+      expect(updated.value.name).toBe('Updated Name')
+      expect(updated.value.profileBio).toBe('Hello **profile**')
+      expect(updated.value.profileCoverUrl).toBe('https://example.com/cover.jpg')
+      expect(JSON.parse(updated.value.profileLinks)).toEqual([{ label: 'YouTube', url: 'https://youtube.com/@example' }])
+      expect(JSON.parse(updated.value.profileFavoritePages)).toEqual(['docs/home'])
+    }
   })
 
   test('changes passwords only with the current password and invalidates tokens', async () => {

@@ -103,6 +103,21 @@ start: 2026-06-20 10:00
     expect(html).toContain('ctz=Asia%2FTokyo')
     expect(html).not.toContain('2026-06-20 10:00')
   })
+  test('event cards render optional stream platform metadata', () => {
+    const { html } = renderMarkdown(`\`\`\`event
+title: Launch stream
+start: 2026-06-20 10:00
+platform: Twitch
+channelUrl: https://twitch.tv/example
+description: Watch <soon>
+\`\`\``)
+
+    expect(html).toContain('wiki-event-platform')
+    expect(html).toContain('Twitch')
+    expect(html).toContain('Watch stream')
+    expect(html).toContain('href="https://twitch.tv/example"')
+    expect(html).toContain('Watch &lt;soon&gt;')
+  })
   test('extracts calendar events from event fences', () => {
     const events = extractCalendarEvents(`Before
 \`\`\`event
@@ -162,6 +177,10 @@ title: Heads up
 url: https://example.com/doc
 title: External doc
 description: Reference material
+image: https://example.com/og.jpg
+site: Example Docs
+author: Docs Team
+provider: example
 \`\`\`
 
 \`\`\`mermaid
@@ -172,9 +191,59 @@ flowchart TD
     expect(html).toContain('wiki-callout-warning')
     expect(html).toContain('<strong>Check</strong>')
     expect(html).toContain('wiki-embed')
+    expect(html).toContain('wiki-embed-media')
+    expect(html).toContain('https://example.com/og.jpg')
     expect(html).toContain('https://example.com/doc')
     expect(html).toContain('wiki-mermaid')
     expect(html).toContain('A --&gt; B')
+  })
+
+  test('renders YouTube fences as inert click-to-load cards', () => {
+    const { html } = renderMarkdown(`\`\`\`youtube
+url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+title: Demo <video>
+\`\`\``)
+
+    expect(html).toContain('wiki-media-youtube')
+    expect(html).toContain('data-wiki-media="youtube"')
+    expect(html).toContain('data-video-id="dQw4w9WgXcQ"')
+    expect(html).toContain('data-embed-host="www.youtube-nocookie.com"')
+    expect(html).toContain('Demo &lt;video&gt;')
+    expect(html).toContain('Load video')
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('<script')
+  })
+
+  test('renders Twitch fences as inert cards with source metadata', () => {
+    const { html } = renderMarkdown(`\`\`\`twitch
+url: https://www.twitch.tv/videos/123456
+title: Archive
+\`\`\``)
+
+    expect(html).toContain('wiki-media-twitch')
+    expect(html).toContain('data-wiki-media="twitch"')
+    expect(html).toContain('data-source-type="video"')
+    expect(html).toContain('data-source-id="123456"')
+    expect(html).toContain('data-parent-policy="current-host"')
+    expect(html).toContain('href="https://www.twitch.tv/videos/123456"')
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('<script')
+  })
+
+  test('renders YouTube latest fences as client-hydrated placeholders', () => {
+    const { html } = renderMarkdown(`\`\`\`youtube-latest
+channelId: UCaaaaaaaaaaaaaaaaaaaaaa
+limit: 3
+title: Latest streams
+\`\`\``)
+
+    expect(html).toContain('wiki-youtube-latest')
+    expect(html).toContain('data-youtube-latest')
+    expect(html).toContain('data-channel-id="UCaaaaaaaaaaaaaaaaaaaaaa"')
+    expect(html).toContain('data-limit="3"')
+    expect(html).toContain('Latest streams')
+    expect(html).not.toContain('<iframe')
+    expect(html).not.toContain('<script')
   })
 
   test('renders a generic infobox with title, media, fields, and body', () => {

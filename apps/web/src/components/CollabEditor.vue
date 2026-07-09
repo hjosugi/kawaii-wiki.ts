@@ -12,6 +12,7 @@ import { EditorView } from '@codemirror/view'
 import { Api, getToken } from '@/lib/api'
 import { WS_BASE_URL } from '@/lib/url'
 import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
+import { clipboardHttpUrl, linkPreviewToEmbedFence, markdownLinkForUrl } from '@/lib/linkPreview'
 import { useAuth } from '@/stores/auth'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
@@ -93,6 +94,23 @@ description:
 \`\`\`
 `
 
+const youtubeSnippet = (): string => `\`\`\`youtube
+url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+title:
+\`\`\`
+`
+
+const twitchSnippet = (): string => `\`\`\`twitch
+channel: twitch
+title:
+\`\`\`
+`
+
+const streamSnippet = (): string => {
+  const base = eventSnippet().replace('title: Event title', 'title: Stream title')
+  return base.replace('url:\n', 'url:\nplatform: YouTube\nchannelUrl: https://youtube.com/@handle\n')
+}
+
 interface EditorAction {
   id: string
   group: 'text' | 'insert' | 'media'
@@ -119,6 +137,29 @@ function insertSnippet(snippet: string): void {
   const selection = view.state.selection.main
   const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
   replaceSelection(prefix + snippet)
+}
+
+function insertPendingLinkPreview(url: string): void {
+  if (!view) return
+  const selection = view.state.selection.main
+  const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
+  const fallback = `${prefix}${markdownLinkForUrl(url)}`
+  const start = selection.from
+  const end = start + fallback.length
+  replaceSelection(fallback)
+  void Api.unfurl(url)
+    .then((preview) => {
+      if (!view) return
+      if (view.state.sliceDoc(start, end) !== fallback) return
+      const insert = `${prefix}${linkPreviewToEmbedFence(preview)}`
+      view.dispatch({
+        changes: { from: start, to: end, insert },
+        selection: { anchor: start + insert.length },
+        scrollIntoView: true,
+      })
+      view.focus()
+    })
+    .catch(() => undefined)
 }
 
 function surround(prefix: string, suffix: string, fallback: string): void {
@@ -152,6 +193,9 @@ const editorActions = computed<EditorAction[]>(() => [
   { id: 'code', group: 'text', label: 'toolbarCode', icon: '</>', detail: 'Format selected text as code', keywords: ['code', 'コード'], run: () => surround('`', '`', 'code') },
   { id: 'table', group: 'insert', label: 'toolbarTable', icon: '| |', detail: 'Insert a two-column table', keywords: ['table', '表'], run: () => insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n') },
   { id: 'event', group: 'insert', label: 'toolbarEvent', icon: 'Cal', detail: 'Insert an event card block', keywords: ['event', 'calendar', '予定', 'イベント'], run: () => insertSnippet(eventSnippet()) },
+  { id: 'stream', group: 'insert', label: 'toolbarStream', icon: 'Live', detail: 'Insert a stream schedule block', keywords: ['stream', 'live', '配信'], run: () => insertSnippet(streamSnippet()) },
+  { id: 'youtube', group: 'insert', label: 'toolbarYouTube', icon: 'YT', detail: 'Insert a click-to-load YouTube embed', keywords: ['youtube', 'video', '動画'], run: () => insertSnippet(youtubeSnippet()) },
+  { id: 'twitch', group: 'insert', label: 'toolbarTwitch', icon: 'Tw', detail: 'Insert a click-to-load Twitch embed', keywords: ['twitch', 'stream', 'clip'], run: () => insertSnippet(twitchSnippet()) },
   { id: 'callout', group: 'insert', label: 'toolbarCallout', icon: '!', detail: 'Insert a highlighted note block', keywords: ['callout', 'note', '注意', 'メモ'], run: () => insertSnippet('```callout\\ntype: info\\ntitle: Note\\n\\nCallout text\\n```\\n') },
   { id: 'infobox', group: 'insert', label: 'toolbarInfobox', icon: 'ID', detail: 'Insert a profile or info card', keywords: ['infobox', 'profile', 'プロフィール'], run: () => insertSnippet(infoboxSnippet()) },
   { id: 'embed', group: 'insert', label: 'toolbarEmbed', icon: '<>', detail: 'Insert a rich link card', keywords: ['embed', 'bookmark', 'card', '埋め込み'], run: () => insertSnippet(embedSnippet()) },
@@ -278,9 +322,15 @@ onMounted(async () => {
           },
           paste(event) {
             const files = clipboardImageFiles(event.clipboardData)
-            if (!files.length) return false
+            if (files.length) {
+              event.preventDefault()
+              prepareImageUpload(files)
+              return true
+            }
+            const url = clipboardHttpUrl(event.clipboardData)
+            if (!url) return false
             event.preventDefault()
-            prepareImageUpload(files)
+            insertPendingLinkPreview(url)
             return true
           },
         }),

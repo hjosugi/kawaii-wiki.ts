@@ -13,6 +13,7 @@ import {
 } from '@ts-wiki/core'
 import { Api } from '@/lib/api'
 import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
+import { clipboardHttpUrl, linkPreviewToEmbedFence, markdownLinkForUrl } from '@/lib/linkPreview'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import { useI18n, type MessageKey } from '@/lib/i18n'
@@ -86,6 +87,23 @@ description:
 \`\`\`
 `
 
+const youtubeSnippet = (): string => `\`\`\`youtube
+url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
+title:
+\`\`\`
+`
+
+const twitchSnippet = (): string => `\`\`\`twitch
+channel: twitch
+title:
+\`\`\`
+`
+
+const streamSnippet = (): string => {
+  const base = eventSnippet().replace('title: Event title', 'title: Stream title')
+  return base.replace('url:\n', 'url:\nplatform: YouTube\nchannelUrl: https://youtube.com/@handle\n')
+}
+
 interface EditorAction {
   id: string
   group: 'text' | 'insert' | 'media'
@@ -112,6 +130,29 @@ function insertSnippet(snippet: string): void {
   const selection = view.state.selection.main
   const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
   replaceSelection(prefix + snippet)
+}
+
+function insertPendingLinkPreview(url: string): void {
+  if (!view) return
+  const selection = view.state.selection.main
+  const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
+  const fallback = `${prefix}${markdownLinkForUrl(url)}`
+  const start = selection.from
+  const end = start + fallback.length
+  replaceSelection(fallback)
+  void Api.unfurl(url)
+    .then((preview) => {
+      if (!view) return
+      if (view.state.sliceDoc(start, end) !== fallback) return
+      const insert = `${prefix}${linkPreviewToEmbedFence(preview)}`
+      view.dispatch({
+        changes: { from: start, to: end, insert },
+        selection: { anchor: start + insert.length },
+        scrollIntoView: true,
+      })
+      view.focus()
+    })
+    .catch(() => undefined)
 }
 
 function surround(prefix: string, suffix: string, fallback: string): void {
@@ -188,6 +229,33 @@ const editorActions = computed<EditorAction[]>(() => [
     detail: 'Insert an event card block',
     keywords: ['event', 'calendar', '予定', 'イベント'],
     run: () => insertSnippet(eventSnippet()),
+  },
+  {
+    id: 'stream',
+    group: 'insert',
+    label: 'toolbarStream',
+    icon: 'Live',
+    detail: 'Insert a stream schedule block',
+    keywords: ['stream', 'live', '配信'],
+    run: () => insertSnippet(streamSnippet()),
+  },
+  {
+    id: 'youtube',
+    group: 'insert',
+    label: 'toolbarYouTube',
+    icon: 'YT',
+    detail: 'Insert a click-to-load YouTube embed',
+    keywords: ['youtube', 'video', '動画'],
+    run: () => insertSnippet(youtubeSnippet()),
+  },
+  {
+    id: 'twitch',
+    group: 'insert',
+    label: 'toolbarTwitch',
+    icon: 'Tw',
+    detail: 'Insert a click-to-load Twitch embed',
+    keywords: ['twitch', 'stream', 'clip'],
+    run: () => insertSnippet(twitchSnippet()),
   },
   {
     id: 'callout',
@@ -370,9 +438,15 @@ onMounted(() => {
           },
           paste(event) {
             const files = clipboardImageFiles(event.clipboardData)
-            if (!files.length) return false
+            if (files.length) {
+              event.preventDefault()
+              prepareImageUpload(files)
+              return true
+            }
+            const url = clipboardHttpUrl(event.clipboardData)
+            if (!url) return false
             event.preventDefault()
-            prepareImageUpload(files)
+            insertPendingLinkPreview(url)
             return true
           },
         }),

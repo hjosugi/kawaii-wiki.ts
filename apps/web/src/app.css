@@ -430,6 +430,185 @@ main:focus {
   color: var(--c-accent);
 }
 
+.wiki-event-platform {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.35rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--c-accent) 12%, var(--c-surface-muted));
+  color: var(--c-accent);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.wiki-media-card {
+  display: grid;
+  grid-template-columns: minmax(10rem, 16rem) minmax(0, 1fr);
+  gap: 1rem;
+  margin: 1.25rem 0;
+  overflow: hidden;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+}
+
+.wiki-media-preview {
+  display: grid;
+  aspect-ratio: 16 / 9;
+  min-height: 9rem;
+  place-items: center;
+  background: linear-gradient(135deg, rgb(17 24 39), rgb(55 65 81));
+  color: white;
+  font-weight: 800;
+}
+
+.wiki-media-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.wiki-media-loaded .wiki-media-preview {
+  background: black;
+}
+
+.wiki-media-youtube .wiki-media-preview {
+  background: linear-gradient(135deg, rgb(127 29 29), rgb(239 68 68));
+}
+
+.wiki-media-twitch .wiki-media-preview {
+  background: linear-gradient(135deg, rgb(76 29 149), rgb(124 58 237));
+}
+
+.wiki-media-body {
+  min-width: 0;
+  padding: 1rem 1rem 1rem 0;
+}
+
+.wiki-media-kicker,
+.wiki-media-note {
+  margin: 0;
+  color: var(--c-text-muted);
+}
+
+.wiki-media-kicker {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.wiki-media-card h3 {
+  margin: 0.25rem 0;
+  overflow-wrap: anywhere;
+  font-size: 1.05rem;
+}
+
+.wiki-media-note {
+  font-size: 0.875rem;
+}
+
+.wiki-media-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+
+.wiki-media-actions button,
+.wiki-media-actions a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2rem;
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface-muted);
+  color: var(--c-text);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.wiki-media-actions button {
+  cursor: pointer;
+}
+
+.wiki-media-actions button:hover,
+.wiki-media-actions a:hover {
+  background: color-mix(in srgb, var(--c-accent) 14%, var(--c-surface));
+  color: var(--c-accent);
+}
+
+.wiki-youtube-latest {
+  margin: 1.25rem 0;
+  padding: 1rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+}
+
+.wiki-youtube-latest-header {
+  margin-bottom: 0.85rem;
+}
+
+.wiki-youtube-latest-header h3 {
+  margin: 0.2rem 0 0;
+  font-size: 1.05rem;
+}
+
+.wiki-youtube-latest-items {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.wiki-youtube-latest-card {
+  display: grid;
+  grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.wiki-youtube-latest-card:hover .wiki-youtube-latest-title {
+  color: var(--c-accent);
+}
+
+.wiki-youtube-latest-thumb {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--c-surface-muted);
+}
+
+.wiki-youtube-latest-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wiki-youtube-latest-body,
+.wiki-youtube-latest-title,
+.wiki-youtube-latest-meta {
+  display: block;
+  min-width: 0;
+}
+
+.wiki-youtube-latest-title {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.wiki-youtube-latest-meta {
+  margin-top: 0.25rem;
+  color: var(--c-text-muted);
+  font-size: 0.82rem;
+}
+
 .wiki-callout {
   margin: 1.25rem 0;
   padding: 0.9rem 1rem;
@@ -689,7 +868,9 @@ main:focus {
 }
 
 .wiki-embed {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.8rem;
   margin: 1.25rem 0;
   padding: 0.9rem 1rem;
   border: 1px solid var(--c-border);
@@ -698,10 +879,41 @@ main:focus {
   text-decoration: none;
 }
 
+.wiki-embed:has(.wiki-embed-media) {
+  grid-template-columns: minmax(8rem, 13rem) minmax(0, 1fr);
+}
+
+.wiki-embed-media {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 16 / 9;
+  border-radius: calc(var(--radius) - 2px);
+  background: var(--c-surface-muted);
+}
+
+.wiki-embed-media img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.wiki-embed-body {
+  min-width: 0;
+}
+
 .wiki-embed-title,
 .wiki-embed-description,
-.wiki-embed-url {
+.wiki-embed-url,
+.wiki-embed-meta {
   display: block;
+}
+
+.wiki-embed-meta {
+  margin-bottom: 0.2rem;
+  color: var(--c-text-muted);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .wiki-embed-title {
@@ -794,6 +1006,19 @@ main:focus {
   .wiki-event-actions {
     align-items: stretch;
   }
+
+  .wiki-media-card {
+    grid-template-columns: 1fr;
+  }
+
+  .wiki-media-body {
+    padding: 0 1rem 1rem;
+  }
+
+  .wiki-youtube-latest-card,
+  .wiki-embed:has(.wiki-embed-media) {
+    grid-template-columns: 1fr;
+  }
 }
 
 html.dark {
@@ -819,6 +1044,29 @@ html.dark {
   }
 
   .wiki-event-actions a:hover {
+    background: rgb(46 16 101);
+    color: rgb(237 233 254);
+  }
+
+  .wiki-event-platform {
+    background: rgb(46 16 101);
+    color: rgb(237 233 254);
+  }
+
+  .wiki-media-card {
+    border-color: rgb(31 41 55);
+    background: rgb(17 24 39);
+  }
+
+  .wiki-media-actions button,
+  .wiki-media-actions a {
+    border-color: rgb(55 65 81);
+    background: rgb(31 41 55);
+    color: rgb(229 231 235);
+  }
+
+  .wiki-media-actions button:hover,
+  .wiki-media-actions a:hover {
     background: rgb(46 16 101);
     color: rgb(237 233 254);
   }
@@ -891,6 +1139,126 @@ html.dark {
     background: rgb(17 24 39);
     color: rgb(209 213 219);
   }
+}
+
+.profile-page {
+  max-width: 52rem;
+  margin: 0 auto;
+}
+
+.profile-cover {
+  min-height: 14rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background:
+    radial-gradient(circle at 15% 15%, color-mix(in srgb, var(--c-accent) 26%, transparent), transparent 32%),
+    linear-gradient(135deg, color-mix(in srgb, var(--c-accent) 20%, var(--c-surface)), var(--c-surface-muted));
+  background-position: center;
+  background-size: cover;
+}
+
+.profile-main {
+  display: flex;
+  align-items: end;
+  gap: 1rem;
+  margin-top: -2.25rem;
+  padding: 0 1rem;
+}
+
+.profile-avatar {
+  display: grid;
+  width: 5rem;
+  height: 5rem;
+  place-items: center;
+  border: 4px solid var(--c-bg);
+  border-radius: 999px;
+  background: var(--c-accent);
+  color: white;
+  font-size: 2rem;
+  font-weight: 800;
+}
+
+.profile-main h1 {
+  margin: 0;
+  color: var(--c-text);
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  font-weight: 800;
+  line-height: 1;
+}
+
+.profile-role {
+  margin-top: 0.35rem;
+  color: var(--c-text-muted);
+  text-transform: capitalize;
+}
+
+.profile-bio {
+  margin-top: 2rem;
+  padding: 0 1rem;
+}
+
+.profile-links {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1.5rem;
+  padding: 0 1rem;
+}
+
+.profile-links a {
+  display: flex;
+  min-height: 3rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  background: var(--c-surface);
+  color: var(--c-text);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.profile-links a:hover {
+  border-color: var(--c-accent);
+  background: var(--c-surface-muted);
+}
+
+.profile-section {
+  margin-top: 2.25rem;
+  padding: 0 1rem;
+}
+
+.profile-section h2 {
+  margin-bottom: 0.75rem;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.profile-page-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.75rem;
+}
+
+.profile-page-grid a {
+  display: grid;
+  gap: 0.35rem;
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius);
+  padding: 0.85rem;
+  background: var(--c-surface);
+  color: var(--c-text);
+  text-decoration: none;
+}
+
+.profile-page-grid a:hover {
+  border-color: var(--c-accent);
+}
+
+.profile-page-grid span {
+  color: var(--c-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
 }
 
 .page-tree-row,

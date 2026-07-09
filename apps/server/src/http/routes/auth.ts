@@ -273,7 +273,18 @@ export const createAuthRoutes = ({
           audit(logger, 'auth.profile.update', { userId: user.id })
           return { user: publicUser(user) }
         },
-        { body: t.Object({ name: t.Optional(t.String({ minLength: 1 })) }) },
+        {
+          body: t.Object({
+            name: t.Optional(t.String({ minLength: 1 })),
+            bio: t.Optional(t.String()),
+            coverUrl: t.Optional(t.String()),
+            links: t.Optional(t.Array(t.Object({
+              label: t.String(),
+              url: t.String(),
+            }))),
+            favoritePages: t.Optional(t.Array(t.String())),
+          }),
+        },
       )
 	      .put(
 	        '/api/auth/password',

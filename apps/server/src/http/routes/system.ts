@@ -1,8 +1,10 @@
+import { t } from 'elysia'
 import type { Principal, PublicSettings } from '@ts-wiki/core'
 import type { Env } from '../../env.ts'
 import type { Services } from '../../services/index.ts'
 import type { PageSummary, RecentChange } from '../../services/pages.ts'
 import type { BaseApp } from '../base.ts'
+import { unwrap } from '../errors.ts'
 
 const FEED_CACHE_TTL_MS = 60_000
 
@@ -152,8 +154,30 @@ export const createSystemRoutes = ({
     })
 
   return app
-    .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.4.15' }))
+    .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.4.16' }))
     .get('/api/settings/public', () => publicSettings())
+    .get(
+      '/api/unfurl',
+      async ({ query, services, principal }) => ({
+        preview: unwrap(await services.linkPreviews.unfurl(principal, query.url)),
+      }),
+      { query: t.Object({ url: t.String() }) },
+    )
+    .get(
+      '/api/youtube/latest',
+      async ({ query, services, principal }) => {
+        requirePageRead(principal)
+        return {
+          channel: unwrap(await services.linkPreviews.youtubeLatest(principal, query.channelId, query.limit)),
+        }
+      },
+      {
+        query: t.Object({
+          channelId: t.String(),
+          limit: t.Optional(t.Numeric()),
+        }),
+      },
+    )
     .get('/feed.xml', ({ principal }) => feedResponse(principal))
     .get('/sitemap.xml', () => sitemapResponse())
     .get('/robots.txt', () => robotsResponse())

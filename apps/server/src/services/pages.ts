@@ -60,6 +60,7 @@ export interface PageSummary {
   readonly status: Page['status']
   readonly labels: string
   readonly ownerId: string | null
+  readonly authorId: string | null
   readonly reviewAt: number | null
   readonly navOrder: number | null
   readonly pinned: boolean
@@ -395,6 +396,7 @@ export const createPageService = (
           status: pages.status,
           labels: pages.labels,
           ownerId: pages.ownerId,
+          authorId: pages.authorId,
           reviewAt: pages.reviewAt,
           navOrder: pages.navOrder,
           pinned: pages.pinned,
@@ -418,6 +420,7 @@ export const createPageService = (
           status: pages.status,
           labels: pages.labels,
           ownerId: pages.ownerId,
+          authorId: pages.authorId,
           reviewAt: pages.reviewAt,
           navOrder: pages.navOrder,
           pinned: pages.pinned,

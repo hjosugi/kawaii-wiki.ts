@@ -21,6 +21,10 @@ export const users = sqliteTable('users', {
   disabledAt: integer('disabled_at'),
   tokenInvalidBefore: integer('token_invalid_before').notNull().default(0),
   emailVerifiedAt: integer('email_verified_at'),
+  profileBio: text('profile_bio').notNull().default(''),
+  profileCoverUrl: text('profile_cover_url').notNull().default(''),
+  profileLinks: text('profile_links').notNull().default('[]'),
+  profileFavoritePages: text('profile_favorite_pages').notNull().default('[]'),
   createdAt: integer('created_at').notNull(),
 })
 
@@ -294,6 +298,25 @@ export const userPreferences = sqliteTable(
   ],
 )
 
+export const linkPreviews = sqliteTable(
+  'link_previews',
+  {
+    url: text('url').primaryKey(),
+    kind: text('kind', { enum: ['unfurl', 'youtube-latest'] }).notNull(),
+    provider: text('provider').notNull().default(''),
+    title: text('title').notNull().default(''),
+    description: text('description').notNull().default(''),
+    image: text('image'),
+    author: text('author'),
+    siteName: text('site_name'),
+    contentType: text('content_type'),
+    data: text('data').notNull().default('{}'),
+    fetchedAt: integer('fetched_at').notNull(),
+    expiresAt: integer('expires_at').notNull(),
+  },
+  (t) => [index('link_previews_expires_idx').on(t.expiresAt), index('link_previews_kind_idx').on(t.kind)],
+)
+
 export const assets = sqliteTable('assets', {
   id: text('id').primaryKey(),
   filename: text('filename').notNull(),
@@ -426,6 +449,7 @@ export type PageShare = typeof pageShares.$inferSelect
 export type PageTemplate = typeof pageTemplates.$inferSelect
 export type SiteSetting = typeof siteSettings.$inferSelect
 export type UserPreference = typeof userPreferences.$inferSelect
+export type LinkPreviewRow = typeof linkPreviews.$inferSelect
 export type Asset = typeof assets.$inferSelect
 export type WikiEventRow = typeof wikiEvents.$inferSelect
 export type RateLimitHit = typeof rateLimitHits.$inferSelect

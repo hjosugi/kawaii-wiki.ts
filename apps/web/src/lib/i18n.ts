@@ -114,9 +114,12 @@ export const messages = {
     toolbarMedia: 'Media',
     toolbarOrderedList: 'Numbered list',
     toolbarParagraph: 'Paragraph',
+    toolbarStream: 'Stream slot',
     toolbarTable: 'Table',
     toolbarText: 'Text',
+    toolbarTwitch: 'Twitch',
     toolbarUnorderedList: 'Bullet list',
+    toolbarYouTube: 'YouTube',
   },
   ja: {
     admin: '管理',
@@ -225,9 +228,12 @@ export const messages = {
     toolbarMedia: 'メディア',
     toolbarOrderedList: '番号リスト',
     toolbarParagraph: '本文',
+    toolbarStream: '配信枠',
     toolbarTable: '表',
     toolbarText: 'テキスト',
+    toolbarTwitch: 'Twitch',
     toolbarUnorderedList: '箇条書き',
+    toolbarYouTube: 'YouTube',
   },
 } as const satisfies Record<Locale, Record<string, string>>
 

@@ -21,6 +21,7 @@ import { createPasskeyService, type PasskeyService } from './passkeys.ts'
 import { createPageShareService, type PageShareService } from './shares.ts'
 import { createPageTemplateService, type PageTemplateService } from './templates.ts'
 import { createUserPreferenceService, type UserPreferenceService } from './preferences.ts'
+import { createLinkPreviewService, type LinkPreviewService } from './link-previews.ts'
 import { createMailService, type MailSender, type MailService } from './mail.ts'
 import { createAuthRecoveryService, type AuthRecoveryService } from './auth-recovery.ts'
 import { createApiKeyService, type ApiKeyService } from './api-keys.ts'
@@ -63,6 +64,7 @@ export interface Services {
   readonly shares: PageShareService
   readonly templates: PageTemplateService
   readonly preferences: UserPreferenceService
+  readonly linkPreviews: LinkPreviewService
   readonly mail: MailService
   readonly recovery: AuthRecoveryService
   readonly apiKeys: ApiKeyService
@@ -183,6 +185,10 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     shares: createPageShareService(db),
     templates: createPageTemplateService(db),
     preferences: createUserPreferenceService(db),
+    linkPreviews: createLinkPreviewService(db, {
+      fetcher: options.webhookFetcher,
+      resolver: options.webhookResolver ?? (options.webhookFetcher ? async () => ['93.184.216.34'] : undefined),
+    }),
     mail,
     recovery: createAuthRecoveryService(db, auth, mail),
     apiKeys: createApiKeyService(db, authz),
@@ -196,4 +202,4 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   }
 }
 
-export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, AuthProviderService, OidcService, PasskeyService, PageShareService, PageTemplateService, UserPreferenceService, MailService, MailSender, AuthRecoveryService, ApiKeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }
+export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, AuthProviderService, OidcService, PasskeyService, PageShareService, PageTemplateService, UserPreferenceService, LinkPreviewService, MailService, MailSender, AuthRecoveryService, ApiKeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }

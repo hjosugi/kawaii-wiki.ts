@@ -51,7 +51,17 @@ describe('CollabEditor', () => {
     pinia = createPinia()
     setActivePinia(pinia)
     const auth = useAuth()
-    auth.user = { id: 'u1', email: 'ada@example.com', name: 'Ada', role: 'editor', totpEnabled: false }
+    auth.user = {
+      id: 'u1',
+      email: 'ada@example.com',
+      name: 'Ada',
+      role: 'editor',
+      totpEnabled: false,
+      profileBio: '',
+      profileCoverUrl: '',
+      profileLinks: [],
+      profileFavoritePages: [],
+    }
   })
 
   test('connects to the encoded room with the current auth token', async () => {

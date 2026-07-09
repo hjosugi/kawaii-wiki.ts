@@ -3,7 +3,7 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.4.15** — a small, complete, runnable wiki: first-run `/setup`,
+> **Status: v0.4.16** — a small, complete, runnable wiki: first-run `/setup`,
 > Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth, private-wiki mode, groups/page rules,
 > R2 assets, libSQL/Turso support, webhooks plus event automation, persisted page
@@ -11,7 +11,9 @@ Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type sa
 > accessible dialog/focus/graph behavior, reduced-motion handling, skeleton
 > loading states, runtime branding, configurable site locale/date defaults, and
 > non-engineer editing workflows with visual-first defaults, slash insert,
-> friendly errors, guide pages, path generation, crop/resize image upload, and
+> friendly errors, guide pages, path generation, crop/resize image upload,
+> decorated public profiles, privacy-friendly YouTube/Twitch embeds,
+> OG/oEmbed link cards, YouTube RSS latest-video widgets, VTuber templates, and
 > a typed API.
 
 ## Quick start
@@ -104,14 +106,14 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.15
+docker pull ghcr.io/hjosugi/ts-wiki:v0.4.16
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.15
+  ghcr.io/hjosugi/ts-wiki:v0.4.16
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS

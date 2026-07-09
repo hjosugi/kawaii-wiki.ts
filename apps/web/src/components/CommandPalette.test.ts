@@ -23,6 +23,7 @@ const page = (path: string, title = path): PageSummary => ({
   status: 'draft',
   labels: '[]',
   ownerId: null,
+  authorId: null,
   reviewAt: null,
   navOrder: null,
   pinned: false,

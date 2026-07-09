@@ -1,6 +1,6 @@
 import type { Directive } from 'vue'
 import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
-import { Api, type PublicSettings } from './api'
+import { Api, type PublicSettings, type YoutubeLatestVideo } from './api'
 import { enhanceCodeBlocks } from './codeCopy'
 
 export type MarkdownFeatureSettings = Pick<
@@ -155,9 +155,137 @@ const enhanceMermaid = async (root: HTMLElement): Promise<void> => {
   }
 }
 
+const iframeAttrs = {
+  allow: 'accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share',
+  referrerPolicy: 'strict-origin-when-cross-origin',
+} as const
+
+const activateMediaCard = (card: HTMLElement): void => {
+  if (card.dataset.mediaLoaded === '1') return
+  const provider = card.dataset.wikiMedia
+  let src = ''
+  if (provider === 'youtube') {
+    const sourceUrl = card.dataset.sourceUrl
+    if (!sourceUrl) return
+    const url = new URL(sourceUrl)
+    url.searchParams.set('autoplay', '1')
+    src = url.toString()
+  } else if (provider === 'twitch') {
+    const sourceType = card.dataset.sourceType
+    const sourceId = card.dataset.sourceId
+    if (!sourceType || !sourceId) return
+    const parent = window.location.hostname || 'localhost'
+    const params = new URLSearchParams({ parent })
+    if (sourceType === 'channel') {
+      params.set('channel', sourceId)
+      src = `https://player.twitch.tv/?${params.toString()}`
+    } else if (sourceType === 'video') {
+      params.set('video', sourceId)
+      src = `https://player.twitch.tv/?${params.toString()}`
+    } else if (sourceType === 'clip') {
+      params.set('clip', sourceId)
+      src = `https://clips.twitch.tv/embed?${params.toString()}`
+    }
+  }
+  if (!src) return
+  const frame = document.createElement('iframe')
+  frame.src = src
+  frame.loading = 'lazy'
+  frame.allow = iframeAttrs.allow
+  frame.referrerPolicy = iframeAttrs.referrerPolicy
+  frame.allowFullscreen = true
+  frame.title = card.querySelector('h3')?.textContent || `${provider} embed`
+  const preview = card.querySelector<HTMLElement>('.wiki-media-preview')
+  if (!preview) return
+  preview.replaceChildren(frame)
+  preview.removeAttribute('aria-hidden')
+  card.dataset.mediaLoaded = '1'
+  card.classList.add('wiki-media-loaded')
+}
+
+const enhanceMediaCards = (root: HTMLElement): void => {
+  for (const card of Array.from(root.querySelectorAll<HTMLElement>('[data-wiki-media]'))) {
+    if (card.dataset.mediaEnhanced === '1') continue
+    const button = card.querySelector<HTMLButtonElement>('[data-wiki-media-load]')
+    button?.addEventListener('click', () => activateMediaCard(card))
+    card.dataset.mediaEnhanced = '1'
+  }
+}
+
+const formatVideoDate = (value: string): string => {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(date)
+}
+
+const videoCard = (video: YoutubeLatestVideo): HTMLElement => {
+  const link = document.createElement('a')
+  link.className = 'wiki-youtube-latest-card'
+  link.href = video.url
+  link.target = '_blank'
+  link.rel = 'noopener noreferrer'
+  if (video.thumbnail) {
+    const media = document.createElement('span')
+    media.className = 'wiki-youtube-latest-thumb'
+    const image = document.createElement('img')
+    image.src = video.thumbnail
+    image.alt = ''
+    image.loading = 'lazy'
+    image.referrerPolicy = 'no-referrer'
+    media.append(image)
+    link.append(media)
+  }
+  const body = document.createElement('span')
+  body.className = 'wiki-youtube-latest-body'
+  const title = document.createElement('span')
+  title.className = 'wiki-youtube-latest-title'
+  title.textContent = video.title
+  body.append(title)
+  const meta = [video.author, formatVideoDate(video.publishedAt)].filter(Boolean).join(' · ')
+  if (meta) {
+    const metaEl = document.createElement('span')
+    metaEl.className = 'wiki-youtube-latest-meta'
+    metaEl.textContent = meta
+    body.append(metaEl)
+  }
+  link.append(body)
+  return link
+}
+
+const enhanceYoutubeLatest = (root: HTMLElement): void => {
+  for (const widget of Array.from(root.querySelectorAll<HTMLElement>('[data-youtube-latest]'))) {
+    if (widget.dataset.youtubeLatestEnhanced === '1') continue
+    widget.dataset.youtubeLatestEnhanced = '1'
+    const channelId = widget.dataset.channelId
+    const limit = Number.parseInt(widget.dataset.limit ?? '6', 10)
+    const items = widget.querySelector<HTMLElement>('[data-youtube-latest-items]')
+    if (!channelId || !items) continue
+    void Api.youtubeLatest(channelId, Number.isFinite(limit) ? limit : 6)
+      .then((channel) => {
+        items.replaceChildren()
+        if (!channel.videos.length) {
+          const empty = document.createElement('p')
+          empty.className = 'wiki-media-note'
+          empty.textContent = 'No videos found.'
+          items.append(empty)
+          return
+        }
+        for (const video of channel.videos) items.append(videoCard(video))
+      })
+      .catch(() => {
+        const error = document.createElement('p')
+        error.className = 'wiki-media-note'
+        error.textContent = 'Could not load latest videos.'
+        items.replaceChildren(error)
+      })
+  }
+}
+
 export const enhanceRenderedMarkdown = (root: HTMLElement, settings: MarkdownFeatureSettings = defaultMarkdownFeatureSettings): void => {
   enhanceCodeBlocks(root)
   enhanceTabs(root)
+  enhanceMediaCards(root)
+  enhanceYoutubeLatest(root)
   if (settings.enableMath && root.querySelector('.katex')) void ensureKatexCss()
   if (settings.enableMermaid) void enhanceMermaid(root)
 }

@@ -105,6 +105,29 @@ export interface PublicUser {
   name: string
   role: 'admin' | 'editor' | 'viewer'
   totpEnabled: boolean
+  profileBio: string
+  profileCoverUrl: string
+  profileLinks: ProfileLink[]
+  profileFavoritePages: string[]
+}
+export interface ProfileLink {
+  label: string
+  url: string
+}
+export interface PublicUserProfile {
+  id: string
+  name: string
+  role: 'admin' | 'editor' | 'viewer'
+  profileBio: string
+  profileCoverUrl: string
+  profileLinks: ProfileLink[]
+  profileFavoritePages: string[]
+  createdAt: number
+}
+export interface UserProfileResponse {
+  profile: PublicUserProfile
+  favoritePages: PageSummary[]
+  authoredPages: PageSummary[]
 }
 export interface PasskeyView {
   id: string
@@ -128,12 +151,12 @@ export interface Page {
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
   labels: string
   ownerId: string | null
+  authorId: string | null
   reviewAt: number | null
   navOrder: number | null
   pinned: boolean
   spaceKey: string
   locale: string
-  authorId: string | null
   createdAt: number
   updatedAt: number
 }
@@ -149,6 +172,7 @@ export interface PageSummary {
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
   labels: string
   ownerId: string | null
+  authorId: string | null
   reviewAt: number | null
   navOrder: number | null
   pinned: boolean
@@ -174,6 +198,32 @@ export interface PageTemplate {
   createdBy: string | null
   createdAt: number
   updatedAt: number
+}
+export interface LinkPreviewView {
+  url: string
+  provider: string
+  title: string
+  description: string
+  image: string | null
+  author: string | null
+  siteName: string | null
+  contentType: string | null
+  fetchedAt: number
+  expiresAt: number
+}
+export interface YoutubeLatestVideo {
+  id: string
+  title: string
+  url: string
+  author: string
+  publishedAt: string
+  thumbnail: string | null
+}
+export interface YoutubeLatestView {
+  channelId: string
+  videos: YoutubeLatestVideo[]
+  fetchedAt: number
+  expiresAt: number
 }
 export interface PageSpace {
   key: string
@@ -508,6 +558,12 @@ export interface TwoFactorSetupRequiredResult {
 export const Api = {
   health: () => call<{ ok: true; name: string; version: string }>(client().api.health.get()),
   publicSettings: () => call<PublicSettings>(client().api.settings.public.get()),
+  unfurl: (url: string) =>
+    call<{ preview: LinkPreviewView }>(client().api.unfurl.get({ query: { url } })).then((d) => d.preview),
+  youtubeLatest: (channelId: string, limit?: number) =>
+    call<{ channel: YoutubeLatestView }>(
+      client().api.youtube.latest.get({ query: { channelId, ...(limit ? { limit } : {}) } }),
+    ).then((d) => d.channel),
   setupStatus: () => call<SetupStatus>(client().api.setup.status.get()),
   completeSetup: (body: SetupInput) => call<SetupResult>(client().api.setup.complete.post(body)),
   realtimeTicket: () => call<RealtimeTicket>(client().api.realtime.ticket.post()),
@@ -530,8 +586,16 @@ export const Api = {
     call<{ preferences: UserPreferenceMap }>(client().api.me.preferences.get()).then((d) => d.preferences),
   updatePreferences: (preferences: UserPreferenceMap) =>
     call<{ preferences: UserPreferenceMap }>(client().api.me.preferences.put({ preferences })).then((d) => d.preferences),
-  updateProfile: (body: { name?: string }) =>
+  updateProfile: (body: {
+    name?: string
+    bio?: string
+    coverUrl?: string
+    links?: ProfileLink[]
+    favoritePages?: string[]
+  }) =>
     call<{ user: PublicUser }>(client().api.auth.profile.put(body)).then((d) => d.user),
+  userProfile: (id: string) =>
+    call<UserProfileResponse>(client().api.users({ id }).profile.get()),
   changePassword: (body: { currentPassword: string; newPassword: string }) =>
     call<{ user: PublicUser }>(client().api.auth.password.put(body)).then((d) => d.user),
   authProviders: () =>

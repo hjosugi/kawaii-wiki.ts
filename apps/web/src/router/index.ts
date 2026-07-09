@@ -16,6 +16,7 @@ export const routes: RouteRecordRaw[] = [
   { path: '/_links', name: 'links', component: () => import('@/views/LinksView.vue') },
   { path: '/_changes', name: 'changes', component: () => import('@/views/ChangesView.vue') },
   { path: '/_share/:token', name: 'shared', component: () => import('@/views/SharedPageView.vue') },
+  { path: '/_u/:id', name: 'user-profile', component: () => import('@/views/UserProfileView.vue') },
   { path: '/_redirects', name: 'redirects', component: () => import('@/components/admin/AdminRedirectsPanel.vue'), meta: { requiresEdit: true } },
   { path: '/_templates', name: 'templates', component: () => import('@/views/PageTemplatesView.vue'), meta: { requiresEdit: true } },
   { path: '/_admin', name: 'admin', component: () => import('@/views/AdminView.vue'), meta: { requiresAdmin: true } },

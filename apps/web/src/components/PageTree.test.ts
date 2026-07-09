@@ -28,6 +28,7 @@ const page = (
   status: 'draft',
   labels: '[]',
   ownerId: null,
+  authorId: null,
   reviewAt: null,
   navOrder: options.navOrder ?? null,
   pinned: options.pinned ?? false,
@@ -75,6 +76,10 @@ const mountTree = async (pages: PageSummary[], authenticated = false) => {
       name: 'User',
       role: 'viewer',
       totpEnabled: false,
+      profileBio: '',
+      profileCoverUrl: '',
+      profileLinks: [],
+      profileFavoritePages: [],
     }
   }
   return mount(PageTree, { props: { pages }, global: { plugins: [pinia, router] } })

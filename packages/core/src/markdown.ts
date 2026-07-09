@@ -72,6 +72,8 @@ export interface CalendarEvent {
   readonly timezone?: string
   readonly location?: string
   readonly url?: string
+  readonly platform?: string
+  readonly channelUrl?: string
   readonly description?: string
 }
 
@@ -86,9 +88,12 @@ const escapeHtml = (s: string): string =>
 
 const escapeAttr = (s: string): string => escapeHtml(s).replace(/'/g, '&#39;')
 
-const EVENT_KEYS = new Set(['title', 'start', 'end', 'timezone', 'location', 'url', 'description'])
+const EVENT_KEYS = new Set(['title', 'start', 'end', 'timezone', 'location', 'url', 'platform', 'channelurl', 'description'])
 const CALLOUT_KEYS = new Set(['type', 'title'])
-const EMBED_KEYS = new Set(['url', 'title', 'description'])
+const EMBED_KEYS = new Set(['url', 'title', 'description', 'image', 'site', 'author', 'provider'])
+const YOUTUBE_KEYS = new Set(['url', 'id', 'title'])
+const TWITCH_KEYS = new Set(['url', 'channel', 'video', 'clip', 'title'])
+const YOUTUBE_LATEST_KEYS = new Set(['channel', 'channelid', 'limit', 'title'])
 
 const parseDateParts = (value: string): { date: string; time?: string } | null => {
   const trimmed = value.trim()
@@ -166,6 +171,8 @@ export const parseCalendarEventBlock = (content: string): CalendarEvent | null =
     timezone: data.get('timezone'),
     location: data.get('location'),
     url: data.get('url'),
+    platform: data.get('platform'),
+    channelUrl: data.get('channelurl'),
     description: data.get('description'),
   }
 }
@@ -181,6 +188,8 @@ export const calendarEventToFence = (event: CalendarEvent): string => {
     event.timezone ? `timezone: ${flattenFenceValue(event.timezone)}` : '',
     event.location ? `location: ${flattenFenceValue(event.location)}` : '',
     event.url ? `url: ${flattenFenceValue(event.url)}` : '',
+    event.platform ? `platform: ${flattenFenceValue(event.platform)}` : '',
+    event.channelUrl ? `channelUrl: ${flattenFenceValue(event.channelUrl)}` : '',
     event.description ? `description: ${flattenFenceValue(event.description)}` : '',
     '```',
   ].filter(Boolean)
@@ -375,6 +384,7 @@ const renderEventCard = (content: string, dateTime: MarkdownDateTimeOptions = {}
   const when = end ? `${start} → ${end}` : start
   const details = [
     event.location ? `<div><span>Location</span><strong>${escapeHtml(event.location)}</strong></div>` : '',
+    event.platform ? `<div><span>Platform</span><strong><span class="wiki-event-platform">${escapeHtml(event.platform)}</span></strong></div>` : '',
     event.url
       ? `<div><span>Link</span><strong><a href="${escapeAttr(event.url)}" rel="noopener noreferrer">${escapeHtml(event.url)}</a></strong></div>`
       : '',
@@ -391,6 +401,7 @@ const renderEventCard = (content: string, dateTime: MarkdownDateTimeOptions = {}
     <div class="wiki-event-actions">
       <a href="${escapeAttr(googleCalendarUrl(event, dateTime))}" target="_blank" rel="noopener noreferrer">Google Calendar</a>
       <a href="${escapeAttr(icsDataUrl(event))}" download="${escapeAttr(slugifyHeading(event.title) || 'event')}.ics">Download .ics</a>
+      ${event.channelUrl && /^https?:\/\//i.test(event.channelUrl) ? `<a href="${escapeAttr(event.channelUrl)}" target="_blank" rel="noopener noreferrer">Watch stream</a>` : ''}
     </div>
   </section>`
 }
@@ -602,12 +613,168 @@ const renderEmbedBlock = (content: string): string | null => {
   if (!url || !/^https?:\/\//i.test(url)) return null
   const title = fields.get('title') || url
   const description = fields.get('description')
+  const image = fields.get('image')
+  const site = fields.get('site')
+  const author = fields.get('author')
+  const detected = detectProvider(url)
+  const provider = (fields.get('provider') || detected?.cls || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  const classes = ['wiki-embed', provider ? `wiki-embed-${provider}` : ''].filter(Boolean).join(' ')
+  const safeImage = image && (/^https?:\/\//i.test(image) || image.startsWith('/')) ? image : null
+  const meta = [site || detected?.name, author].filter(Boolean).join(' · ')
 
-  return `<a class="wiki-embed" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">
-    <span class="wiki-embed-title">${escapeHtml(title)}</span>
-    ${description ? `<span class="wiki-embed-description">${escapeHtml(description)}</span>` : ''}
-    <span class="wiki-embed-url">${escapeHtml(url)}</span>
+  return `<a class="${escapeAttr(classes)}" href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">
+    ${safeImage ? `<span class="wiki-embed-media"><img src="${escapeAttr(safeImage)}" alt="" loading="lazy" referrerpolicy="no-referrer"></span>` : ''}
+    <span class="wiki-embed-body">
+      ${meta ? `<span class="wiki-embed-meta">${escapeHtml(meta)}</span>` : ''}
+      <span class="wiki-embed-title">${escapeHtml(title)}</span>
+      ${description ? `<span class="wiki-embed-description">${escapeHtml(description)}</span>` : ''}
+      <span class="wiki-embed-url">${escapeHtml(url)}</span>
+    </span>
   </a>`
+}
+
+const youtubeIdFromUrl = (url: string): string | null => {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (host === 'youtu.be') return cleanYoutubeId(parsed.pathname.slice(1).split('/')[0] ?? '')
+    if (!/(^|\.)youtube\.com$/.test(host)) return null
+    const path = parsed.pathname.split('/').filter(Boolean)
+    if (parsed.pathname === '/watch') return cleanYoutubeId(parsed.searchParams.get('v') ?? '')
+    if (path[0] === 'shorts' || path[0] === 'embed' || path[0] === 'live') return cleanYoutubeId(path[1] ?? '')
+    return null
+  } catch {
+    return null
+  }
+}
+
+const cleanYoutubeId = (value: string): string | null => {
+  const trimmed = value.trim()
+  return /^[A-Za-z0-9_-]{11}$/.test(trimmed) ? trimmed : null
+}
+
+const renderMediaCard = (
+  provider: 'youtube' | 'twitch',
+  title: string,
+  label: string,
+  href: string,
+  attrs: Record<string, string>,
+): string => {
+  const dataAttrs = Object.entries(attrs)
+    .map(([key, value]) => ` data-${key}="${escapeAttr(value)}"`)
+    .join('')
+  return `<section class="wiki-media-card wiki-media-${provider}" data-wiki-media="${provider}"${dataAttrs}>
+    <div class="wiki-media-preview" aria-hidden="true">
+      <span>${escapeHtml(provider === 'youtube' ? 'YouTube' : 'Twitch')}</span>
+    </div>
+    <div class="wiki-media-body">
+      <p class="wiki-media-kicker">${escapeHtml(provider === 'youtube' ? 'YouTube embed' : 'Twitch embed')}</p>
+      <h3>${escapeHtml(title)}</h3>
+      <p class="wiki-media-note">External player loads only after activation.</p>
+      <div class="wiki-media-actions">
+        <button type="button" data-wiki-media-load="${provider}">Load ${escapeHtml(label)}</button>
+        <a href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">Open on ${escapeHtml(provider === 'youtube' ? 'YouTube' : 'Twitch')}</a>
+      </div>
+    </div>
+  </section>`
+}
+
+const renderYoutubeBlock = (content: string): string | null => {
+  const { fields, body } = parseKeyedBlock(content, YOUTUBE_KEYS)
+  const candidate = fields.get('url') ?? fields.get('id') ?? body.split(/\s+/).find(Boolean) ?? ''
+  const id = /^https?:\/\//i.test(candidate) ? youtubeIdFromUrl(candidate) : cleanYoutubeId(candidate)
+  if (!id) return null
+  const href = `https://www.youtube.com/watch?v=${encodeURIComponent(id)}`
+  const embedSrc = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(id)}`
+  const title = fields.get('title') || `YouTube video ${id}`
+  return renderMediaCard('youtube', title, 'video', href, {
+    provider: 'youtube',
+    'video-id': id,
+    'source-url': embedSrc,
+    'embed-host': 'www.youtube-nocookie.com',
+  })
+}
+
+const renderYoutubeLatestBlock = (content: string): string | null => {
+  const { fields, body } = parseKeyedBlock(content, YOUTUBE_LATEST_KEYS)
+  const channelId = (fields.get('channelid') ?? fields.get('channel') ?? body.split(/\s+/).find(Boolean) ?? '').trim()
+  if (!/^UC[A-Za-z0-9_-]{10,}$/.test(channelId)) return null
+  const rawLimit = Number.parseInt(fields.get('limit') ?? '', 10)
+  const limit = Number.isFinite(rawLimit) ? Math.max(1, Math.min(rawLimit, 12)) : 6
+  const title = fields.get('title') || 'Latest YouTube videos'
+  return `<section class="wiki-youtube-latest" data-youtube-latest data-channel-id="${escapeAttr(channelId)}" data-limit="${String(limit)}">
+    <div class="wiki-youtube-latest-header">
+      <p class="wiki-media-kicker">YouTube RSS</p>
+      <h3>${escapeHtml(title)}</h3>
+    </div>
+    <div class="wiki-youtube-latest-items" data-youtube-latest-items>
+      <p class="wiki-media-note">Loading latest videos...</p>
+    </div>
+  </section>`
+}
+
+interface TwitchSource {
+  readonly kind: 'channel' | 'video' | 'clip'
+  readonly value: string
+  readonly href: string
+}
+
+const cleanTwitchValue = (value: string): string | null => {
+  const trimmed = value.trim().replace(/^@/, '')
+  return /^[A-Za-z0-9_-]{1,80}$/.test(trimmed) ? trimmed : null
+}
+
+const twitchSourceFromUrl = (url: string): TwitchSource | null => {
+  try {
+    const parsed = new URL(url)
+    const host = parsed.hostname.toLowerCase().replace(/^www\./, '')
+    if (!/(^|\.)twitch\.tv$/.test(host)) return null
+    const path = parsed.pathname.split('/').filter(Boolean)
+    if (host === 'clips.twitch.tv') {
+      const value = cleanTwitchValue(path[0] ?? '')
+      return value ? { kind: 'clip', value, href: `https://clips.twitch.tv/${value}` } : null
+    }
+    if (path[0] === 'videos') {
+      const value = cleanTwitchValue(path[1] ?? '')
+      return value ? { kind: 'video', value, href: `https://www.twitch.tv/videos/${value}` } : null
+    }
+    if (path[1] === 'clip') {
+      const value = cleanTwitchValue(path[2] ?? '')
+      return value ? { kind: 'clip', value, href: `https://www.twitch.tv/${path[0]}/clip/${value}` } : null
+    }
+    const value = cleanTwitchValue(path[0] ?? '')
+    return value ? { kind: 'channel', value, href: `https://www.twitch.tv/${value}` } : null
+  } catch {
+    return null
+  }
+}
+
+const twitchSourceFromFields = (fields: Map<string, string>, body: string): TwitchSource | null => {
+  const url = fields.get('url')
+  if (url) return twitchSourceFromUrl(url)
+  const video = cleanTwitchValue(fields.get('video') ?? '')
+  if (video) return { kind: 'video', value: video, href: `https://www.twitch.tv/videos/${video}` }
+  const clip = cleanTwitchValue(fields.get('clip') ?? '')
+  if (clip) return { kind: 'clip', value: clip, href: `https://clips.twitch.tv/${clip}` }
+  const channel = cleanTwitchValue(fields.get('channel') ?? body.split(/\s+/).find(Boolean) ?? '')
+  return channel ? { kind: 'channel', value: channel, href: `https://www.twitch.tv/${channel}` } : null
+}
+
+const renderTwitchBlock = (content: string): string | null => {
+  const { fields, body } = parseKeyedBlock(content, TWITCH_KEYS)
+  const source = twitchSourceFromFields(fields, body)
+  if (!source) return null
+  const title = fields.get('title') || `Twitch ${source.kind} ${source.value}`
+  return renderMediaCard('twitch', title, source.kind, source.href, {
+    provider: 'twitch',
+    'source-type': source.kind,
+    'source-id': source.value,
+    'source-url': source.href,
+    'parent-policy': 'current-host',
+  })
 }
 
 const renderMermaidBlock = (content: string): string =>
@@ -691,6 +858,9 @@ const builtinFenceRenderers = new Map<string, FenceRenderer>([
   ['links', (content) => renderLinksBlock(content)],
   ['social', (content) => renderLinksBlock(content)],
   ['embed', (content) => renderEmbedBlock(content)],
+  ['youtube', (content) => renderYoutubeBlock(content)],
+  ['youtube-latest', (content) => renderYoutubeLatestBlock(content)],
+  ['twitch', (content) => renderTwitchBlock(content)],
   ['mermaid', (content) => renderMermaidBlock(content)],
   ['tabs', (content, _info, renderer) => renderTabsBlock(content, renderer)],
 ])

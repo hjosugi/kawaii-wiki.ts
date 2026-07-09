@@ -7,9 +7,15 @@ import Skeleton from '@/components/Skeleton.vue'
 const events = ref<ExtractedCalendarEvent[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
+const filter = ref<'all' | 'streams'>('all')
 const now = computed(() => new Date().toISOString().slice(0, 10))
-const upcoming = computed(() => events.value.filter((event) => event.start >= now.value))
-const past = computed(() => events.value.filter((event) => event.start < now.value).reverse())
+const filteredEvents = computed(() =>
+  filter.value === 'streams'
+    ? events.value.filter((event) => event.platform || event.channelUrl)
+    : events.value,
+)
+const upcoming = computed(() => filteredEvents.value.filter((event) => event.start >= now.value))
+const past = computed(() => filteredEvents.value.filter((event) => event.start < now.value).reverse())
 
 const icsUrl = (event: ExtractedCalendarEvent): string =>
   `data:text/calendar;charset=utf-8,${encodeURIComponent(calendarEventToIcs(event))}`
@@ -36,7 +42,29 @@ watch(now, load, { immediate: true })
         <h1 class="text-3xl font-bold tracking-tight">Events</h1>
         <p class="mt-1 text-sm text-[var(--c-text-muted)]">Event fences across pages</p>
       </div>
-      <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="inline-flex overflow-hidden rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)]">
+          <button
+            class="px-3 py-1.5 text-sm font-medium"
+            :class="filter === 'all' ? 'bg-[var(--c-accent)] text-white' : 'text-[var(--c-text-muted)]'"
+            type="button"
+            :aria-pressed="filter === 'all'"
+            @click="filter = 'all'"
+          >
+            All
+          </button>
+          <button
+            class="px-3 py-1.5 text-sm font-medium"
+            :class="filter === 'streams' ? 'bg-[var(--c-accent)] text-white' : 'text-[var(--c-text-muted)]'"
+            type="button"
+            :aria-pressed="filter === 'streams'"
+            @click="filter = 'streams'"
+          >
+            Streams
+          </button>
+        </div>
+        <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
+      </div>
     </div>
 
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
@@ -56,8 +84,12 @@ watch(now, load, { immediate: true })
             <template v-if="event.timezone"> {{ event.timezone }}</template>
           </p>
           <p v-if="event.location" class="text-sm text-gray-500 truncate">{{ event.location }}</p>
+          <p v-if="event.platform" class="mt-2 inline-flex rounded-full bg-[color-mix(in_srgb,var(--c-accent)_12%,var(--c-surface-muted))] px-2 py-0.5 text-xs font-semibold text-[var(--c-accent)]">
+            {{ event.platform }}
+          </p>
         </div>
         <div class="flex flex-wrap gap-2">
+          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">Watch</a>
           <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">Page</RouterLink>
           <a class="btn-ghost" :href="icsUrl(event)" :download="`${event.title}.ics`">.ics</a>
         </div>
@@ -73,12 +105,17 @@ watch(now, load, { immediate: true })
       >
         <div class="min-w-0">
           <h3 class="font-medium truncate">{{ event.title }}</h3>
-          <p class="text-sm text-gray-500">{{ event.start }}</p>
+          <p class="text-sm text-gray-500">
+            {{ event.start }}<template v-if="event.platform"> · {{ event.platform }}</template>
+          </p>
         </div>
-        <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">Page</RouterLink>
+        <div class="flex flex-wrap gap-2">
+          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">Watch</a>
+          <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">Page</RouterLink>
+        </div>
       </div>
     </section>
 
-    <p v-if="!loading && !events.length" class="text-gray-500">No events yet.</p>
+    <p v-if="!loading && !filteredEvents.length" class="text-gray-500">{{ filter === 'streams' ? 'No streams yet.' : 'No events yet.' }}</p>
   </div>
 </template>

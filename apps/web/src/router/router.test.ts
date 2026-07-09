@@ -68,7 +68,17 @@ describe('router auth guard', () => {
   test('allows editors to open edit/template routes but keeps admin routes admin-only', async () => {
     const auth = useAuth()
     auth.ready = true
-    auth.user = { id: 'u1', email: 'u@example.com', name: 'Editor', role: 'editor', totpEnabled: false }
+    auth.user = {
+      id: 'u1',
+      email: 'u@example.com',
+      name: 'Editor',
+      role: 'editor',
+      totpEnabled: false,
+      profileBio: '',
+      profileCoverUrl: '',
+      profileLinks: [],
+      profileFavoritePages: [],
+    }
     const router = createWikiRouter()
 
     await router.push('/_edit/docs/page')
