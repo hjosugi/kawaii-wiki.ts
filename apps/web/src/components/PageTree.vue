@@ -19,6 +19,7 @@ interface TreeRow {
   key: string
   label: string
   path: string
+  icon: string
   depth: number
   isPage: boolean
   hasChildren: boolean
@@ -307,6 +308,7 @@ const rows = computed<TreeRow[]>(() => {
         key: child.key,
         label: child.label,
         path: child.path,
+        icon: child.page?.icon ?? '',
         depth,
         isPage: Boolean(child.page),
         hasChildren: child.children.size > 0,
@@ -331,7 +333,8 @@ const rows = computed<TreeRow[]>(() => {
         class="page-tree-row"
         active-class="page-tree-row-active"
       >
-        {{ page.title }}
+        <span v-if="page.icon" aria-hidden="true">{{ page.icon }}</span>
+        <span class="truncate">{{ page.title }}</span>
       </RouterLink>
     </section>
 
@@ -344,7 +347,8 @@ const rows = computed<TreeRow[]>(() => {
         class="page-tree-row"
         active-class="page-tree-row-active"
       >
-        {{ page.title }}
+        <span v-if="page.icon" aria-hidden="true">{{ page.icon }}</span>
+        <span class="truncate">{{ page.title }}</span>
       </RouterLink>
     </section>
 
@@ -377,6 +381,7 @@ const rows = computed<TreeRow[]>(() => {
           class="page-tree-row"
           active-class="page-tree-row-active"
         >
+          <span v-if="row.icon" class="shrink-0" aria-hidden="true">{{ row.icon }}</span>
           {{ row.label }}
         </RouterLink>
         <span v-else class="page-tree-folder">

@@ -94,6 +94,10 @@ const EMBED_KEYS = new Set(['url', 'title', 'description', 'image', 'site', 'aut
 const YOUTUBE_KEYS = new Set(['url', 'id', 'title'])
 const TWITCH_KEYS = new Set(['url', 'channel', 'video', 'clip', 'title'])
 const YOUTUBE_LATEST_KEYS = new Set(['channel', 'channelid', 'limit', 'title'])
+const HERO_KEYS = new Set(['title', 'subtitle', 'eyebrow', 'image', 'align'])
+const PAGES_KEYS = new Set(['title', 'paths', 'limit'])
+const RECENT_KEYS = new Set(['title', 'limit'])
+const POPULAR_KEYS = new Set(['title', 'limit', 'days'])
 
 const parseDateParts = (value: string): { date: string; time?: string } | null => {
   const trimmed = value.trim()
@@ -839,6 +843,98 @@ const renderTabsBlock = (content: string, renderer: MarkdownIt = md): string | n
   </div>`
 }
 
+const cleanWidgetInt = (value: string | undefined, fallback: number, min: number, max: number): number => {
+  const parsed = Number.parseInt(value ?? '', 10)
+  return Number.isFinite(parsed) ? Math.max(min, Math.min(parsed, max)) : fallback
+}
+
+const renderHeroBlock = (content: string, renderer: MarkdownIt = md): string | null => {
+  const { fields, body } = parseKeyedBlock(content, HERO_KEYS)
+  const title = fields.get('title')
+  if (!title) return null
+  const subtitle = fields.get('subtitle')
+  const eyebrow = fields.get('eyebrow')
+  const image = fields.get('image')
+  const align = fields.get('align') === 'center' ? 'center' : 'left'
+  const safeImage = image && isSafeMediaUrl(image) ? image : ''
+  const renderedBody = body ? renderer.render(body) : ''
+  return `<section class="wiki-landing-hero wiki-landing-hero-${escapeAttr(align)}">
+    ${safeImage ? `<img class="wiki-landing-hero-image" src="${escapeAttr(safeImage)}" alt="" loading="lazy" />` : ''}
+    <div class="wiki-landing-hero-body">
+      ${eyebrow ? `<p class="wiki-landing-eyebrow">${escapeHtml(eyebrow)}</p>` : ''}
+      <h2>${renderer.renderInline(title)}</h2>
+      ${subtitle ? `<p class="wiki-landing-subtitle">${renderer.renderInline(subtitle)}</p>` : ''}
+      ${renderedBody ? `<div class="wiki-landing-actions">${renderedBody}</div>` : ''}
+    </div>
+  </section>`
+}
+
+const cleanLandingPath = (value: string): string => {
+  const raw = value.trim().replace(/^\/+/, '').split(/[?#]/)[0] ?? ''
+  if (!raw || raw.startsWith('_') || raw.startsWith('assets/')) return ''
+  return raw
+    .split('/')
+    .map((segment) => slugifyHeading(segment))
+    .filter(Boolean)
+    .join('/')
+}
+
+const WIDGET_MD_LINK = /^\[([^\]]+)\]\(([^)]+)\)$/
+
+const parseWidgetPaths = (content: string, fields: Map<string, string>): string[] => {
+  const values = [
+    ...(fields.get('paths') ?? '').split(/[\s,]+/),
+    ...content.split(/\r?\n/).flatMap((line) => {
+      const trimmed = line.trim()
+      if (!trimmed) return []
+      const match = trimmed.match(WIDGET_MD_LINK)
+      return [match ? match[2]! : trimmed]
+    }),
+  ]
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const value of values) {
+    const path = cleanLandingPath(value)
+    if (!path || seen.has(path)) continue
+    seen.add(path)
+    out.push(path)
+  }
+  return out.slice(0, 24)
+}
+
+const renderPagesWidgetBlock = (content: string): string | null => {
+  const { fields, body } = parseKeyedBlock(content, PAGES_KEYS)
+  const paths = parseWidgetPaths(body, fields)
+  if (!paths.length) return null
+  const title = fields.get('title') || 'Pages'
+  const limit = cleanWidgetInt(fields.get('limit'), paths.length, 1, 24)
+  return `<section class="wiki-page-widget" data-wiki-pages data-title="${escapeAttr(title)}" data-paths="${escapeAttr(JSON.stringify(paths.slice(0, limit)))}">
+    <div class="wiki-page-widget-header"><h3>${escapeHtml(title)}</h3></div>
+    <div class="wiki-page-grid" data-wiki-page-grid><p class="wiki-media-note">Loading pages...</p></div>
+  </section>`
+}
+
+const renderRecentWidgetBlock = (content: string): string | null => {
+  const { fields } = parseKeyedBlock(content, RECENT_KEYS)
+  const title = fields.get('title') || 'Recent changes'
+  const limit = cleanWidgetInt(fields.get('limit'), 6, 1, 20)
+  return `<section class="wiki-page-widget" data-wiki-recent data-title="${escapeAttr(title)}" data-limit="${String(limit)}">
+    <div class="wiki-page-widget-header"><h3>${escapeHtml(title)}</h3></div>
+    <div class="wiki-activity-list" data-wiki-recent-items><p class="wiki-media-note">Loading recent changes...</p></div>
+  </section>`
+}
+
+const renderPopularWidgetBlock = (content: string): string | null => {
+  const { fields } = parseKeyedBlock(content, POPULAR_KEYS)
+  const title = fields.get('title') || 'Popular pages'
+  const limit = cleanWidgetInt(fields.get('limit'), 6, 1, 20)
+  const days = cleanWidgetInt(fields.get('days'), 7, 1, 365)
+  return `<section class="wiki-page-widget" data-wiki-popular data-title="${escapeAttr(title)}" data-limit="${String(limit)}" data-days="${String(days)}">
+    <div class="wiki-page-widget-header"><h3>${escapeHtml(title)}</h3><p>${days} days</p></div>
+    <div class="wiki-page-grid" data-wiki-popular-items><p class="wiki-media-note">Loading popular pages...</p></div>
+  </section>`
+}
+
 const headingLevel = (tag: string): number => Number.parseInt(tag.slice(1), 10) || 0
 
 const WIKI_LINK = /\[\[([^\]|]+)(?:\|([^\]]+))?\]\]/g
@@ -863,6 +959,10 @@ const builtinFenceRenderers = new Map<string, FenceRenderer>([
   ['twitch', (content) => renderTwitchBlock(content)],
   ['mermaid', (content) => renderMermaidBlock(content)],
   ['tabs', (content, _info, renderer) => renderTabsBlock(content, renderer)],
+  ['hero', (content, _info, renderer) => renderHeroBlock(content, renderer)],
+  ['pages', (content) => renderPagesWidgetBlock(content)],
+  ['recent', (content) => renderRecentWidgetBlock(content)],
+  ['popular', (content) => renderPopularWidgetBlock(content)],
 ])
 
 const registeredFenceRenderers = new Map<string, FenceRenderer>()

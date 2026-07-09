@@ -11,6 +11,7 @@ import {
   type Principal,
   type Result,
   type SettingsPatch,
+  type SiteBackground,
   type SiteSettingKey,
   type SiteSettings,
   err,
@@ -64,12 +65,41 @@ const cleanDateFormat = (value: string): SiteSettings['dateFormat'] =>
 const cleanEditorMode = (value: string): SiteSettings['defaultEditorMode'] =>
   value === 'markdown' || value === 'visual' ? value : 'visual'
 
+const cleanThemePreset = (value: string): SiteSettings['themePreset'] =>
+  value === 'kawaii' || value === 'pop' || value === 'minimal' || value === 'gamer' || value === 'custom'
+    ? value
+    : 'classic'
+
+const cleanFontFamily = (value: string): SiteSettings['fontFamily'] =>
+  value === 'rounded' || value === 'maru' || value === 'sans-jp' || value === 'serif' ? value : 'system'
+
 const cleanPositiveInteger = (value: number, fallback: number): number =>
   Number.isSafeInteger(value) && value > 0 ? value : fallback
 
 const cleanUrl = (value: string): string => {
   const clean = value.trim().slice(0, 500)
   return clean && (/^https?:\/\//i.test(clean) || clean.startsWith('/')) ? clean : ''
+}
+
+const cleanBackground = (value: SiteBackground | undefined, fallback: SiteBackground): SiteBackground => {
+  if (!value || typeof value !== 'object') return fallback
+  const type = value.type
+  const overlayOpacity = Math.max(0, Math.min(0.85, Number(value.overlayOpacity) || 0))
+  const raw = String(value.value ?? '').trim().slice(0, 500)
+  if (type === 'none') return { type: 'none', value: '', overlayOpacity: 0 }
+  if (type === 'image') return { type: 'image', value: cleanUrl(raw), overlayOpacity }
+  if (type === 'color') {
+    return /^#[0-9a-f]{6}$/i.test(raw) ? { type: 'color', value: raw, overlayOpacity } : fallback
+  }
+  if (type === 'pattern') {
+    const pattern = ['dots', 'grid', 'stars', 'diagonal'].includes(raw) ? raw : 'dots'
+    return { type: 'pattern', value: pattern, overlayOpacity }
+  }
+  if (type === 'gradient') {
+    const safe = /^[-#%,.() a-z0-9]+$/i.test(raw) && !/url|expression|;/i.test(raw) ? raw : ''
+    return safe ? { type: 'gradient', value: safe, overlayOpacity } : fallback
+  }
+  return fallback
 }
 
 const cleanNavLinks = (links: readonly NavLinkInput[] = [], depth = 0): NavLink[] =>
@@ -122,6 +152,15 @@ const parseStoredValue = (key: SiteSettingKey, value: string): unknown => {
   if (key === 'timezone') return cleanTimezone(value)
   if (key === 'dateFormat') return cleanDateFormat(value)
   if (key === 'defaultEditorMode') return cleanEditorMode(value)
+  if (key === 'themePreset') return cleanThemePreset(value)
+  if (key === 'fontFamily') return cleanFontFamily(value)
+  if (key === 'background') {
+    try {
+      return cleanBackground(JSON.parse(value) as SiteBackground, defaultSiteSettings().background)
+    } catch {
+      return defaultSiteSettings().background
+    }
+  }
   if (
     key === 'privateWiki'
     || key === 'requireEmailVerification'
@@ -152,6 +191,9 @@ const validatePatch = (
   if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
     return err(validationError('Unknown theme', 'theme'))
   }
+  const themePreset = patch.themePreset === undefined ? current.themePreset : cleanThemePreset(patch.themePreset)
+  const fontFamily = patch.fontFamily === undefined ? current.fontFamily : cleanFontFamily(patch.fontFamily)
+  const background = cleanBackground(patch.background, current.background)
   const registration = patch.registration ?? current.registration
   if (registration !== 'open' && registration !== 'off') {
     return err(validationError('Registration must be open or off', 'registration'))
@@ -184,6 +226,9 @@ const validatePatch = (
     siteTitle,
     accentColor,
     theme,
+    themePreset,
+    fontFamily,
+    background,
     registration,
     privateWiki: patch.privateWiki ?? current.privateWiki,
     requireEmailVerification: patch.requireEmailVerification ?? current.requireEmailVerification,
@@ -227,6 +272,9 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
       { key: 'siteTitle', value: settings.siteTitle, updatedAt: now },
       { key: 'accentColor', value: settings.accentColor, updatedAt: now },
       { key: 'theme', value: settings.theme, updatedAt: now },
+      { key: 'themePreset', value: settings.themePreset, updatedAt: now },
+      { key: 'fontFamily', value: settings.fontFamily, updatedAt: now },
+      { key: 'background', value: JSON.stringify(settings.background), updatedAt: now },
       { key: 'registration', value: settings.registration, updatedAt: now },
       { key: 'privateWiki', value: String(settings.privateWiki), updatedAt: now },
       { key: 'requireEmailVerification', value: String(settings.requireEmailVerification), updatedAt: now },

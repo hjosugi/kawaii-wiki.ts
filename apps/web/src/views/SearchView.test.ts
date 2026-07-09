@@ -18,6 +18,9 @@ vi.mock('@/lib/api', async (importOriginal) => {
 const hit = (path: string, title = path): SearchHit => ({
   path,
   title,
+  icon: '',
+  coverUrl: '',
+  coverPosition: 'center',
   snippet: '<mark>banana</mark>',
   rank: 0,
   kind: 'page',

@@ -75,4 +75,76 @@ limit: 1
     })
     expect(Api.youtubeLatest).toHaveBeenCalledWith('UCaaaaaaaaaaaaaaaaaaaaaa', 1)
   })
+
+  test('hydrates landing page widgets from the API', async () => {
+    vi.spyOn(Api, 'listPages').mockResolvedValue([
+      {
+        path: 'home',
+        title: 'Home',
+        description: 'Start page',
+        icon: '⭐',
+        coverUrl: '',
+        coverPosition: 'center',
+        lifecycle: 'active',
+        status: 'verified',
+        labels: '[]',
+        ownerId: null,
+        authorId: null,
+        reviewAt: null,
+        navOrder: null,
+        pinned: false,
+        spaceKey: 'main',
+        locale: 'und',
+        updatedAt: 1,
+      },
+    ])
+    vi.spyOn(Api, 'recentChanges').mockResolvedValue([
+      { id: 'r1', path: 'home', title: 'Home', action: 'updated', authorId: null, authorName: null, createdAt: 1 },
+    ])
+    vi.spyOn(Api, 'popularPages').mockResolvedValue([
+      {
+        path: 'home',
+        title: 'Home',
+        description: 'Start page',
+        icon: '⭐',
+        coverUrl: '',
+        coverPosition: 'center',
+        lifecycle: 'active',
+        status: 'verified',
+        labels: '[]',
+        ownerId: null,
+        authorId: null,
+        reviewAt: null,
+        navOrder: null,
+        pinned: false,
+        spaceKey: 'main',
+        locale: 'und',
+        updatedAt: 1,
+        views: 3,
+        lastViewedAt: 1,
+      },
+    ])
+    const renderer = rendererForMarkdownFeatures({ enableMath: false, enableEmoji: true, enableMermaid: false, defaultLocale: 'und', timezone: 'UTC', dateFormat: 'medium' })
+    const root = document.createElement('div')
+    root.innerHTML = renderer.renderMarkdown(`\`\`\`pages
+/home
+\`\`\`
+
+\`\`\`recent
+limit: 1
+\`\`\`
+
+\`\`\`popular
+days: 7
+limit: 1
+\`\`\``).html
+
+    enhanceRenderedMarkdown(root, { enableMath: false, enableEmoji: true, enableMermaid: false, defaultLocale: 'und', timezone: 'UTC', dateFormat: 'medium' })
+    await vi.waitFor(() => {
+      expect(root.querySelectorAll('.wiki-page-card-title')[0]?.textContent).toBe('Home')
+      expect(root.querySelector('.wiki-activity-title')?.textContent).toBe('Home')
+      expect(root.textContent).toContain('3 views')
+    })
+    expect(Api.popularPages).toHaveBeenCalledWith(7, 1)
+  })
 })

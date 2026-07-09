@@ -283,6 +283,9 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
       path          TEXT NOT NULL UNIQUE,
       title         TEXT NOT NULL,
       description   TEXT NOT NULL DEFAULT '',
+      icon          TEXT NOT NULL DEFAULT '',
+      cover_url     TEXT NOT NULL DEFAULT '',
+      cover_position TEXT NOT NULL DEFAULT 'center',
       content       TEXT NOT NULL DEFAULT '',
       rendered_html TEXT NOT NULL DEFAULT '',
       toc           TEXT NOT NULL DEFAULT '[]',
@@ -496,6 +499,9 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
   addColumn(sqlite, 'pages', 'lifecycle', "TEXT NOT NULL DEFAULT 'active'")
   addColumn(sqlite, 'pages', 'status', "TEXT NOT NULL DEFAULT 'draft'")
   addColumn(sqlite, 'pages', 'labels', "TEXT NOT NULL DEFAULT '[]'")
+  addColumn(sqlite, 'pages', 'icon', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'pages', 'cover_url', "TEXT NOT NULL DEFAULT ''")
+  addColumn(sqlite, 'pages', 'cover_position', "TEXT NOT NULL DEFAULT 'center'")
   addColumn(sqlite, 'pages', 'owner_id', 'TEXT')
   addColumn(sqlite, 'pages', 'review_at', 'INTEGER')
   addColumn(sqlite, 'pages', 'nav_order', 'INTEGER')

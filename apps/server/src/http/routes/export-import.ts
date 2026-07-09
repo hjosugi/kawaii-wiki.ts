@@ -37,6 +37,9 @@ export const createExportImportRoutes = ({
           serializePageFile({
             title: page.title,
             description: page.description,
+            icon: page.icon,
+            coverUrl: page.coverUrl,
+            coverPosition: page.coverPosition,
             content: page.content,
           }),
           {
@@ -63,6 +66,9 @@ export const createExportImportRoutes = ({
           path: page.path,
           title: page.title,
           description: page.description,
+          icon: page.icon,
+          coverUrl: page.coverUrl,
+          coverPosition: page.coverPosition,
           content: page.content,
           labels: page.labels,
           status: page.status,
@@ -91,6 +97,9 @@ export const createExportImportRoutes = ({
         const result = unwrap(services.pages.upsertFromFile(body.path, parsed, {
           title: body.title,
           description: body.description,
+          icon: body.icon,
+          coverUrl: body.coverUrl,
+          coverPosition: body.coverPosition,
           labels: body.labels,
           status: body.status,
           locale: body.locale,
@@ -113,6 +122,9 @@ export const createExportImportRoutes = ({
           path: t.String(),
           title: t.Optional(t.String()),
           description: t.Optional(t.String()),
+          icon: t.Optional(t.String()),
+          coverUrl: t.Optional(t.String()),
+          coverPosition: t.Optional(t.String()),
           content: t.String(),
           labels: t.Optional(t.Array(t.String())),
           status: t.Optional(t.Union([

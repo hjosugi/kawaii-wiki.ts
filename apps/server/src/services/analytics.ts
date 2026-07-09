@@ -1,4 +1,4 @@
-import { desc, sql } from 'drizzle-orm'
+import { desc, gte, sql } from 'drizzle-orm'
 import { type AppError, type Principal, type Result, ok, requirePermission } from '@ts-wiki/core'
 import type { DB } from '../db/client.ts'
 import { pageAnalytics } from '../db/schema.ts'
@@ -17,6 +17,7 @@ export interface AnalyticsSummary {
 export interface AnalyticsService {
   recordPageView(path: string, principal: Principal | null): Result<void, AppError>
   summary(principal: Principal | null, limit?: number): Result<AnalyticsSummary, AppError>
+  popular(days?: number, limit?: number): PageInsight[]
 }
 
 export const createAnalyticsService = (db: DB): AnalyticsService => {
@@ -52,6 +53,22 @@ export const createAnalyticsService = (db: DB): AnalyticsService => {
         .limit(limit)
         .all()
       return ok({ totalViews, topPages })
+    },
+    popular(days = 7, limit = 10) {
+      const cappedDays = Math.min(Math.max(Math.trunc(days), 1), 365)
+      const cappedLimit = Math.min(Math.max(Math.trunc(limit), 1), 50)
+      const cutoff = Date.now() - cappedDays * 24 * 60 * 60 * 1000
+      return db
+        .select({
+          path: pageAnalytics.path,
+          views: pageAnalytics.views,
+          lastViewedAt: pageAnalytics.lastViewedAt,
+        })
+        .from(pageAnalytics)
+        .where(gte(pageAnalytics.lastViewedAt, cutoff))
+        .orderBy(desc(pageAnalytics.views), desc(pageAnalytics.lastViewedAt))
+        .limit(cappedLimit)
+        .all()
     },
   }
 }

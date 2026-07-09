@@ -56,6 +56,9 @@ export interface PageSummary {
   readonly path: string
   readonly title: string
   readonly description: string
+  readonly icon: string
+  readonly coverUrl: string
+  readonly coverPosition: string
   readonly lifecycle: Page['lifecycle']
   readonly status: Page['status']
   readonly labels: string
@@ -150,6 +153,9 @@ export interface UpdatePagePatch {
   readonly title?: string
   readonly content?: string
   readonly description?: string
+  readonly icon?: string
+  readonly coverUrl?: string
+  readonly coverPosition?: string
   readonly labels?: readonly string[]
   readonly status?: PageStatus
   readonly ownerId?: string | null
@@ -163,6 +169,9 @@ export interface UpdatePagePatch {
 export interface UpsertPageFileOptions {
   readonly title?: string
   readonly description?: string
+  readonly icon?: string
+  readonly coverUrl?: string
+  readonly coverPosition?: string
   readonly labels?: readonly string[]
   readonly status?: PageStatus
   readonly locale?: string | null
@@ -340,6 +349,9 @@ export const createPageService = (
       title: string
       description: string
       content: string
+      icon: string
+      coverUrl: string
+      coverPosition: string
       labels: readonly string[]
       status: PageStatus
       ownerId: string | null
@@ -366,6 +378,9 @@ export const createPageService = (
           title: next.title,
           description: next.description,
           content: next.content,
+          icon: next.icon,
+          coverUrl: next.coverUrl,
+          coverPosition: next.coverPosition,
           renderedHtml: html,
           toc: JSON.stringify(toc),
           labels: JSON.stringify(next.labels),
@@ -392,6 +407,9 @@ export const createPageService = (
           path: pages.path,
           title: pages.title,
           description: pages.description,
+          icon: pages.icon,
+          coverUrl: pages.coverUrl,
+          coverPosition: pages.coverPosition,
           lifecycle: pages.lifecycle,
           status: pages.status,
           labels: pages.labels,
@@ -416,6 +434,9 @@ export const createPageService = (
           path: pages.path,
           title: pages.title,
           description: pages.description,
+          icon: pages.icon,
+          coverUrl: pages.coverUrl,
+          coverPosition: pages.coverPosition,
           lifecycle: pages.lifecycle,
           status: pages.status,
           labels: pages.labels,
@@ -669,6 +690,9 @@ export const createPageService = (
             title: v.title,
             description: v.description,
             content: v.content,
+            icon: v.icon,
+            coverUrl: v.coverUrl,
+            coverPosition: v.coverPosition,
             renderedHtml: html,
             toc: JSON.stringify(toc),
             contentType: 'markdown',
@@ -712,6 +736,9 @@ export const createPageService = (
         // Leave undefined when not supplied so the summary is re-derived from
         // the new content rather than carrying a stale auto-description forward.
         description: patch.description,
+        icon: patch.icon ?? current.icon,
+        coverUrl: patch.coverUrl ?? current.coverUrl,
+        coverPosition: patch.coverPosition ?? current.coverPosition,
         labels: patch.labels ?? parseLabels(current.labels),
         status: patch.status ?? current.status,
         ownerId: patch.ownerId === undefined ? current.ownerId : patch.ownerId,
@@ -738,6 +765,9 @@ export const createPageService = (
           title,
           description,
           content,
+          icon: options.icon ?? file.icon,
+          coverUrl: options.coverUrl ?? file.coverUrl,
+          coverPosition: options.coverPosition ?? file.coverPosition,
           labels: options.labels,
           status: options.status,
           locale: options.locale,
@@ -753,6 +783,9 @@ export const createPageService = (
         title,
         description,
         content,
+        icon: options.icon ?? file.icon,
+        coverUrl: options.coverUrl ?? file.coverUrl,
+        coverPosition: options.coverPosition ?? file.coverPosition,
         labels: options.labels,
         status: options.status,
         locale: options.locale,
@@ -777,6 +810,9 @@ export const createPageService = (
         title: current.title,
         content,
         labels: parseLabels(current.labels),
+        icon: current.icon,
+        coverUrl: current.coverUrl,
+        coverPosition: current.coverPosition,
         status: isPageStatus(current.status) ? current.status : 'draft',
         ownerId: current.ownerId,
         reviewAt: current.reviewAt,
@@ -812,6 +848,9 @@ export const createPageService = (
           description: revision.description,
           content: revision.content,
           labels: parseLabels(current.labels),
+          icon: current.icon,
+          coverUrl: current.coverUrl,
+          coverPosition: current.coverPosition,
           status: isPageStatus(current.status) ? current.status : 'draft',
           ownerId: current.ownerId,
           reviewAt: current.reviewAt,
@@ -874,6 +913,9 @@ export const createPageService = (
         content: current.content,
         description: current.description,
         labels: parseLabels(current.labels),
+        icon: current.icon,
+        coverUrl: current.coverUrl,
+        coverPosition: current.coverPosition,
         status: isPageStatus(current.status) ? current.status : 'draft',
         ownerId: current.ownerId,
         reviewAt: current.reviewAt,

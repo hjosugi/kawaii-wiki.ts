@@ -42,6 +42,9 @@ export interface PageForGit {
   readonly path: string
   readonly title: string
   readonly description: string
+  readonly icon?: string
+  readonly coverUrl?: string
+  readonly coverPosition?: string
   readonly content: string
 }
 

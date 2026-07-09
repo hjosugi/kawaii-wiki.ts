@@ -9,6 +9,7 @@ import ModalDialog from '@/components/ModalDialog.vue'
 
 interface CommandItem {
   readonly key: string
+  readonly icon?: string
   readonly label: string
   readonly detail: string
   readonly run: () => void
@@ -28,23 +29,25 @@ const localPages = computed(() => {
     .filter((page) => `${page.title} ${page.path}`.toLowerCase().includes(needle))
     .slice(0, 8)
 })
+const pageByPath = computed(() => new Map(pages.list.map((page) => [page.path, page])))
 
 const items = computed<CommandItem[]>(() => {
   const out: CommandItem[] = []
   const seen = new Set<string>()
-  const pushPage = (path: string, title: string, detail: string): void => {
+  const pushPage = (path: string, title: string, detail: string, icon = ''): void => {
     if (seen.has(path)) return
     seen.add(path)
     out.push({
       key: `page:${path}`,
+      icon,
       label: title,
       detail,
       run: () => router.push('/' + path),
     })
   }
 
-  for (const hit of search.hits.value) pushPage(hit.path, hit.title, `/${hit.path}`)
-  for (const page of localPages.value) pushPage(page.path, page.title, `/${page.path}`)
+  for (const hit of search.hits.value) pushPage(hit.path, hit.title, `/${hit.path}`, pageByPath.value.get(hit.path)?.icon ?? '')
+  for (const page of localPages.value) pushPage(page.path, page.title, `/${page.path}`, page.icon)
 
   const normalized = normalizePath(search.q.value)
   if (auth.canEdit && normalized && !pages.list.some((page) => page.path === normalized)) {
@@ -213,7 +216,8 @@ onBeforeUnmount(() => {
         @mouseenter="navigation.selected.value = index"
         @click="item.run(); close()"
       >
-        <span class="min-w-0">
+        <span v-if="item.icon" class="shrink-0 text-lg" aria-hidden="true">{{ item.icon }}</span>
+        <span class="min-w-0 flex-1">
           <span class="block font-medium truncate">{{ item.label }}</span>
           <span class="block text-xs text-gray-500 truncate">{{ item.detail }}</span>
         </span>

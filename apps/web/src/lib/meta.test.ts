@@ -7,6 +7,9 @@ const makePage = (overrides: Partial<Page> = {}): Page => ({
   path: 'docs/seo',
   title: 'SEO page',
   description: 'Page description',
+  icon: '',
+  coverUrl: '',
+  coverPosition: 'center',
   content: '',
   renderedHtml: '',
   toc: '[]',
@@ -35,14 +38,16 @@ describe('setPageMeta', () => {
   test('updates page title, descriptions, and social image tags', () => {
     setPageMeta(makePage({
       title: 'SEO & Title',
+      icon: '⭐',
+      coverUrl: '/assets/page-cover.png',
       renderedHtml: '<p>Intro</p><img src="/assets/cover.png" alt="Cover">',
     }))
 
-    expect(document.title).toBe('SEO & Title · Docs Wiki')
+    expect(document.title).toBe('⭐ SEO & Title · Docs Wiki')
     expect(document.querySelector<HTMLMetaElement>('meta[name="description"]')?.content).toBe('Page description')
-    expect(document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content).toBe('SEO & Title · Docs Wiki')
+    expect(document.querySelector<HTMLMetaElement>('meta[property="og:title"]')?.content).toBe('⭐ SEO & Title · Docs Wiki')
     expect(document.querySelector<HTMLMetaElement>('meta[property="og:url"]')?.content).toBe(`${window.location.origin}/docs/seo`)
-    expect(document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content).toBe(`${window.location.origin}/assets/cover.png`)
+    expect(document.querySelector<HTMLMetaElement>('meta[property="og:image"]')?.content).toBe(`${window.location.origin}/assets/page-cover.png`)
     expect(document.querySelector<HTMLMetaElement>('meta[name="twitter:card"]')?.content).toBe('summary_large_image')
   })
 

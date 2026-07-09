@@ -1,6 +1,6 @@
 import type { Directive } from 'vue'
 import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
-import { Api, type PublicSettings, type YoutubeLatestVideo } from './api'
+import { Api, type PageSummary, type PopularPage, type PublicSettings, type RecentChange, type YoutubeLatestVideo } from './api'
 import { enhanceCodeBlocks } from './codeCopy'
 
 export type MarkdownFeatureSettings = Pick<
@@ -281,11 +281,151 @@ const enhanceYoutubeLatest = (root: HTMLElement): void => {
   }
 }
 
+const formatRelativeDate = (value: number | null): string => {
+  if (!value) return ''
+  try {
+    return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value))
+  } catch {
+    return ''
+  }
+}
+
+const pageCard = (page: PageSummary | PopularPage, note = ''): HTMLAnchorElement => {
+  const link = document.createElement('a')
+  link.className = 'wiki-page-card'
+  link.href = `/${page.path}`
+  const media = document.createElement('span')
+  media.className = 'wiki-page-card-media'
+  if (page.coverUrl) {
+    media.style.backgroundImage = `url(${JSON.stringify(page.coverUrl)})`
+    media.style.backgroundPosition = page.coverPosition || 'center'
+  } else if (page.icon) {
+    const icon = document.createElement('span')
+    icon.className = 'wiki-page-card-icon'
+    icon.textContent = page.icon
+    media.append(icon)
+  }
+  const body = document.createElement('span')
+  body.className = 'wiki-page-card-body'
+  const title = document.createElement('span')
+  title.className = 'wiki-page-card-title'
+  title.textContent = page.title
+  const path = document.createElement('span')
+  path.className = 'wiki-page-card-path'
+  path.textContent = `/${page.path}`
+  body.append(title, path)
+  const description = page.description.trim()
+  if (description) {
+    const desc = document.createElement('span')
+    desc.className = 'wiki-page-card-description'
+    desc.textContent = description
+    body.append(desc)
+  }
+  if (note) {
+    const meta = document.createElement('span')
+    meta.className = 'wiki-page-card-meta'
+    meta.textContent = note
+    body.append(meta)
+  }
+  link.append(media, body)
+  return link
+}
+
+const emptyNote = (message: string): HTMLParagraphElement => {
+  const empty = document.createElement('p')
+  empty.className = 'wiki-media-note'
+  empty.textContent = message
+  return empty
+}
+
+const enhancePageWidgets = (root: HTMLElement): void => {
+  for (const widget of Array.from(root.querySelectorAll<HTMLElement>('[data-wiki-pages]'))) {
+    if (widget.dataset.wikiPagesEnhanced === '1') continue
+    widget.dataset.wikiPagesEnhanced = '1'
+    const grid = widget.querySelector<HTMLElement>('[data-wiki-page-grid]')
+    if (!grid) continue
+    let paths: string[] = []
+    try {
+      const parsed = JSON.parse(widget.dataset.paths ?? '[]') as unknown
+      paths = Array.isArray(parsed) ? parsed.filter((path): path is string => typeof path === 'string') : []
+    } catch {
+      paths = []
+    }
+    void Api.listPages()
+      .then((pages) => {
+        const byPath = new Map(pages.map((page) => [page.path, page]))
+        const cards = paths.flatMap((path) => {
+          const page = byPath.get(path)
+          return page ? [pageCard(page)] : []
+        })
+        grid.replaceChildren(...(cards.length ? cards : [emptyNote('No matching pages found.')]))
+      })
+      .catch(() => grid.replaceChildren(emptyNote('Could not load pages.')))
+  }
+}
+
+const recentItem = (change: RecentChange, page?: PageSummary): HTMLAnchorElement => {
+  const link = document.createElement('a')
+  link.className = 'wiki-activity-item'
+  link.href = `/${change.path}`
+  const icon = document.createElement('span')
+  icon.className = 'wiki-activity-icon'
+  icon.textContent = page?.icon || (change.action === 'created' ? '+' : change.action === 'deleted' ? '-' : '*')
+  const body = document.createElement('span')
+  body.className = 'wiki-activity-body'
+  const title = document.createElement('span')
+  title.className = 'wiki-activity-title'
+  title.textContent = change.title
+  const meta = document.createElement('span')
+  meta.className = 'wiki-activity-meta'
+  meta.textContent = `${change.action} · ${formatRelativeDate(change.createdAt)}`
+  body.append(title, meta)
+  link.append(icon, body)
+  return link
+}
+
+const enhanceRecentWidgets = (root: HTMLElement): void => {
+  for (const widget of Array.from(root.querySelectorAll<HTMLElement>('[data-wiki-recent]'))) {
+    if (widget.dataset.wikiRecentEnhanced === '1') continue
+    widget.dataset.wikiRecentEnhanced = '1'
+    const list = widget.querySelector<HTMLElement>('[data-wiki-recent-items]')
+    if (!list) continue
+    const limit = Number.parseInt(widget.dataset.limit ?? '6', 10)
+    void Promise.all([Api.recentChanges(Number.isFinite(limit) ? limit : 6), Api.listPages()])
+      .then(([changes, pages]) => {
+        const byPath = new Map(pages.map((page) => [page.path, page]))
+        const items = changes.map((change) => recentItem(change, byPath.get(change.path)))
+        list.replaceChildren(...(items.length ? items : [emptyNote('No recent changes found.')]))
+      })
+      .catch(() => list.replaceChildren(emptyNote('Could not load recent changes.')))
+  }
+}
+
+const enhancePopularWidgets = (root: HTMLElement): void => {
+  for (const widget of Array.from(root.querySelectorAll<HTMLElement>('[data-wiki-popular]'))) {
+    if (widget.dataset.wikiPopularEnhanced === '1') continue
+    widget.dataset.wikiPopularEnhanced = '1'
+    const grid = widget.querySelector<HTMLElement>('[data-wiki-popular-items]')
+    if (!grid) continue
+    const limit = Number.parseInt(widget.dataset.limit ?? '6', 10)
+    const days = Number.parseInt(widget.dataset.days ?? '7', 10)
+    void Api.popularPages(Number.isFinite(days) ? days : 7, Number.isFinite(limit) ? limit : 6)
+      .then((pages) => {
+        const cards = pages.map((page) => pageCard(page, `${page.views} view${page.views === 1 ? '' : 's'}`))
+        grid.replaceChildren(...(cards.length ? cards : [emptyNote('No popular pages yet.')]))
+      })
+      .catch(() => grid.replaceChildren(emptyNote('Could not load popular pages.')))
+  }
+}
+
 export const enhanceRenderedMarkdown = (root: HTMLElement, settings: MarkdownFeatureSettings = defaultMarkdownFeatureSettings): void => {
   enhanceCodeBlocks(root)
   enhanceTabs(root)
   enhanceMediaCards(root)
   enhanceYoutubeLatest(root)
+  enhancePageWidgets(root)
+  enhanceRecentWidgets(root)
+  enhancePopularWidgets(root)
   if (settings.enableMath && root.querySelector('.katex')) void ensureKatexCss()
   if (settings.enableMermaid) void enhanceMermaid(root)
 }

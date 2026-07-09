@@ -7,6 +7,34 @@ import { setDateFormatSettings } from '@/lib/i18n'
 import Skeleton from '@/components/Skeleton.vue'
 
 type EditablePublicSettings = { -readonly [K in keyof PublicSettings]: PublicSettings[K] }
+type ThemePreset = PublicSettings['themePreset']
+type FontFamily = PublicSettings['fontFamily']
+type BackgroundType = PublicSettings['background']['type']
+
+const themePresets: Array<{ value: ThemePreset; label: string; note: string }> = [
+  { value: 'classic', label: 'Classic', note: 'Default wiki palette' },
+  { value: 'kawaii', label: 'Kawaii', note: 'Soft pink surfaces' },
+  { value: 'pop', label: 'Pop', note: 'Bright cyan accents' },
+  { value: 'minimal', label: 'Minimal', note: 'Quiet neutral UI' },
+  { value: 'gamer', label: 'Gamer', note: 'High contrast neon' },
+  { value: 'custom', label: 'Custom', note: 'Use custom CSS' },
+]
+
+const fontOptions: Array<{ value: FontFamily; label: string }> = [
+  { value: 'system', label: 'System' },
+  { value: 'rounded', label: 'Rounded' },
+  { value: 'maru', label: 'Maru Gothic' },
+  { value: 'sans-jp', label: 'Japanese sans' },
+  { value: 'serif', label: 'Serif' },
+]
+
+const backgroundDefaults: Record<BackgroundType, string> = {
+  none: '',
+  color: '#f9fafb',
+  gradient: 'linear-gradient(135deg, #f8fafc 0%, #ecfeff 48%, #fdf2f8 100%)',
+  pattern: 'dots',
+  image: '',
+}
 
 const settings = ref<EditablePublicSettings | null>(null)
 const navLinksText = ref('')
@@ -14,8 +42,21 @@ const navItemsText = ref('')
 const footerLinksText = ref('')
 const saving = ref(false)
 const loading = ref(false)
-const uploading = ref<'logo' | 'favicon' | null>(null)
+const uploading = ref<'logo' | 'favicon' | 'background' | null>(null)
 const error = ref<string | null>(null)
+
+function setBackgroundType(type: BackgroundType): void {
+  if (!settings.value) return
+  settings.value.background = {
+    type,
+    value: backgroundDefaults[type],
+    overlayOpacity: type === 'none' ? 0 : settings.value.background.overlayOpacity,
+  }
+}
+
+function onBackgroundTypeChange(event: Event): void {
+  setBackgroundType((event.target as HTMLSelectElement).value as BackgroundType)
+}
 
 function parseLinks(value: string): PublicSettings['navLinks'] {
   const links: PublicSettings['navLinks'] = []
@@ -89,6 +130,9 @@ async function saveSettings(): Promise<void> {
       siteTitle: settings.value.siteTitle,
       accentColor: settings.value.accentColor,
       theme: settings.value.theme,
+      themePreset: settings.value.themePreset,
+      fontFamily: settings.value.fontFamily,
+      background: settings.value.background,
       homePath: settings.value.homePath,
       defaultLocale: settings.value.defaultLocale,
       timezone: settings.value.timezone,
@@ -119,14 +163,21 @@ async function saveSettings(): Promise<void> {
   }
 }
 
-async function uploadBrandAsset(kind: 'logo' | 'favicon', files: FileList | null): Promise<void> {
+async function uploadBrandAsset(kind: 'logo' | 'favicon' | 'background', files: FileList | null): Promise<void> {
   if (!settings.value || !files?.[0]) return
   uploading.value = kind
   error.value = null
   try {
     const asset = await Api.uploadAsset(files[0], 'branding')
     if (kind === 'logo') settings.value.logoUrl = asset.url
-    else settings.value.faviconUrl = asset.url
+    else if (kind === 'favicon') settings.value.faviconUrl = asset.url
+    else {
+      settings.value.background = {
+        type: 'image',
+        value: asset.url,
+        overlayOpacity: settings.value.background.overlayOpacity || 0.2,
+      }
+    }
   } catch (e) {
     error.value = (e as Error).message
   } finally {
@@ -147,6 +198,77 @@ onMounted(load)
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <input v-model="settings.accentColor" class="input" placeholder="#7c3aed" aria-label="Accent color" />
         <select v-model="settings.theme" class="input" aria-label="Theme"><option value="system">system</option><option value="light">light</option><option value="dark">dark</option></select>
+      </div>
+      <fieldset class="space-y-2 rounded-[var(--radius)] border border-[var(--c-border)] p-3 text-sm">
+        <legend class="px-1 font-medium">Theme preset</legend>
+        <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <button
+            v-for="preset in themePresets"
+            :key="preset.value"
+            type="button"
+            class="rounded-[var(--radius)] border px-3 py-2 text-left transition"
+            :class="settings.themePreset === preset.value ? 'border-[var(--c-accent)] bg-[var(--c-surface-muted)] text-[var(--c-text)]' : 'border-[var(--c-border)] text-[var(--c-text-muted)] hover:bg-[var(--c-surface-muted)]'"
+            :aria-pressed="settings.themePreset === preset.value"
+            @click="settings.themePreset = preset.value"
+          >
+            <span class="block font-semibold">{{ preset.label }}</span>
+            <span class="block text-xs">{{ preset.note }}</span>
+          </button>
+        </div>
+      </fieldset>
+      <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label class="space-y-1 text-sm">
+          <span class="font-medium">Font</span>
+          <select v-model="settings.fontFamily" class="input">
+            <option v-for="font in fontOptions" :key="font.value" :value="font.value">{{ font.label }}</option>
+          </select>
+        </label>
+        <label class="space-y-1 text-sm">
+          <span class="font-medium">Background type</span>
+          <select
+            class="input"
+            :value="settings.background.type"
+            @change="onBackgroundTypeChange"
+          >
+            <option value="none">none</option>
+            <option value="color">color</option>
+            <option value="gradient">gradient</option>
+            <option value="pattern">pattern</option>
+            <option value="image">image</option>
+          </select>
+        </label>
+      </div>
+      <div v-if="settings.background.type !== 'none'" class="rounded-[var(--radius)] border border-[var(--c-border)] p-3 text-sm">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <label v-if="settings.background.type === 'color'" class="space-y-1">
+            <span class="font-medium">Background color</span>
+            <input v-model="settings.background.value" class="input" placeholder="#f9fafb" />
+          </label>
+          <label v-else-if="settings.background.type === 'gradient'" class="space-y-1">
+            <span class="font-medium">Gradient</span>
+            <input v-model="settings.background.value" class="input font-mono text-xs" placeholder="linear-gradient(...)" />
+          </label>
+          <label v-else-if="settings.background.type === 'pattern'" class="space-y-1">
+            <span class="font-medium">Pattern</span>
+            <select v-model="settings.background.value" class="input">
+              <option value="dots">dots</option>
+              <option value="grid">grid</option>
+              <option value="stars">stars</option>
+              <option value="diagonal">diagonal</option>
+            </select>
+          </label>
+          <label v-else class="space-y-1">
+            <span class="font-medium">Background image</span>
+            <input v-model="settings.background.value" class="input" placeholder="/assets/background.jpg" />
+            <input class="text-sm" type="file" accept="image/*" aria-label="Upload background" @change="uploadBrandAsset('background', ($event.target as HTMLInputElement).files)" />
+            <span v-if="uploading === 'background'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
+          </label>
+          <label class="space-y-1">
+            <span class="font-medium">Overlay</span>
+            <input v-model.number="settings.background.overlayOpacity" class="w-full" type="range" min="0" max="0.85" step="0.05" />
+            <span class="text-xs text-[var(--c-text-muted)]">{{ Math.round(settings.background.overlayOpacity * 100) }}%</span>
+          </label>
+        </div>
       </div>
       <label class="block space-y-1 text-sm">
         <span class="font-medium">Home page path</span>

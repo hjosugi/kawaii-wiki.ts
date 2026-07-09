@@ -37,6 +37,9 @@ const path = ref('')
 const originalPath = ref('')
 const originalUpdatedAt = ref<number | null>(null)
 const content = ref('')
+const icon = ref('')
+const coverUrl = ref('')
+const coverPosition = ref('center')
 const labelsText = ref('')
 const status = ref<'draft' | 'in-review' | 'verified' | 'outdated'>('draft')
 const reviewAtDate = ref('')
@@ -47,6 +50,9 @@ const pinned = ref(false)
 const savedTitle = ref('')
 const savedPath = ref('')
 const savedContent = ref('')
+const savedIcon = ref('')
+const savedCoverUrl = ref('')
+const savedCoverPosition = ref('center')
 const savedLabelsText = ref('')
 const savedStatus = ref(status.value)
 const savedReviewAtDate = ref('')
@@ -75,12 +81,18 @@ const templateName = ref('')
 const templateDescription = ref('')
 const templateIcon = ref('')
 const savingTemplate = ref(false)
+const coverUploading = ref(false)
+const iconOptions = ['⭐', '📘', '📝', '📣', '🎤', '🎨', '🗓️', '📌', '✅', '🔥', '🌸', '🧭', '💡', '⚙️', '🔒']
+const coverPositions = ['center', 'top', 'bottom', 'left', 'right']
 
 const dirty = computed(
   () =>
     title.value !== savedTitle.value ||
     path.value !== savedPath.value ||
     content.value !== savedContent.value ||
+    icon.value !== savedIcon.value ||
+    coverUrl.value !== savedCoverUrl.value ||
+    coverPosition.value !== savedCoverPosition.value ||
     labelsText.value !== savedLabelsText.value ||
     status.value !== savedStatus.value ||
     reviewAtDate.value !== savedReviewAtDate.value ||
@@ -98,12 +110,24 @@ const useCollaborativeMarkdown = computed(
   () => isEdit.value && editorMode.value === 'markdown' && originalPath.value && !collabDisabledForSession.value,
 )
 const assetFolder = computed(() => assetFolderFromPagePath(path.value || originalPath.value))
+const coverPreviewStyle = computed(() =>
+  coverUrl.value
+    ? {
+        backgroundImage: `url(${JSON.stringify(coverUrl.value)})`,
+        backgroundSize: 'cover',
+        backgroundPosition: coverPosition.value,
+      }
+    : {},
+)
 const existingPaths = computed(() => new Set(pagesStore.list.map((page) => page.path)))
 const createPathPreview = computed(() => path.value || nextAvailablePath(suggestedCreatePath()))
 interface DraftSnapshot {
   title: string
   path: string
   content: string
+  icon: string
+  coverUrl: string
+  coverPosition: string
   labelsText: string
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
   reviewAtDate: string
@@ -117,6 +141,9 @@ function captureDraft(): DraftSnapshot {
     title: title.value,
     path: path.value,
     content: content.value,
+    icon: icon.value,
+    coverUrl: coverUrl.value,
+    coverPosition: coverPosition.value,
     labelsText: labelsText.value,
     status: status.value,
     reviewAtDate: reviewAtDate.value,
@@ -130,6 +157,9 @@ function applyDraft(draft: DraftSnapshot): void {
   title.value = draft.title
   path.value = draft.path
   content.value = draft.content
+  icon.value = draft.icon
+  coverUrl.value = draft.coverUrl
+  coverPosition.value = draft.coverPosition
   labelsText.value = draft.labelsText
   status.value = draft.status
   reviewAtDate.value = draft.reviewAtDate
@@ -144,6 +174,9 @@ function applyPage(page: Page): void {
   originalPath.value = page.path
   originalUpdatedAt.value = page.updatedAt
   content.value = page.content
+  icon.value = page.icon
+  coverUrl.value = page.coverUrl
+  coverPosition.value = page.coverPosition || 'center'
   labelsText.value = labelTextFromJson(page.labels)
   status.value = page.status
   reviewAtDate.value = dateInputValue(page.reviewAt)
@@ -157,6 +190,9 @@ function markSaved(): void {
   savedTitle.value = title.value
   savedPath.value = path.value
   savedContent.value = content.value
+  savedIcon.value = icon.value
+  savedCoverUrl.value = coverUrl.value
+  savedCoverPosition.value = coverPosition.value
   savedLabelsText.value = labelsText.value
   savedStatus.value = status.value
   savedReviewAtDate.value = reviewAtDate.value
@@ -329,6 +365,20 @@ async function loadAttachments(pagePath: string): Promise<void> {
   }
 }
 
+async function uploadCover(files: FileList | null): Promise<void> {
+  if (!files?.[0]) return
+  coverUploading.value = true
+  error.value = null
+  try {
+    const asset = await Api.uploadAsset(files[0], assetFolder.value)
+    coverUrl.value = asset.url
+  } catch (e) {
+    error.value = (e as Error).message
+  } finally {
+    coverUploading.value = false
+  }
+}
+
 // Announce "editing" presence so readers of this page see "… is editing".
 usePresence(originalPath, 'editing')
 
@@ -362,6 +412,9 @@ onMounted(async () => {
     title.value = ''
     content.value = builtInTemplates[0]?.content ?? ''
     labelsText.value = ''
+    icon.value = ''
+    coverUrl.value = ''
+    coverPosition.value = 'center'
     status.value = 'draft'
     reviewAtDate.value = ''
     locale.value = defaultLocale.value
@@ -401,6 +454,9 @@ async function save(): Promise<void> {
     if (!isEdit.value && !path.value) path.value = createPathPreview.value
     const metadata = {
       labels: labels(),
+      icon: icon.value,
+      coverUrl: coverUrl.value,
+      coverPosition: coverPosition.value,
       status: status.value,
       reviewAt: reviewAt(),
       locale: locale.value,
@@ -535,6 +591,49 @@ async function archive(): Promise<void> {
       <button v-if="isEdit" class="btn-ghost" @click="archive">{{ t('archive') }}</button>
       <button v-if="isEdit" class="btn-danger" @click="remove">{{ t('delete') }}</button>
     </div>
+
+    <section class="mb-4 grid gap-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3 lg:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)]">
+      <div class="space-y-2">
+        <label class="block text-sm font-medium" for="page-icon">Page icon</label>
+        <div class="flex gap-2">
+          <input id="page-icon" v-model="icon" class="input max-w-24 text-center text-xl" maxlength="16" placeholder="⭐" aria-label="Page icon" />
+          <button class="btn-ghost" type="button" @click="icon = ''">Clear</button>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="option in iconOptions"
+            :key="option"
+            class="h-8 w-8 rounded-md border border-[var(--c-border)] bg-[var(--c-bg)] text-base hover:border-[var(--c-accent)]"
+            type="button"
+            :aria-label="`Use ${option} as page icon`"
+            @click="icon = option"
+          >
+            {{ option }}
+          </button>
+        </div>
+      </div>
+      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
+        <div class="space-y-2">
+          <label class="block text-sm font-medium" for="cover-url">Cover image</label>
+          <input id="cover-url" v-model="coverUrl" class="input" placeholder="/assets/cover.jpg" aria-label="Cover image URL" />
+          <div class="flex flex-wrap items-center gap-2 text-sm">
+            <select v-model="coverPosition" class="input max-w-36" aria-label="Cover position">
+              <option v-for="position in coverPositions" :key="position" :value="position">{{ position }}</option>
+            </select>
+            <input class="text-sm" type="file" accept="image/*" aria-label="Upload cover image" @change="uploadCover(($event.target as HTMLInputElement).files)" />
+            <span v-if="coverUploading" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
+            <button v-if="coverUrl" class="btn-ghost py-1 text-xs" type="button" @click="coverUrl = ''">Remove cover</button>
+          </div>
+        </div>
+        <div
+          class="min-h-28 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)]"
+          :style="coverPreviewStyle"
+          aria-hidden="true"
+        >
+          <div v-if="!coverUrl" class="grid h-full min-h-28 place-items-center text-xs text-[var(--c-text-muted)]">No cover</div>
+        </div>
+      </div>
+    </section>
 
     <section v-if="!isEdit" class="mb-4 space-y-3">
       <div class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)] px-3 py-2 text-sm">

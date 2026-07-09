@@ -20,6 +20,14 @@ const { formatDate, formatDateTime, t } = useI18n()
 const updated = computed(() =>
   formatDateTime(props.page.updatedAt),
 )
+const coverStyle = computed(() =>
+  props.page.coverUrl
+    ? {
+        backgroundImage: `url(${JSON.stringify(props.page.coverUrl)})`,
+        backgroundPosition: props.page.coverPosition || 'center',
+      }
+    : {},
+)
 
 const childPath = computed(() => `${props.page.path}/new-page`)
 const markdownExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=markdown`)
@@ -105,11 +113,20 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
 
 <template>
   <header class="border-b border-gray-200 dark:border-gray-800 pb-5 mb-7">
-    <WikiBreadcrumbs :path="page.path" :home-path="homePath" />
+    <div
+      v-if="page.coverUrl"
+      class="mb-5 h-48 overflow-hidden rounded-md bg-[var(--c-surface-muted)] bg-cover sm:h-64"
+      :style="coverStyle"
+      aria-hidden="true"
+    ></div>
+    <WikiBreadcrumbs :path="page.path" :home-path="homePath" :current-icon="page.icon" />
 
     <div class="flex flex-wrap items-start justify-between gap-4 mt-3">
       <div class="min-w-0">
-        <h1 class="text-3xl font-bold tracking-tight text-gray-950 dark:text-gray-50">{{ page.title }}</h1>
+        <h1 class="flex min-w-0 items-center gap-3 text-3xl font-bold tracking-tight text-gray-950 dark:text-gray-50">
+          <span v-if="page.icon" class="shrink-0 text-4xl leading-none" aria-hidden="true">{{ page.icon }}</span>
+          <span class="min-w-0 break-words">{{ page.title }}</span>
+        </h1>
         <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500 dark:text-[var(--c-text-muted)]">
           <span class="font-mono">/{{ page.path }}</span>
           <span>{{ t('space', { space: page.spaceKey }) }}</span>

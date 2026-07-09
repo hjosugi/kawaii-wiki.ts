@@ -4,6 +4,7 @@ import { computed } from 'vue'
 const props = defineProps<{
   path: string
   homePath?: string
+  currentIcon?: string
 }>()
 
 const crumbs = computed(() => {
@@ -22,8 +23,9 @@ const crumbs = computed(() => {
       <span class="text-gray-300 dark:text-gray-700" aria-hidden="true">/</span>
       <RouterLink
         :to="'/' + crumb.path"
-        class="hover:text-gray-900 dark:hover:text-gray-100 truncate"
+        class="inline-flex min-w-0 items-center gap-1 truncate hover:text-gray-900 dark:hover:text-gray-100"
       >
+        <span v-if="props.currentIcon && crumb.path === props.path" class="shrink-0" aria-hidden="true">{{ props.currentIcon }}</span>
         {{ crumb.label }}
       </RouterLink>
     </template>

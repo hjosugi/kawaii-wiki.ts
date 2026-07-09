@@ -17,6 +17,9 @@ export interface PageInput {
   readonly title: string
   readonly content: string
   readonly description?: string
+  readonly icon?: string
+  readonly coverUrl?: string
+  readonly coverPosition?: string
   readonly labels?: readonly string[]
   readonly status?: PageStatus
   readonly ownerId?: string | null
@@ -33,6 +36,9 @@ export interface ValidPageInput {
   readonly content: string
   readonly description: string
   readonly contentType: ContentType
+  readonly icon: string
+  readonly coverUrl: string
+  readonly coverPosition: string
   readonly labels: readonly string[]
   readonly status: PageStatus
   readonly ownerId: string | null
@@ -44,11 +50,13 @@ export interface ValidPageInput {
 
 const MAX_PATH = 512
 const MAX_TITLE = 255
+const MAX_ICON = 16
 const MAX_LABELS = 20
 const MAX_LABEL_LENGTH = 40
 const MAX_NAV_ORDER = 1_000_000
 const PAGE_STATUSES = new Set<PageStatus>(['draft', 'in-review', 'verified', 'outdated'])
 const DEFAULT_LOCALE = 'und'
+const COVER_POSITIONS = new Set(['center', 'top', 'bottom', 'left', 'right'])
 
 export const normalizeLabel = (label: string): string =>
   normalizePath(label)
@@ -88,6 +96,11 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
 
   const content = input.content ?? ''
   const description = (input.description ?? '').trim() || summarize(content)
+  const icon = (input.icon ?? '').trim().slice(0, MAX_ICON)
+  const coverUrl = cleanPageUrl(input.coverUrl ?? '')
+  const coverPosition = COVER_POSITIONS.has((input.coverPosition ?? '').trim())
+    ? (input.coverPosition ?? '').trim()
+    : 'center'
   const status = input.status ?? 'draft'
   if (!isPageStatus(status)) return err(validationError('Unknown page status', 'status'))
   const ownerId = input.ownerId?.trim() || null
@@ -103,6 +116,9 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
     content,
     description,
     contentType: 'markdown',
+    icon,
+    coverUrl,
+    coverPosition,
     labels: normalizeLabels(input.labels),
     status,
     ownerId,
@@ -111,4 +127,9 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
     navOrder,
     pinned: input.pinned === true,
   })
+}
+
+const cleanPageUrl = (value: string): string => {
+  const clean = value.trim().slice(0, 500)
+  return clean && (/^https?:\/\//i.test(clean) || clean.startsWith('/')) ? clean : ''
 }

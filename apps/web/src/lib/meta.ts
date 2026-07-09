@@ -40,10 +40,11 @@ export const firstImageUrlFromHtml = (html: string): string | null => {
 
 export const setPageMeta = (page: Page): void => {
   const siteName = currentSiteName()
-  const title = `${page.title} · ${siteName}`
+  const pageTitle = page.icon ? `${page.icon} ${page.title}` : page.title
+  const title = `${pageTitle} · ${siteName}`
   const description = page.description.trim() || siteName
   const url = absoluteUrl(`/${page.path}`)
-  const image = firstImageUrlFromHtml(page.renderedHtml)
+  const image = page.coverUrl ? absoluteUrl(page.coverUrl) : firstImageUrlFromHtml(page.renderedHtml)
 
   document.documentElement.dataset.tsWikiMeta = 'page'
   document.title = title

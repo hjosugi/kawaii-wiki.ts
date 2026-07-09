@@ -246,6 +246,39 @@ title: Latest streams
     expect(html).not.toContain('<script')
   })
 
+  test('renders landing page fences as safe client-hydrated widgets', () => {
+    const { html } = renderMarkdown(`\`\`\`hero
+eyebrow: Team wiki
+title: Welcome
+subtitle: Start here
+image: /assets/hero.jpg
+[Open docs](/docs)
+\`\`\`
+
+\`\`\`pages
+title: Featured
+/home
+[Guide](/docs/guide)
+\`\`\`
+
+\`\`\`recent
+limit: 3
+\`\`\`
+
+\`\`\`popular
+days: 14
+limit: 4
+\`\`\``)
+
+    expect(html).toContain('wiki-landing-hero')
+    expect(html).toContain('src="/assets/hero.jpg"')
+    expect(html).toContain('data-wiki-pages')
+    expect(html).toContain('data-paths="[&quot;home&quot;,&quot;docs/guide&quot;]"')
+    expect(html).toContain('data-wiki-recent')
+    expect(html).toContain('data-wiki-popular')
+    expect(html).not.toContain('<script')
+  })
+
   test('renders a generic infobox with title, media, fields, and body', () => {
     const { html } = renderMarkdown(`\`\`\`infobox
 title: Hoshino Meguru

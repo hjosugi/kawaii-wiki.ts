@@ -9,12 +9,24 @@ import {
 
 describe('frontmatter', () => {
   test('round-trips a page through serialize → parse', () => {
-    const page = { title: 'Getting Started', description: 'A short guide', content: '# Hi\n\nbody text\n' }
+    const page = {
+      title: 'Getting Started',
+      description: 'A short guide',
+      icon: '⭐',
+      coverUrl: '/assets/cover.jpg',
+      coverPosition: 'top',
+      content: '# Hi\n\nbody text\n',
+    }
     const file = serializePageFile(page)
     expect(file).toContain('title: Getting Started')
+    expect(file).toContain('icon:')
+    expect(file).toContain('coverUrl: /assets/cover.jpg')
     const parsed = parsePageFile(file)
     expect(parsed.title).toBe(page.title)
     expect(parsed.description).toBe(page.description)
+    expect(parsed.icon).toBe(page.icon)
+    expect(parsed.coverUrl).toBe(page.coverUrl)
+    expect(parsed.coverPosition).toBe(page.coverPosition)
     expect(parsed.content.trim()).toBe(page.content.trim())
   })
 

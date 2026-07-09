@@ -22,6 +22,14 @@ export interface BuiltInNavItem {
 }
 
 export type SiteTheme = 'system' | 'light' | 'dark'
+export type ThemePreset = 'classic' | 'kawaii' | 'pop' | 'minimal' | 'gamer' | 'custom'
+export type SiteFontFamily = 'system' | 'rounded' | 'maru' | 'sans-jp' | 'serif'
+export type SiteBackgroundType = 'none' | 'color' | 'gradient' | 'pattern' | 'image'
+export interface SiteBackground {
+  readonly type: SiteBackgroundType
+  readonly value: string
+  readonly overlayOpacity: number
+}
 export type RegistrationMode = 'open' | 'off'
 export type EditorMode = 'markdown' | 'visual'
 
@@ -29,6 +37,9 @@ export interface SiteSettings {
   readonly siteTitle: string
   readonly accentColor: string
   readonly theme: SiteTheme
+  readonly themePreset: ThemePreset
+  readonly fontFamily: SiteFontFamily
+  readonly background: SiteBackground
   readonly registration: RegistrationMode
   readonly privateWiki: boolean
   readonly requireEmailVerification: boolean
@@ -61,6 +72,9 @@ export interface SettingsPatch {
   readonly siteTitle?: string
   readonly accentColor?: string
   readonly theme?: SiteTheme
+  readonly themePreset?: ThemePreset
+  readonly fontFamily?: SiteFontFamily
+  readonly background?: SiteBackground
   readonly registration?: RegistrationMode
   readonly privateWiki?: boolean
   readonly requireEmailVerification?: boolean
@@ -98,6 +112,9 @@ export const SITE_SETTING_KEYS = [
   'siteTitle',
   'accentColor',
   'theme',
+  'themePreset',
+  'fontFamily',
+  'background',
   'registration',
   'privateWiki',
   'requireEmailVerification',
@@ -133,6 +150,9 @@ export const defaultSiteSettings = (): SiteSettings => ({
   siteTitle: 'ts-wiki',
   accentColor: '#7c3aed',
   theme: 'system',
+  themePreset: 'classic',
+  fontFamily: 'system',
+  background: { type: 'none', value: '', overlayOpacity: 0 },
   registration: 'open',
   privateWiki: false,
   requireEmailVerification: false,

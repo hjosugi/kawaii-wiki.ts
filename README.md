@@ -3,7 +3,7 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.4.16** — a small, complete, runnable wiki: first-run `/setup`,
+> **Status: v0.4.17** — a small, complete, runnable wiki: first-run `/setup`,
 > Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth, private-wiki mode, groups/page rules,
 > R2 assets, libSQL/Turso support, webhooks plus event automation, persisted page
@@ -13,7 +13,8 @@ Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type sa
 > non-engineer editing workflows with visual-first defaults, slash insert,
 > friendly errors, guide pages, path generation, crop/resize image upload,
 > decorated public profiles, privacy-friendly YouTube/Twitch embeds,
-> OG/oEmbed link cards, YouTube RSS latest-video widgets, VTuber templates, and
+> OG/oEmbed link cards, YouTube RSS latest-video widgets, VTuber templates,
+> theme presets/backgrounds/fonts, page icons/covers, landing-page widgets, and
 > a typed API.
 
 ## Quick start
@@ -42,11 +43,12 @@ search. For an existing database, back it up and run
 `TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
 
 Admins can customize the wiki from **Admin → Appearance**: site title, accent
-color, light/dark/system default, logo, favicon, header links, footer text,
-footer links, default page locale, timezone, date format, custom CSS, and
-Markdown feature toggles. Emoji shortcodes are on by default; KaTeX math and
-client-side Mermaid rendering are opt-in. Initial branding/date defaults can be
-seeded with `TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR`, `TS_WIKI_THEME`,
+color, light/dark/system default, theme preset, font family, site background,
+logo, favicon, header links, footer text, footer links, default page locale,
+timezone, date format, custom CSS, and Markdown feature toggles. Emoji
+shortcodes are on by default; KaTeX math and client-side Mermaid rendering are
+opt-in. Initial branding/date defaults can be seeded with
+`TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR`, `TS_WIKI_THEME`,
 `TS_WIKI_DEFAULT_LOCALE`, `TS_WIKI_TIMEZONE`, and `TS_WIKI_DATE_FORMAT`.
 Trusted custom head HTML/analytics snippets are disabled by default and require
 `TS_WIKI_ALLOW_HEAD_INJECTION=true`.
@@ -106,14 +108,14 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.16
+docker pull ghcr.io/hjosugi/ts-wiki:v0.4.17
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.16
+  ghcr.io/hjosugi/ts-wiki:v0.4.17
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS

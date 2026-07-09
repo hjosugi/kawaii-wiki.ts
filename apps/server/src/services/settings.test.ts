@@ -26,6 +26,9 @@ describe('settings service', () => {
     const locked = createSettingsService(db, { allowHeadInjection: false })
     const updated = locked.update(admin, {
       siteTitle: 'Custom wiki',
+      themePreset: 'pop',
+      fontFamily: 'maru',
+      background: { type: 'pattern', value: 'stars', overlayOpacity: 0.35 },
       homePath: '../Docs/Home',
       customHeadHtml: '<script src="https://analytics.example/script.js"></script>',
       navLinks: [
@@ -41,6 +44,9 @@ describe('settings service', () => {
     expect(updated.ok).toBe(true)
     if (!updated.ok) throw new Error('settings update failed')
     expect(updated.value.homePath).toBe('docs/home')
+    expect(updated.value.themePreset).toBe('pop')
+    expect(updated.value.fontFamily).toBe('maru')
+    expect(updated.value.background).toEqual({ type: 'pattern', value: 'stars', overlayOpacity: 0.35 })
     expect(updated.value.customHeadHtml).toBe('')
     expect(updated.value.navLinks).toEqual([
       { label: 'Docs', url: '/docs', icon: '', children: [{ label: 'Guide', url: '/docs/guide', icon: '', children: [] }] },
@@ -53,5 +59,11 @@ describe('settings service', () => {
     })
     expect(withHead.ok).toBe(true)
     if (withHead.ok) expect(withHead.value.customHeadHtml).toContain('analytics.example')
+
+    const invalidBackground = trusted.update(admin, {
+      background: { type: 'gradient', value: 'url(https://example.com/x)', overlayOpacity: 2 },
+    })
+    expect(invalidBackground.ok).toBe(true)
+    if (invalidBackground.ok) expect(invalidBackground.value.background).toEqual(updated.value.background)
   })
 })

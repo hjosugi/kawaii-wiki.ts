@@ -143,6 +143,9 @@ export interface Page {
   path: string
   title: string
   description: string
+  icon: string
+  coverUrl: string
+  coverPosition: string
   content: string
   renderedHtml: string
   toc: string
@@ -168,6 +171,9 @@ export interface PageSummary {
   path: string
   title: string
   description: string
+  icon: string
+  coverUrl: string
+  coverPosition: string
   lifecycle: 'active' | 'archived' | 'deleted'
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
   labels: string
@@ -233,6 +239,9 @@ export interface PageSpace {
 export interface SearchHit {
   path: string
   title: string
+  icon: string
+  coverUrl: string
+  coverPosition: string
   snippet: string
   rank: number
   kind: 'page' | 'comment' | 'asset'
@@ -304,6 +313,10 @@ export interface RecentChange {
   authorId: string | null
   authorName: string | null
   createdAt: number
+}
+export interface PopularPage extends PageSummary {
+  views: number
+  lastViewedAt: number | null
 }
 export interface PageRedirectView {
   fromPath: string
@@ -639,6 +652,9 @@ export const Api = {
     title: string
     content: string
     description?: string
+    icon?: string
+    coverUrl?: string
+    coverPosition?: string
     labels?: string[]
     status?: Page['status']
     ownerId?: string | null
@@ -652,6 +668,9 @@ export const Api = {
     title?: string
     content?: string
     description?: string
+    icon?: string
+    coverUrl?: string
+    coverPosition?: string
     labels?: string[]
     status?: Page['status']
     ownerId?: string | null
@@ -685,6 +704,10 @@ export const Api = {
     call<{ changes: RecentChange[] }>(client().api.changes.get({ query: { ...(limit ? { limit } : {}), ...(before ? { before } : {}) } })).then(
       (d) => d.changes,
     ),
+  popularPages: (days?: number, limit?: number) =>
+    call<{ pages: PopularPage[] }>(
+      client().api.pages.popular.get({ query: { ...(days ? { days } : {}), ...(limit ? { limit } : {}) } }),
+    ).then((d) => d.pages),
   redirects: () =>
     call<{ redirects: PageRedirectView[] }>(client().api.redirects.get()).then((d) => d.redirects),
   createRedirect: (fromPath: string, toPath: string) =>
@@ -740,6 +763,9 @@ export const Api = {
       path: string
       title: string
       description: string
+      icon: string
+      coverUrl: string
+      coverPosition: string
       content: string
       labels: string
       status: Page['status']
@@ -758,6 +784,9 @@ export const Api = {
     path: string
     title?: string
     description?: string
+    icon?: string
+    coverUrl?: string
+    coverPosition?: string
     content: string
     labels?: string[]
     status?: Page['status']

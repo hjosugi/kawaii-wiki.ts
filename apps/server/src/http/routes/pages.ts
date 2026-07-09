@@ -41,6 +41,26 @@ export const createPageRoutes = ({
       requirePageRead(principal)
       return { pages: services.pages.list() }
     })
+    .get('/api/pages/popular', ({ query, services, principal }) => {
+      requirePageRead(principal)
+      const readable = new Map(
+        services.pages
+          .list()
+          .filter((page) => canReadPage(principal, page.path))
+          .map((page) => [page.path, page]),
+      )
+      return {
+        pages: services.analytics.popular(query.days, query.limit).flatMap((insight) => {
+          const page = readable.get(insight.path)
+          return page ? [{ ...page, views: insight.views, lastViewedAt: insight.lastViewedAt }] : []
+        }),
+      }
+    }, {
+      query: t.Object({
+        days: t.Optional(t.Numeric()),
+        limit: t.Optional(t.Numeric()),
+      }),
+    })
     .get('/api/users/:id/profile', ({ params, services, principal }) => {
       requirePageRead(principal)
       const user = services.users.findById(params.id)
@@ -146,6 +166,9 @@ export const createPageRoutes = ({
           title: t.String(),
           content: t.String(),
           description: t.Optional(t.String()),
+          icon: t.Optional(t.String()),
+          coverUrl: t.Optional(t.String()),
+          coverPosition: t.Optional(t.String()),
           labels: t.Optional(t.Array(t.String())),
           status: t.Optional(t.Union([
             t.Literal('draft'),
@@ -328,6 +351,9 @@ export const createPageRoutes = ({
           title: t.Optional(t.String()),
           content: t.Optional(t.String()),
           description: t.Optional(t.String()),
+          icon: t.Optional(t.String()),
+          coverUrl: t.Optional(t.String()),
+          coverPosition: t.Optional(t.String()),
           labels: t.Optional(t.Array(t.String())),
           status: t.Optional(t.Union([
             t.Literal('draft'),

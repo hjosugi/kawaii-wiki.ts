@@ -119,6 +119,15 @@ function chooseRecent(query: string): void {
 
 const selectedHit = computed<SearchHit | null>(() => search.hits.value[navigation.selected.value] ?? null)
 
+function coverStyle(hit: SearchHit): Record<string, string> {
+  return hit.coverUrl
+    ? {
+        backgroundImage: `url(${JSON.stringify(hit.coverUrl)})`,
+        backgroundPosition: hit.coverPosition || 'center',
+      }
+    : {}
+}
+
 function openSelected(): void {
   const hit = selectedHit.value
   if (!hit) return
@@ -259,15 +268,25 @@ onMounted(async () => {
         class="rounded-md border p-4 transition"
         :class="index === navigation.selected.value ? 'border-violet-400 bg-violet-50/60 dark:bg-violet-950/30' : 'border-gray-200 hover:border-violet-400 dark:border-gray-800'"
       >
-        <RouterLink :to="{ path: '/' + h.path, hash: h.anchor ? '#' + h.anchor : '' }" class="block">
-          <div class="flex flex-wrap items-center gap-2">
-            <span class="font-semibold text-violet-600">{{ h.title }}</span>
-            <span v-if="h.kind !== 'page'" class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
-              {{ h.kind === 'comment' ? 'in comments' : 'in assets' }}
-            </span>
+        <RouterLink :to="{ path: '/' + h.path, hash: h.anchor ? '#' + h.anchor : '' }" class="grid gap-3 sm:grid-cols-[4.5rem_minmax(0,1fr)]">
+          <div
+            class="grid h-16 w-18 shrink-0 place-items-center overflow-hidden rounded-md bg-[var(--c-surface-muted)] bg-cover text-2xl"
+            :style="coverStyle(h)"
+            aria-hidden="true"
+          >
+            <span v-if="!h.coverUrl && h.icon">{{ h.icon }}</span>
           </div>
-          <div class="mb-1 font-mono text-xs text-gray-500">/{{ h.path }}</div>
-          <div class="search-snippet text-sm text-gray-700 dark:text-gray-300" v-html="h.snippet"></div>
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <span v-if="h.icon && h.coverUrl" aria-hidden="true">{{ h.icon }}</span>
+              <span class="font-semibold text-violet-600">{{ h.title }}</span>
+              <span v-if="h.kind !== 'page'" class="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+                {{ h.kind === 'comment' ? 'in comments' : 'in assets' }}
+              </span>
+            </div>
+            <div class="mb-1 font-mono text-xs text-gray-500">/{{ h.path }}</div>
+            <div class="search-snippet text-sm text-gray-700 dark:text-gray-300" v-html="h.snippet"></div>
+          </div>
         </RouterLink>
       </li>
     </ul>

@@ -22,6 +22,9 @@ export type SearchSort = 'relevance' | 'recent'
 export interface SearchHit {
   readonly path: string
   readonly title: string
+  readonly icon: string
+  readonly coverUrl: string
+  readonly coverPosition: string
   readonly snippet: string
   /** Final relevance score — lower is more relevant. */
   readonly rank: number
@@ -461,6 +464,9 @@ export const createFtsSearchIndexer = (
     SELECT
       p.path AS path,
       p.title AS title,
+      p.icon AS icon,
+      p.cover_url AS coverUrl,
+      p.cover_position AS coverPosition,
       p.description AS description,
       p.updated_at AS updatedAt,
       snippet(pages_fts, 1, '${SNIPPET_START}', '${SNIPPET_END}', '…', 12) AS titleSnippet,
@@ -484,6 +490,9 @@ export const createFtsSearchIndexer = (
       p.id AS id,
       p.path AS path,
       p.title AS title,
+      p.icon AS icon,
+      p.cover_url AS coverUrl,
+      p.cover_position AS coverPosition,
       p.description AS description,
       p.content AS content,
       p.updated_at AS updatedAt
@@ -535,6 +544,9 @@ export const createFtsSearchIndexer = (
     row: {
       path: string
       title: string
+      icon: string
+      coverUrl: string
+      coverPosition: string
       description: string
       updatedAt: number
       titleSnippet: string
@@ -551,6 +563,9 @@ export const createFtsSearchIndexer = (
     return {
       path: row.path,
       title: row.title,
+      icon: row.icon,
+      coverUrl: row.coverUrl,
+      coverPosition: row.coverPosition,
       snippet: chosen.snippet,
       rank: finalScore(row, query, now),
       kind: chosen.kind,
@@ -640,7 +655,17 @@ export const createFtsSearchIndexer = (
           like,
           like,
           ...filterArgs(request.filters),
-        ) as Array<{ id: string; path: string; title: string; description: string; content: string; updatedAt: number }>
+        ) as Array<{
+          id: string
+          path: string
+          title: string
+          icon: string
+          coverUrl: string
+          coverPosition: string
+          description: string
+          content: string
+          updatedAt: number
+        }>
         const hits = sortHits(
           rows
             .filter((row) => !canRead || canRead(row.path))
@@ -653,6 +678,9 @@ export const createFtsSearchIndexer = (
               return {
                 path: row.path,
                 title: row.title,
+                icon: row.icon,
+                coverUrl: row.coverUrl,
+                coverPosition: row.coverPosition,
                 snippet: chosen.snippet,
                 rank: likeRank(row, parsed.terms, query, now),
                 kind: chosen.kind,
@@ -683,6 +711,9 @@ export const createFtsSearchIndexer = (
         const rows = stmt.all(match, ...filterArgs(request.filters)) as Array<{
           path: string
           title: string
+          icon: string
+          coverUrl: string
+          coverPosition: string
           description: string
           updatedAt: number
           titleSnippet: string

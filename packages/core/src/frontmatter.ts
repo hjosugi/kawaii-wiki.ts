@@ -19,6 +19,9 @@ import { normalizePath } from './slug.ts'
 export interface PageFileData {
   readonly title: string
   readonly description: string
+  readonly icon?: string
+  readonly coverUrl?: string
+  readonly coverPosition?: string
   readonly content: string
   readonly toc?: boolean
   readonly tocDepth?: number
@@ -76,12 +79,14 @@ export const serializePageFile = (data: PageFileData): string => {
     '---',
     `title: ${escapeYaml(data.title)}`,
     `description: ${escapeYaml(data.description)}`,
+    data.icon ? `icon: ${escapeYaml(data.icon)}` : '',
+    data.coverUrl ? `coverUrl: ${escapeYaml(data.coverUrl)}` : '',
+    data.coverPosition ? `coverPosition: ${escapeYaml(data.coverPosition)}` : '',
     ...tocFrontmatterLines({ toc, tocDepth }),
     '---',
-    '',
-  ].join('\n')
+  ].filter(Boolean).join('\n')
   const body = parsedContent.content.endsWith('\n') ? parsedContent.content : `${parsedContent.content}\n`
-  return `${frontmatter}\n${body}`
+  return `${frontmatter}\n\n${body}`
 }
 
 /** Parse markdown frontmatter and return the stripped body. */
@@ -90,6 +95,9 @@ export const parseMarkdownFrontmatter = (raw: string): MarkdownFrontmatter => {
   const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
   let title = ''
   let description = ''
+  let icon = ''
+  let coverUrl = ''
+  let coverPosition = ''
   let toc: boolean | undefined
   let tocDepth: number | undefined
   let content = text
@@ -101,6 +109,9 @@ export const parseMarkdownFrontmatter = (raw: string): MarkdownFrontmatter => {
       if (!kv) continue
       if (kv[1] === 'title') title = unquoteYaml(kv[2] ?? '')
       else if (kv[1] === 'description') description = unquoteYaml(kv[2] ?? '')
+      else if (kv[1] === 'icon') icon = unquoteYaml(kv[2] ?? '')
+      else if (kv[1] === 'coverUrl') coverUrl = unquoteYaml(kv[2] ?? '')
+      else if (kv[1] === 'coverPosition') coverPosition = unquoteYaml(kv[2] ?? '')
       else if (kv[1] === 'toc') toc = parseYamlBoolean(kv[2] ?? '')
       else if (kv[1] === 'tocDepth') tocDepth = parseTocDepth(kv[2] ?? '')
     }
@@ -109,6 +120,9 @@ export const parseMarkdownFrontmatter = (raw: string): MarkdownFrontmatter => {
   return {
     title,
     description,
+    ...(icon ? { icon } : {}),
+    ...(coverUrl ? { coverUrl } : {}),
+    ...(coverPosition ? { coverPosition } : {}),
     content,
     ...(toc === undefined ? {} : { toc }),
     ...(tocDepth === undefined ? {} : { tocDepth }),

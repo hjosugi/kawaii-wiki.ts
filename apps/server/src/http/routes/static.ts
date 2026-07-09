@@ -48,9 +48,10 @@ const seoForPage = (
   const base = origin.replace(/\/+$/, '')
   const requestUrl = `${base}${requestPath.startsWith('/') ? requestPath : `/${requestPath}`}`
   const pageUrl = page && !preferRequestUrl ? absolutePageUrl(base, page.path) : requestUrl
-  const title = page ? `${page.title} · ${siteName}` : siteName
+  const pageTitle = page ? `${page.icon ? `${page.icon} ` : ''}${page.title}` : ''
+  const title = page ? `${pageTitle} · ${siteName}` : siteName
   const description = page?.description?.trim() || siteName
-  const image = page ? firstImageSrc(page.renderedHtml) : null
+  const image = page ? page.coverUrl || firstImageSrc(page.renderedHtml) : null
   return {
     title,
     description,
