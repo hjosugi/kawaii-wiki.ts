@@ -117,6 +117,7 @@ export const createApp = ({
   const services = createServices(db, {
     assetUrl: assetStorage.url,
     auth: env.auth,
+    assetUpload: env.assetUpload,
     search: env.search,
     branding: env.branding,
     localization: env.localization,
@@ -169,12 +170,20 @@ export const createApp = ({
 
   const publicSettings = (): PublicSettings => ({
     ...services.settings.public(),
-    privateWiki: env.auth.privateWiki,
-    registration: env.auth.registration,
     mailConfigured: services.recovery.mailConfigured(),
-    requireEmailVerification: env.auth.requireEmailVerification,
-    requireTwoFactor: env.auth.requireTwoFactor,
   })
+
+  const privateWiki = (): boolean => services.settings.public().privateWiki
+  const authPolicy = () => {
+    const settings = services.settings.public()
+    return {
+      registration: settings.registration,
+      requireEmailVerification: settings.requireEmailVerification,
+      requireTwoFactor: settings.requireTwoFactor,
+      tokenTtlSeconds: settings.tokenTtlSeconds,
+    }
+  }
+  const assetPolicy = () => ({ maxBytes: services.settings.public().assetMaxBytes })
 
   const principalForUserId = (userId: string): Principal | null => {
     const user = services.users.findById(userId)
@@ -226,12 +235,12 @@ export const createApp = ({
     principal ? can(principal, 'page:read', { path }) : services.authz.canAnonymous('page:read', path)
 
   const requirePageRead = (principal: Principal | null, path?: string): void => {
-    if (env.auth.privateWiki && !principal) throw new HttpError(unauthorized())
+    if (privateWiki() && !principal) throw new HttpError(unauthorized())
     if (!canReadPage(principal, path)) throw new HttpError(forbidden())
   }
 
   const requireSearchRead = (principal: Principal | null): void => {
-    if (env.auth.privateWiki && !principal) throw new HttpError(unauthorized())
+    if (privateWiki() && !principal) throw new HttpError(unauthorized())
     requireHttpPermission(principal, 'search:read')
   }
 
@@ -326,7 +335,7 @@ export const createApp = ({
     server: RequestIpServer | null | undefined,
     principal: Principal | null,
   ): void => {
-    if (!env.auth.privateWiki || principal || request.method !== 'GET') return
+    if (!privateWiki() || principal || request.method !== 'GET') return
     const pathname = new URL(request.url).pathname
     if (!isPrivateAnonymousReadPath(pathname)) return
     enforceRateLimit(
@@ -484,7 +493,6 @@ export const createApp = ({
     }))
     .use(createSetupRoutes({
       db,
-      env,
       logger,
       enforceAuthLimit,
       publishAutomation,
@@ -492,6 +500,7 @@ export const createApp = ({
     .use(createAuthRoutes({
       db,
       env,
+      authPolicy,
       logger,
       enforceAuthLimit,
       enforceCredentialLimit,
@@ -513,11 +522,11 @@ export const createApp = ({
     }))
     .use(createSearchRoutes({ requireSearchRead }))
     .use(createRealtimeRoutes({
-      env,
       services,
       bus,
       presenceRuntime,
       collab,
+      privateWiki,
       mintRealtimeTicket,
       consumeRealtimeTicket,
     }))
@@ -532,9 +541,9 @@ export const createApp = ({
       logger,
     }))
     .use(createAssetRoutes({
-      env,
       logger,
       assetStorage,
+      assetPolicy,
       enforceAssetUploadLimit,
       publishAutomation,
     }))
@@ -543,6 +552,7 @@ export const createApp = ({
       services,
       hasWebDist,
       webIndex,
+      privateWiki,
       canReadPage,
     }))
 }

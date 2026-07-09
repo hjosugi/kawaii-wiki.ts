@@ -11,7 +11,7 @@ import {
 import type { DB } from '../db/client.ts'
 import { userPreferences } from '../db/schema.ts'
 
-export type UserPreferenceKey = 'nav:collapsed' | 'nav:starred' | 'nav:page-order'
+export type UserPreferenceKey = 'nav:collapsed' | 'nav:starred' | 'nav:page-order' | 'editor:mode'
 export type UserPreferenceMap = Record<UserPreferenceKey, unknown>
 
 export interface UserPreferenceService {
@@ -19,7 +19,7 @@ export interface UserPreferenceService {
   update(principal: Principal | null, preferences: unknown): Result<Partial<UserPreferenceMap>, AppError>
 }
 
-const ALLOWED_KEYS = new Set<UserPreferenceKey>(['nav:collapsed', 'nav:starred', 'nav:page-order'])
+const ALLOWED_KEYS = new Set<UserPreferenceKey>(['nav:collapsed', 'nav:starred', 'nav:page-order', 'editor:mode'])
 const MAX_ENTRIES = 500
 const MAX_VALUE_LENGTH = 20_000
 
@@ -53,9 +53,16 @@ const pageOrder = (value: unknown): Record<string, number> | null => {
   return out
 }
 
+const editorMode = (value: unknown): 'markdown' | 'visual' | null =>
+  value === 'markdown' || value === 'visual' ? value : null
+
 const cleanPreference = (key: UserPreferenceKey, value: unknown): Result<unknown | null, AppError> => {
   if (value === null) return ok(null)
-  const cleaned = key === 'nav:page-order' ? pageOrder(value) : uniqueStrings(value)
+  const cleaned = key === 'nav:page-order'
+    ? pageOrder(value)
+    : key === 'editor:mode'
+      ? editorMode(value)
+      : uniqueStrings(value)
   if (cleaned === null) return err(validationError(`Invalid preference value for ${key}`, key))
   const encoded = JSON.stringify(cleaned)
   if (encoded.length > MAX_VALUE_LENGTH) return err(validationError(`Preference ${key} is too large`, key))

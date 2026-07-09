@@ -1,13 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { Api, type AssetView, type Page } from '@/lib/api'
+import { normalizePath } from '@ts-wiki/core'
+import { Api, ApiClientError, type AssetView, type Page, type UserPreferenceMap } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n } from '@/lib/i18n'
+import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import Skeleton from '@/components/Skeleton.vue'
 import {
   builtInPageTemplates,
@@ -26,6 +29,7 @@ const router = useRouter()
 const auth = useAuth()
 const pagesStore = usePages()
 const { t } = useI18n()
+const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 
 const isEdit = computed(() => route.name === 'edit')
 const title = ref('')
@@ -54,7 +58,11 @@ const error = ref<string | null>(null)
 const conflictDraft = ref<DraftSnapshot | null>(null)
 const selectedTemplate = ref('builtin:blank')
 const editorMode = ref<'markdown' | 'visual'>('markdown')
+const editorModeLoaded = ref(false)
 const collabDisabledForSession = ref(false)
+const pathManuallyEdited = ref(false)
+const advancedPathOpen = ref(false)
+const createParentPath = ref('')
 const attachments = ref<AssetView[]>([])
 const attachmentsLoading = ref(false)
 const attachmentsLoaded = ref(false)
@@ -90,6 +98,8 @@ const useCollaborativeMarkdown = computed(
   () => isEdit.value && editorMode.value === 'markdown' && originalPath.value && !collabDisabledForSession.value,
 )
 const assetFolder = computed(() => assetFolderFromPagePath(path.value || originalPath.value))
+const existingPaths = computed(() => new Set(pagesStore.list.map((page) => page.path)))
+const createPathPreview = computed(() => path.value || nextAvailablePath(suggestedCreatePath()))
 interface DraftSnapshot {
   title: string
   path: string
@@ -140,6 +150,7 @@ function applyPage(page: Page): void {
   locale.value = page.locale
   navOrderText.value = page.navOrder === null ? '' : String(page.navOrder)
   pinned.value = page.pinned
+  pathManuallyEdited.value = true
 }
 
 function markSaved(): void {
@@ -184,11 +195,62 @@ const labelTextFromJson = (value: string): string => {
 const dateInputValue = (value: number | null): string =>
   value ? new Date(value).toISOString().slice(0, 10) : ''
 
+const titlePathSegment = (): string => normalizePath(title.value || 'new-page') || 'new-page'
+
+function nextAvailablePath(base: string): string {
+  const normalized = normalizePath(base) || 'new-page'
+  if (!existingPaths.value.has(normalized)) return normalized
+  let index = 2
+  while (existingPaths.value.has(`${normalized}-${index}`)) index += 1
+  return `${normalized}-${index}`
+}
+
+function suggestedCreatePath(): string {
+  const segment = titlePathSegment()
+  return createParentPath.value ? `${createParentPath.value}/${segment}` : segment
+}
+
+function applyAutoPath(): void {
+  if (isEdit.value || pathManuallyEdited.value) return
+  path.value = nextAvailablePath(suggestedCreatePath())
+}
+
+function setManualPath(value: string): void {
+  pathManuallyEdited.value = true
+  path.value = value
+}
+
+function seedCreatePathFromRoute(): void {
+  const seed = normalizePath(String(route.query.path ?? ''))
+  createParentPath.value = ''
+  pathManuallyEdited.value = false
+  advancedPathOpen.value = false
+  if (!seed) {
+    applyAutoPath()
+    return
+  }
+  if (seed.endsWith('/new-page')) {
+    createParentPath.value = seed.replace(/\/new-page$/, '')
+    applyAutoPath()
+    return
+  }
+  path.value = seed
+  pathManuallyEdited.value = true
+  advancedPathOpen.value = true
+}
+
+function templatePreviewHtml(template: PageTemplateOption): string {
+  return markdownRenderer.value.renderMarkdown(template.content).html
+}
+
 function applyTemplate(key: string): void {
   const template = templateOptions.value.find((item) => item.key === key)
   if (!template) return
   title.value = template.metadata.title ?? template.label
-  if (!path.value && template.metadata.path) path.value = template.metadata.path
+  if (template.metadata.path && !isEdit.value) {
+    path.value = nextAvailablePath(template.metadata.path)
+    pathManuallyEdited.value = true
+  }
   labelsText.value = template.metadata.labels?.join(', ') ?? ''
   status.value = template.metadata.status ?? 'draft'
   reviewAtDate.value = dateInputValue(template.metadata.reviewAt ?? null)
@@ -249,6 +311,9 @@ async function saveCurrentAsTemplate(): Promise<void> {
 function setEditorMode(mode: 'markdown' | 'visual'): void {
   if (mode === 'visual' && isEdit.value) collabDisabledForSession.value = true
   editorMode.value = mode
+  if (editorModeLoaded.value && auth.isAuthed) {
+    void Api.updatePreferences({ 'editor:mode': mode } as UserPreferenceMap).catch(() => {})
+  }
 }
 
 async function loadAttachments(pagePath: string): Promise<void> {
@@ -272,7 +337,16 @@ onMounted(async () => {
     router.replace({ name: 'login' })
     return
   }
-  defaultLocale.value = (await Api.publicSettings().catch(() => null))?.defaultLocale ?? 'und'
+  await pagesStore.refresh()
+  const publicSettings = await Api.publicSettings().catch(() => null)
+  defaultLocale.value = publicSettings?.defaultLocale ?? 'und'
+  const preferences = auth.isAuthed ? await Api.preferences().catch(() => ({} as UserPreferenceMap)) : {}
+  const preferredMode = preferences['editor:mode'] === 'markdown' || preferences['editor:mode'] === 'visual'
+    ? preferences['editor:mode']
+    : publicSettings?.defaultEditorMode ?? 'visual'
+  editorMode.value = preferredMode
+  if (preferredMode === 'visual' && isEdit.value) collabDisabledForSession.value = true
+  editorModeLoaded.value = true
   void loadTemplates()
   if (isEdit.value) {
     const target = paramToPath(route.params.path)
@@ -285,7 +359,6 @@ onMounted(async () => {
       error.value = (e as Error).message
     }
   } else {
-    path.value = (route.query.path as string) ?? ''
     title.value = ''
     content.value = builtInTemplates[0]?.content ?? ''
     labelsText.value = ''
@@ -297,6 +370,7 @@ onMounted(async () => {
     originalUpdatedAt.value = null
     attachments.value = []
     attachmentsLoaded.value = false
+    seedCreatePathFromRoute()
     markSaved()
   }
 })
@@ -304,6 +378,8 @@ onMounted(async () => {
 watch(selectedTemplate, (key, previous) => {
   if (!isEdit.value && key !== previous) applyTemplate(key)
 })
+
+watch(title, applyAutoPath)
 
 function beforeUnload(event: BeforeUnloadEvent): void {
   if (!dirty.value || saving.value) return
@@ -322,6 +398,7 @@ async function save(): Promise<void> {
   saving.value = true
   error.value = null
   try {
+    if (!isEdit.value && !path.value) path.value = createPathPreview.value
     const metadata = {
       labels: labels(),
       status: status.value,
@@ -363,8 +440,10 @@ async function save(): Promise<void> {
     markSaved()
     router.push('/' + path.value)
   } catch (e) {
+    const apiError = e instanceof ApiClientError ? e : null
     const message = (e as Error).message
-    if (isEdit.value && /changed since you opened|reload the latest/i.test(message)) {
+    const rawMessage = apiError?.rawMessage ?? message
+    if (isEdit.value && (apiError?.kind === 'conflict' || /changed since you opened|reload the latest/i.test(rawMessage))) {
       conflictDraft.value = captureDraft()
       try {
         const latest = await Api.getPage(originalPath.value)
@@ -374,6 +453,12 @@ async function save(): Promise<void> {
       } catch {
         error.value = message
       }
+    } else if (!isEdit.value && (apiError?.kind === 'conflict' || /already exists|duplicate/i.test(rawMessage))) {
+      const suggested = nextAvailablePath(path.value || suggestedCreatePath())
+      path.value = suggested
+      pathManuallyEdited.value = true
+      advancedPathOpen.value = true
+      error.value = `${message} Suggested path: /${suggested}`
     } else {
       error.value = message
     }
@@ -418,12 +503,6 @@ async function archive(): Promise<void> {
   <div>
     <div class="flex flex-wrap items-center gap-3 mb-4">
       <input v-model="title" class="input flex-1 min-w-50 text-lg font-semibold" :placeholder="t('pageTitle')" :aria-label="t('pageTitle')" />
-      <input v-model="path" class="input font-mono text-sm max-w-xs" :placeholder="t('pathPlaceholder')" :aria-label="t('pathPlaceholder')" />
-      <select v-if="!isEdit" v-model="selectedTemplate" class="input max-w-56" aria-label="Page template">
-        <option v-for="template in templateOptions" :key="template.key" :value="template.key">
-          {{ template.icon ? `${template.icon} ` : '' }}{{ template.label }}
-        </option>
-      </select>
       <RouterLink class="btn-ghost" to="/_templates">
         Templates
       </RouterLink>
@@ -456,6 +535,71 @@ async function archive(): Promise<void> {
       <button v-if="isEdit" class="btn-ghost" @click="archive">{{ t('archive') }}</button>
       <button v-if="isEdit" class="btn-danger" @click="remove">{{ t('delete') }}</button>
     </div>
+
+    <section v-if="!isEdit" class="mb-4 space-y-3">
+      <div class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)] px-3 py-2 text-sm">
+        <span class="text-[var(--c-text-muted)]">Page path:</span>
+        <span class="font-mono">/{{ createPathPreview }}</span>
+      </div>
+      <details
+        class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3"
+        :open="advancedPathOpen"
+        @toggle="advancedPathOpen = ($event.target as HTMLDetailsElement).open"
+      >
+        <summary class="cursor-pointer text-sm font-medium">Advanced path</summary>
+        <div class="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <input
+            class="input font-mono text-sm"
+            :value="path"
+            :placeholder="t('pathPlaceholder')"
+            :aria-label="t('pathPlaceholder')"
+            @input="setManualPath(($event.target as HTMLInputElement).value)"
+          />
+          <button
+            class="btn-ghost"
+            type="button"
+            @click="pathManuallyEdited = false; applyAutoPath(); advancedPathOpen = false"
+          >
+            Auto
+          </button>
+        </div>
+      </details>
+
+      <section class="space-y-2">
+        <div class="flex items-center justify-between gap-3">
+          <h2 class="text-sm font-semibold">Choose a template</h2>
+          <Skeleton v-if="templatesLoading" class="w-40" label="Loading templates" :lines="1" />
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <button
+            v-for="template in templateOptions"
+            :key="template.key"
+            class="min-h-56 rounded-md border p-3 text-left transition-colors"
+            :class="selectedTemplate === template.key ? 'border-[var(--c-accent)] bg-[var(--c-surface-muted)]' : 'border-[var(--c-border)] bg-[var(--c-surface)] hover:bg-[var(--c-surface-muted)]'"
+            type="button"
+            @click="selectedTemplate = template.key; applyTemplate(template.key)"
+          >
+            <span class="mb-2 flex items-start justify-between gap-3">
+              <span>
+                <span class="block text-sm font-semibold">{{ template.icon ? `${template.icon} ` : '' }}{{ template.label }}</span>
+                <span class="block text-xs text-[var(--c-text-muted)]">{{ template.description || (template.builtIn ? 'Built-in starter' : 'Custom template') }}</span>
+              </span>
+              <span v-if="selectedTemplate === template.key" class="text-xs font-semibold text-[var(--c-accent)]">Selected</span>
+            </span>
+            <span
+              class="prose dark:prose-invert block h-36 max-w-none overflow-hidden rounded border border-[var(--c-border)] bg-[var(--c-bg)] p-3 text-xs"
+              v-markdown-enhance="markdownFeatures"
+              v-html="templatePreviewHtml(template)"
+            ></span>
+          </button>
+        </div>
+      </section>
+    </section>
+
+    <details v-else class="mb-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3" open>
+      <summary class="cursor-pointer text-sm font-medium">Path</summary>
+      <input v-model="path" class="input mt-3 font-mono text-sm max-w-xs" :placeholder="t('pathPlaceholder')" :aria-label="t('pathPlaceholder')" />
+    </details>
     <section v-if="showTemplateSave" class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3">
       <form class="grid gap-2 sm:grid-cols-[4rem_minmax(0,1fr)_minmax(0,1fr)_auto_auto]" @submit.prevent="saveCurrentAsTemplate">
         <input v-model="templateIcon" class="input" maxlength="24" placeholder="Icon" aria-label="Template icon" />

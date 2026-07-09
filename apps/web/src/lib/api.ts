@@ -25,6 +25,7 @@ import type {
   SiteSettings,
 } from '@ts-wiki/core'
 import { API_BASE_URL } from './url'
+import { friendlyErrorMessage } from './friendlyErrors'
 
 export type {
   BuiltInNavItem,
@@ -65,18 +66,35 @@ const client = () =>
     headers: authToken ? { authorization: `Bearer ${authToken}` } : {},
   })
 
-const messageOf = (error: unknown): string => {
+export class ApiClientError extends Error {
+  constructor(
+    message: string,
+    readonly kind?: string,
+    readonly status?: number,
+    readonly rawMessage?: string,
+    readonly field?: string,
+  ) {
+    super(message)
+    this.name = 'ApiClientError'
+  }
+}
+
+const errorOf = (error: unknown): ApiClientError => {
   const e = error as
-    | { value?: { error?: { message?: string }; message?: string }; status?: number }
+    | { value?: { error?: { kind?: string; message?: string; field?: string }; message?: string }; status?: number }
     | null
     | undefined
-  return e?.value?.error?.message ?? e?.value?.message ?? `Request failed (${e?.status ?? '?'})`
+  const kind = e?.value?.error?.kind
+  const status = e?.status
+  const rawMessage = e?.value?.error?.message ?? e?.value?.message
+  const field = e?.value?.error?.field
+  return new ApiClientError(friendlyErrorMessage({ kind, status, message: rawMessage, field }), kind, status, rawMessage, field)
 }
 
 /** Await an Eden call, throw on error, and return the (asserted) success body. */
 const call = async <T>(promise: Promise<{ data: unknown; error: unknown }>): Promise<T> => {
   const res = await promise
-  if (res.error) throw new Error(messageOf(res.error))
+  if (res.error) throw errorOf(res.error)
   return res.data as T
 }
 
@@ -253,7 +271,7 @@ export interface PageRevision {
   action: 'created' | 'updated' | 'moved' | 'deleted' | 'archived' | 'restored' | 'purged'
   createdAt: number
 }
-export type UserPreferenceKey = 'nav:collapsed' | 'nav:starred' | 'nav:page-order'
+export type UserPreferenceKey = 'nav:collapsed' | 'nav:starred' | 'nav:page-order' | 'editor:mode'
 export type UserPreferenceMap = Partial<Record<UserPreferenceKey, unknown>>
 export interface AssetUpload {
   id: string

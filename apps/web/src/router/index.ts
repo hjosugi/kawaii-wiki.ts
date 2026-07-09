@@ -35,7 +35,6 @@ export const routes: RouteRecordRaw[] = [
 ]
 
 export const createWikiRouter = () => {
-  let privateWiki: boolean | null = null
   let setupNeeded: boolean | null = null
   const anonymousAllowedRoutes = new Set(['login', 'reset-password', 'verify-email', 'setup', 'shared'])
   const needsFirstRunSetup = async (): Promise<boolean> => {
@@ -60,9 +59,7 @@ export const createWikiRouter = () => {
 
     if (!auth.ready && getToken()) await auth.fetchMe()
     if (!getToken() && !anonymousAllowedRoutes.has(String(to.name))) {
-      if (privateWiki === null) {
-        privateWiki = await Api.publicSettings().then((settings) => settings.privateWiki).catch(() => false)
-      }
+      const privateWiki = await Api.publicSettings().then((settings) => settings.privateWiki).catch(() => false)
       if (privateWiki) return { name: 'login', query: { redirect: to.fullPath } }
     }
     const requiresAdmin = Boolean(to.meta.requiresAdmin)

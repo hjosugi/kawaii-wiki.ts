@@ -3,13 +3,13 @@ import { t } from 'elysia'
 import { forbidden, type Principal, validationError } from '@ts-wiki/core'
 import { users, type User } from '../../db/schema.ts'
 import type { DB } from '../../db/client.ts'
-import type { Env } from '../../env.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
 import { HttpError, unwrap } from '../errors.ts'
 import { publicUser } from '../representations.ts'
 import type { RequestIpServer } from '../rate-limit.ts'
 import type { BaseApp } from '../base.ts'
+import { createHomeContent, sampleGuidePages } from '../../sample-content.ts'
 
 interface JwtSigner {
   sign(payload: Record<string, unknown>): Promise<string>
@@ -17,7 +17,6 @@ interface JwtSigner {
 
 export interface SetupRoutesContext {
   readonly db: DB
-  readonly env: Env
   readonly logger: StructuredLogger
   readonly enforceAuthLimit: (
     request: Request,
@@ -34,59 +33,18 @@ const adminExists = (db: DB): boolean =>
     .where(eq(users.role, 'admin'))
     .get())
 
-const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>, env: Env): Promise<string> => {
+const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>, tokenTtlSeconds: number): Promise<string> => {
   const now = Date.now()
   return jwt.sign({
     sub: user.id,
     role: user.role,
     iatMs: now,
-    exp: Math.floor(now / 1000) + env.auth.tokenTtlSeconds,
+    exp: Math.floor(now / 1000) + tokenTtlSeconds,
   })
 }
 
-const homeContent = (siteTitle: string): string => `# Welcome to ${siteTitle}
-
-This is the first page in your wiki. Edit it, link to other pages, or replace it with your team's notes.
-
-- Create a page from the New button.
-- Link pages with [[page paths]].
-- Use labels and spaces to keep related knowledge together.
-`
-
-const samplePages = [
-  {
-    path: 'help/writing-basics',
-    title: 'Writing basics',
-    content: `# Writing basics
-
-Use Markdown for headings, lists, tables, code blocks, and links.
-
-## Useful patterns
-
-- Link to another wiki page with [[home]].
-- Add labels before publishing so related pages are easy to find.
-- Keep one decision, guide, or reference per page.
-`,
-  },
-  {
-    path: 'help/organizing-pages',
-    title: 'Organizing pages',
-    content: `# Organizing pages
-
-Page paths create spaces automatically. A page at \`team/runbook\` appears in the \`team\` space.
-
-## First structure
-
-- \`team/overview\` for ownership and contacts.
-- \`runbooks/service-name\` for operational steps.
-- \`decisions/YYYY-MM-topic\` for durable decisions.
-`,
-  },
-] as const
-
 export const createSetupRoutes = ({
   db,
-  env,
   logger,
   enforceAuthLimit,
   publishAutomation,
@@ -122,7 +80,7 @@ export const createSetupRoutes = ({
         const home = unwrap(services.pages.create({
           path: 'home',
           title: `Welcome to ${siteTitle}`,
-          content: homeContent(siteTitle),
+          content: createHomeContent(siteTitle, { includeGuideLinks: body.sampleContent }),
           labels: ['getting-started'],
           status: 'verified',
           navOrder: 0,
@@ -130,12 +88,8 @@ export const createSetupRoutes = ({
         }, principal))
 
         if (body.sampleContent) {
-          for (const page of samplePages) {
-            unwrap(services.pages.create({
-              ...page,
-              labels: ['help'],
-              status: 'verified',
-            }, principal))
+          for (const page of sampleGuidePages) {
+            unwrap(services.pages.create(page, principal))
           }
         }
 
@@ -149,7 +103,7 @@ export const createSetupRoutes = ({
 
         set.status = 201
         return {
-          token: await signAuthToken(jwt, user, env),
+          token: await signAuthToken(jwt, user, settings.tokenTtlSeconds),
           user: publicUser(user),
           settings,
           home,

@@ -20,7 +20,7 @@ onMounted(async () => {
 	    <h2 class="text-lg font-semibold mb-3">Account security</h2>
 	    <div class="card p-4 max-w-xl space-y-4">
 	      <p v-if="requireTwoFactor" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
-	        Two-factor authentication is required by TS_WIKI_REQUIRE_2FA.
+	        Two-factor authentication is required by site policy.
 	      </p>
       <AdminAccountPanel />
       <AdminTotpPanel />

@@ -23,11 +23,19 @@ export interface BuiltInNavItem {
 
 export type SiteTheme = 'system' | 'light' | 'dark'
 export type RegistrationMode = 'open' | 'off'
+export type EditorMode = 'markdown' | 'visual'
 
 export interface SiteSettings {
   readonly siteTitle: string
   readonly accentColor: string
   readonly theme: SiteTheme
+  readonly registration: RegistrationMode
+  readonly privateWiki: boolean
+  readonly requireEmailVerification: boolean
+  readonly requireTwoFactor: boolean
+  readonly tokenTtlSeconds: number
+  readonly assetMaxBytes: number
+  readonly defaultEditorMode: EditorMode
   readonly homePath: string
   readonly defaultLocale: string
   readonly timezone: string
@@ -46,17 +54,20 @@ export interface SiteSettings {
 }
 
 export interface PublicSettings extends SiteSettings {
-  readonly privateWiki: boolean
-  readonly registration: RegistrationMode
   readonly mailConfigured: boolean
-  readonly requireEmailVerification: boolean
-  readonly requireTwoFactor: boolean
 }
 
 export interface SettingsPatch {
   readonly siteTitle?: string
   readonly accentColor?: string
   readonly theme?: SiteTheme
+  readonly registration?: RegistrationMode
+  readonly privateWiki?: boolean
+  readonly requireEmailVerification?: boolean
+  readonly requireTwoFactor?: boolean
+  readonly tokenTtlSeconds?: number
+  readonly assetMaxBytes?: number
+  readonly defaultEditorMode?: EditorMode
   readonly homePath?: string
   readonly defaultLocale?: string
   readonly timezone?: string
@@ -87,6 +98,13 @@ export const SITE_SETTING_KEYS = [
   'siteTitle',
   'accentColor',
   'theme',
+  'registration',
+  'privateWiki',
+  'requireEmailVerification',
+  'requireTwoFactor',
+  'tokenTtlSeconds',
+  'assetMaxBytes',
+  'defaultEditorMode',
   'homePath',
   'defaultLocale',
   'timezone',
@@ -115,6 +133,13 @@ export const defaultSiteSettings = (): SiteSettings => ({
   siteTitle: 'ts-wiki',
   accentColor: '#7c3aed',
   theme: 'system',
+  registration: 'open',
+  privateWiki: false,
+  requireEmailVerification: false,
+  requireTwoFactor: false,
+  tokenTtlSeconds: 30 * 24 * 60 * 60,
+  assetMaxBytes: 25 * 1024 * 1024,
+  defaultEditorMode: 'visual',
   homePath: 'home',
   defaultLocale: 'und',
   timezone: 'UTC',
@@ -136,11 +161,7 @@ export const DEFAULT_SITE_SETTINGS: SiteSettings = defaultSiteSettings()
 
 export const defaultPublicSettings = (): PublicSettings => ({
   ...defaultSiteSettings(),
-  privateWiki: false,
-  registration: 'open',
   mailConfigured: false,
-  requireEmailVerification: false,
-  requireTwoFactor: false,
 })
 
 export const DEFAULT_PUBLIC_SETTINGS: PublicSettings = defaultPublicSettings()

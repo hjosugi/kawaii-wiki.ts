@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { Api } from '@/lib/api'
+import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
+import { useI18n, type MessageKey } from '@/lib/i18n'
 import AssetPicker from '@/components/AssetPicker.vue'
+import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
 
 const props = defineProps<{ modelValue: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -10,13 +13,28 @@ const editor = ref<HTMLElement | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
+const pendingImageFiles = ref<File[]>([])
 const showAssets = ref(false)
+const slashMenuOpen = ref(false)
+const slashQuery = ref('')
 let lastEmitted = ''
+let savedImageInsertRange: Range | null = null
+const { t } = useI18n()
 
 interface CalloutBlock {
   type: string
   title: string
   body: string
+}
+
+interface VisualAction {
+  id: string
+  group: 'text' | 'insert' | 'media'
+  label: MessageKey
+  icon: string
+  detail: string
+  keywords: string[]
+  run: () => void
 }
 
 const escapeHtml = (value: string): string =>
@@ -419,16 +437,154 @@ function insertCallout(): void {
   insertHtml(calloutHtml('type: info\ntitle: Note\n\nCallout text') + '<p><br></p>')
 }
 
-const imageFiles = (files: FileList | readonly File[] | null | undefined): File[] =>
-  Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
+const pad = (value: number): string => String(value).padStart(2, '0')
 
-const clipboardImageFiles = (data: DataTransfer | null): File[] =>
-  Array.from(data?.items ?? [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => Boolean(file && file.type.startsWith('image/')))
+const eventSnippet = (): string => {
+  const start = new Date(Date.now() + 60 * 60 * 1000)
+  start.setMinutes(0, 0, 0)
+  const end = new Date(start.getTime() + 30 * 60 * 1000)
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+  const format = (date: Date): string =>
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
+  return `\`\`\`event
+title: Event title
+start: ${format(start)}
+end: ${format(end)}
+timezone: ${zone}
+location:
+url:
+description:
+\`\`\`
+`
+}
+
+const infoboxSnippet = (): string => `\`\`\`infobox
+title: Name
+image:
+caption:
+Field: value
+
+Details go here.
+\`\`\`
+`
+
+const linksSnippet = (): string => `\`\`\`links
+[YouTube](https://youtube.com/@handle)
+[X](https://x.com/handle)
+[Shop](https://booth.pm/)
+\`\`\`
+`
+
+const embedSnippet = (): string => `\`\`\`embed
+url: https://example.com
+title:
+description:
+\`\`\`
+`
+
+function insertMarkdownSnippet(markdown: string): void {
+  insertHtml(markdownToEditableHtml(markdown) + '<p><br></p>')
+}
+
+function chooseImage(): void {
+  uploadInput.value?.click()
+}
+
+const visualActions: VisualAction[] = [
+  { id: 'paragraph', group: 'text', label: 'toolbarParagraph', icon: 'P', detail: 'Use normal paragraph text', keywords: ['paragraph', '本文'], run: () => formatBlock('p') },
+  { id: 'heading', group: 'text', label: 'toolbarHeading', icon: 'H2', detail: 'Add a section heading', keywords: ['heading', '見出し'], run: () => formatBlock('h2') },
+  { id: 'bold', group: 'text', label: 'toolbarBold', icon: 'B', detail: 'Make selected text bold', keywords: ['bold', '太字'], run: () => runCommand('bold') },
+  { id: 'italic', group: 'text', label: 'toolbarItalic', icon: 'I', detail: 'Make selected text italic', keywords: ['italic', '斜体'], run: () => runCommand('italic') },
+  { id: 'code', group: 'text', label: 'toolbarCode', icon: '</>', detail: 'Format selected text as code', keywords: ['code', 'コード'], run: inlineCode },
+  { id: 'link', group: 'text', label: 'toolbarLink', icon: '[]', detail: 'Insert or edit a link', keywords: ['link', 'url', 'リンク'], run: createLink },
+  { id: 'bullets', group: 'text', label: 'toolbarUnorderedList', icon: '-', detail: 'Make a bullet list', keywords: ['list', '箇条書き'], run: () => runCommand('insertUnorderedList') },
+  { id: 'numbers', group: 'text', label: 'toolbarOrderedList', icon: '1.', detail: 'Make a numbered list', keywords: ['numbered', '番号'], run: () => runCommand('insertOrderedList') },
+  { id: 'table', group: 'insert', label: 'toolbarTable', icon: '| |', detail: 'Insert a two-column table', keywords: ['table', '表'], run: insertTable },
+  { id: 'callout', group: 'insert', label: 'toolbarCallout', icon: '!', detail: 'Insert a highlighted note block', keywords: ['callout', 'note', 'メモ'], run: insertCallout },
+  { id: 'event', group: 'insert', label: 'toolbarEvent', icon: 'Cal', detail: 'Insert an event card block', keywords: ['event', 'calendar', '予定'], run: () => insertMarkdownSnippet(eventSnippet()) },
+  { id: 'infobox', group: 'insert', label: 'toolbarInfobox', icon: 'ID', detail: 'Insert a profile or info card', keywords: ['infobox', 'profile'], run: () => insertMarkdownSnippet(infoboxSnippet()) },
+  { id: 'embed', group: 'insert', label: 'toolbarEmbed', icon: '<>', detail: 'Insert a rich link card', keywords: ['embed', 'bookmark'], run: () => insertMarkdownSnippet(embedSnippet()) },
+  { id: 'links', group: 'insert', label: 'toolbarLinks', icon: '@', detail: 'Insert social/link buttons', keywords: ['links', 'social'], run: () => insertMarkdownSnippet(linksSnippet()) },
+  { id: 'image', group: 'media', label: 'toolbarImage', icon: 'Img', detail: 'Upload and insert an image', keywords: ['image', 'upload', '画像'], run: chooseImage },
+  { id: 'assets', group: 'media', label: 'toolbarAssets', icon: 'Lib', detail: 'Browse uploaded assets', keywords: ['asset', 'file', '添付'], run: () => { showAssets.value = true } },
+]
+
+const actionsByGroup = (group: VisualAction['group']): VisualAction[] =>
+  visualActions.filter((action) => action.group === group)
+
+const visibleSlashActions = (): VisualAction[] => {
+  const query = slashQuery.value.toLowerCase()
+  return visualActions.filter((action) => {
+    const label = t(action.label).toLowerCase()
+    return !query || label.includes(query) || action.id.includes(query) || action.keywords.some((keyword) => keyword.toLowerCase().includes(query))
+  })
+}
+
+function removeSlashTrigger(): void {
+  const selection = window.getSelection()
+  const node = selection?.anchorNode
+  if (!selection || !node || node.nodeType !== Node.TEXT_NODE) return
+  const offset = selection.anchorOffset
+  const text = node.textContent ?? ''
+  const match = text.slice(0, offset).match(/\/[\p{L}\p{N}_-]*$/u)
+  if (!match) return
+  const range = document.createRange()
+  range.setStart(node, offset - match[0].length)
+  range.setEnd(node, offset)
+  range.deleteContents()
+  selection.removeAllRanges()
+  selection.addRange(range)
+}
+
+function updateSlashMenu(): void {
+  const root = editor.value
+  const selection = window.getSelection()
+  if (!root || !selection?.rangeCount || !root.contains(selection.anchorNode)) {
+    slashMenuOpen.value = false
+    return
+  }
+  const node = selection.anchorNode
+  if (!node || node.nodeType !== Node.TEXT_NODE) {
+    slashMenuOpen.value = false
+    return
+  }
+  const before = (node.textContent ?? '').slice(0, selection.anchorOffset)
+  const match = before.match(/(?:^|\n)\s*\/([\p{L}\p{N}_-]*)$/u)
+  slashMenuOpen.value = Boolean(match)
+  slashQuery.value = match?.[1] ?? ''
+}
+
+function runSlashAction(action: VisualAction): void {
+  removeSlashTrigger()
+  slashMenuOpen.value = false
+  action.run()
+}
+
+function onEditorInput(): void {
+  syncFromDom()
+  updateSlashMenu()
+}
+
+function saveImageInsertRange(): void {
+  const root = editor.value
+  const selection = window.getSelection()
+  if (!root || !selection?.rangeCount || !root.contains(selection.anchorNode)) {
+    savedImageInsertRange = null
+    return
+  }
+  savedImageInsertRange = selection.getRangeAt(0).cloneRange()
+}
+
+function restoreImageInsertRange(): void {
+  if (!savedImageInsertRange || !editor.value?.contains(savedImageInsertRange.commonAncestorContainer)) return
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(savedImageInsertRange)
+  savedImageInsertRange = null
+}
 
 function insertImage(url: string, alt: string): void {
+  restoreImageInsertRange()
   insertHtml(`<p><img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" /></p><p><br></p>`)
 }
 
@@ -448,9 +604,26 @@ async function uploadImages(files: File[]): Promise<void> {
   }
 }
 
+function prepareImageUpload(files: File[]): void {
+  if (!files.length || uploading.value) return
+  uploadError.value = null
+  saveImageInsertRange()
+  pendingImageFiles.value = [...files]
+}
+
+async function uploadPreparedImages(files: File[]): Promise<void> {
+  pendingImageFiles.value = []
+  await uploadImages(files)
+}
+
+function cancelImageUpload(): void {
+  pendingImageFiles.value = []
+  savedImageInsertRange = null
+}
+
 async function onImageInput(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  await uploadImages(imageFiles(input.files))
+  prepareImageUpload(imageFiles(input.files))
   input.value = ''
 }
 
@@ -458,14 +631,14 @@ function onPaste(event: ClipboardEvent): void {
   const files = clipboardImageFiles(event.clipboardData)
   if (!files.length) return
   event.preventDefault()
-  void uploadImages(files)
+  prepareImageUpload(files)
 }
 
 function onDrop(event: DragEvent): void {
   const files = imageFiles(event.dataTransfer?.files)
   if (!files.length) return
   event.preventDefault()
-  void uploadImages(files)
+  prepareImageUpload(files)
 }
 
 function insertAsset(markdown: string): void {
@@ -489,37 +662,63 @@ watch(
 
 <template>
   <div class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <button class="btn-ghost" type="button" title="Paragraph" aria-label="Paragraph" @mousedown.prevent @click="formatBlock('p')">P</button>
-      <button class="btn-ghost" type="button" title="Heading 1" aria-label="Heading 1" @mousedown.prevent @click="formatBlock('h1')">H1</button>
-      <button class="btn-ghost" type="button" title="Heading 2" aria-label="Heading 2" @mousedown.prevent @click="formatBlock('h2')">H2</button>
-      <button class="btn-ghost" type="button" title="Heading 3" aria-label="Heading 3" @mousedown.prevent @click="formatBlock('h3')">H3</button>
-      <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @mousedown.prevent @click="runCommand('bold')">B</button>
-      <button class="btn-ghost" type="button" title="Italic" aria-label="Italic" @mousedown.prevent @click="runCommand('italic')">I</button>
-      <button class="btn-ghost" type="button" title="Inline code" aria-label="Inline code" @mousedown.prevent @click="inlineCode">Code</button>
-      <button class="btn-ghost" type="button" title="Link" aria-label="Link" @mousedown.prevent @click="createLink">Link</button>
-      <button class="btn-ghost" type="button" title="Bulleted list" aria-label="Bulleted list" @mousedown.prevent @click="runCommand('insertUnorderedList')">List</button>
-      <button class="btn-ghost" type="button" title="Numbered list" aria-label="Numbered list" @mousedown.prevent @click="runCommand('insertOrderedList')">1.</button>
-      <button class="btn-ghost" type="button" title="Table" aria-label="Table" @mousedown.prevent @click="insertTable">Table</button>
-      <button class="btn-ghost" type="button" title="Callout" aria-label="Callout" @mousedown.prevent @click="insertCallout">Callout</button>
-      <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @mousedown.prevent @click="uploadInput?.click()">
-        {{ uploading ? 'Uploading...' : 'Image' }}
-      </button>
-      <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @mousedown.prevent @click="showAssets = true">
-        Assets
-      </button>
+    <div class="editor-toolbar" :aria-label="t('toolbarInsert')">
+      <div v-for="group in (['text', 'insert', 'media'] as const)" :key="group" class="editor-toolbar-group">
+        <span class="editor-toolbar-label">
+          {{ group === 'text' ? t('toolbarText') : group === 'media' ? t('toolbarMedia') : t('toolbarInsert') }}
+        </span>
+        <button
+          v-for="action in actionsByGroup(group)"
+          :key="action.id"
+          class="btn-ghost editor-tool"
+          type="button"
+          :data-tooltip="action.detail"
+          :title="t(action.label)"
+          :aria-label="t(action.label)"
+          :disabled="(uploading || pendingImageFiles.length > 0) && action.id === 'image'"
+          @mousedown.prevent
+          @click="action.run"
+        >
+          <span class="editor-tool-icon" aria-hidden="true">{{ action.icon }}</span>
+          <span>{{ uploading && action.id === 'image' ? 'Uploading...' : t(action.label) }}</span>
+        </button>
+      </div>
       <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
     </div>
+    <p class="text-xs text-[var(--c-text-muted)]">{{ t('insertMenuHint') }}</p>
     <p v-if="uploadError" class="text-sm text-red-600">{{ uploadError }}</p>
+    <div v-if="slashMenuOpen" class="slash-menu">
+      <button
+        v-for="action in visibleSlashActions()"
+        :key="action.id"
+        class="slash-menu-button"
+        type="button"
+        @mousedown.prevent
+        @click="runSlashAction(action)"
+      >
+        <span>
+          <span class="mr-2 font-semibold">{{ action.icon }}</span>
+          {{ t(action.label) }}
+        </span>
+        <span class="text-xs text-[var(--c-text-muted)]">{{ action.detail }}</span>
+      </button>
+    </div>
     <div
       ref="editor"
       class="visual-editor prose dark:prose-invert max-w-none min-h-[60vh] rounded-lg border border-gray-200 bg-white p-5 outline-none dark:border-gray-800 dark:bg-gray-900"
       contenteditable="true"
       spellcheck="true"
-      @input="syncFromDom"
+      @input="onEditorInput"
+      @keyup="updateSlashMenu"
       @paste="onPaste"
       @drop="onDrop"
     ></div>
     <AssetPicker :open="showAssets" :folder="props.assetFolder" @close="showAssets = false" @insert="insertAsset" />
+    <ImageUploadDialog
+      :open="pendingImageFiles.length > 0"
+      :files="pendingImageFiles"
+      @cancel="cancelImageUpload"
+      @complete="uploadPreparedImages"
+    />
   </div>
 </template>

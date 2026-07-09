@@ -76,6 +76,12 @@ const authenticationResponse = t.Object({
 export interface AuthRoutesContext {
   readonly db: DB
   readonly env: Env
+  readonly authPolicy: () => {
+    readonly registration: Env['auth']['registration']
+    readonly requireEmailVerification: boolean
+    readonly requireTwoFactor: boolean
+    readonly tokenTtlSeconds: number
+  }
   readonly logger: StructuredLogger
   readonly enforceAuthLimit: (
     request: Request,
@@ -94,20 +100,21 @@ export interface AuthRoutesContext {
 export const createAuthRoutes = ({
   db,
   env,
+  authPolicy,
   logger,
   enforceAuthLimit,
   enforceCredentialLimit,
   publishAutomation,
 }: AuthRoutesContext) => {
-	  const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>): Promise<string> => {
-	    const now = Date.now()
-	    return jwt.sign({
-	      sub: user.id,
+  const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>): Promise<string> => {
+    const now = Date.now()
+    return jwt.sign({
+      sub: user.id,
       role: user.role,
       iatMs: now,
-	      exp: Math.floor(now / 1000) + env.auth.tokenTtlSeconds,
-	    })
-	  }
+      exp: Math.floor(now / 1000) + authPolicy().tokenTtlSeconds,
+    })
+  }
 
   const signMfaSetupToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>): Promise<string> => {
     const now = Date.now()
@@ -188,10 +195,11 @@ export const createAuthRoutes = ({
 	        async ({ body, services, jwt, request, server, set }) => {
 	          enforceAuthLimit(request, server, 'register')
 	          const role: Role = services.users.count() === 0 ? 'admin' : 'viewer'
-	          if (role !== 'admin' && env.auth.registration === 'off') {
+	          const policy = authPolicy()
+	          if (role !== 'admin' && policy.registration === 'off') {
 	            throw new HttpError(forbidden('Registration is disabled'))
 	          }
-	          const verificationRequired = env.auth.requireEmailVerification
+	          const verificationRequired = policy.requireEmailVerification
 	          if (verificationRequired && !services.recovery.mailConfigured()) {
 	            throw new HttpError(forbidden('Email verification is not configured'))
 	          }
@@ -228,10 +236,11 @@ export const createAuthRoutes = ({
 	            throw new HttpError(unauthorized('Invalid email or password'))
 	          }
 	          if (!isUserActive(user)) throw new HttpError(unauthorized('Account is deactivated'))
-	          if (env.auth.requireEmailVerification && user.emailVerifiedAt === null) {
+	          const policy = authPolicy()
+	          if (policy.requireEmailVerification && user.emailVerifiedAt === null) {
 	            throw new HttpError(unauthorized('Email verification required'))
 	          }
-	          if (env.auth.requireTwoFactor && !user.totpEnabled && !services.passkeys.hasForUser(user.id)) {
+	          if (policy.requireTwoFactor && !user.totpEnabled && !services.passkeys.hasForUser(user.id)) {
 	            audit(logger, 'auth.2fa.enforce', { userId: user.id })
 	            set.status = 202
 	            return {
@@ -397,7 +406,7 @@ export const createAuthRoutes = ({
 	          const result = unwrap(await services.passkeys.verifyAuthentication(body as {
 	            response: AuthenticationResponseJSON
 	          }))
-	          if (env.auth.requireEmailVerification && result.user.emailVerifiedAt === null) {
+	          if (authPolicy().requireEmailVerification && result.user.emailVerifiedAt === null) {
 	            throw new HttpError(unauthorized('Email verification required'))
 	          }
 	          const token = await signAuthToken(jwt, result.user)

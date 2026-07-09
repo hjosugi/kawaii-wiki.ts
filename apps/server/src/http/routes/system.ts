@@ -131,7 +131,7 @@ export const createSystemRoutes = ({
   }
 
   const sitemapResponse = (): Response => {
-    if (env.auth.privateWiki) return new Response('Not found', { status: 404 })
+    if (publicSettings().privateWiki) return new Response('Not found', { status: 404 })
     const publicPages = services.pages
       .list()
       .filter((page) => canReadPage(null, page.path))
@@ -144,7 +144,7 @@ export const createSystemRoutes = ({
   }
 
   const robotsResponse = (): Response =>
-    new Response(robotsTxt(env.auth.publicOrigin, env.auth.privateWiki), {
+    new Response(robotsTxt(env.auth.publicOrigin, publicSettings().privateWiki), {
       headers: {
         'content-type': 'text/plain; charset=utf-8',
         'cache-control': 'public, max-age=300',
@@ -152,7 +152,7 @@ export const createSystemRoutes = ({
     })
 
   return app
-    .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.4.14' }))
+    .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.4.15' }))
     .get('/api/settings/public', () => publicSettings())
     .get('/feed.xml', ({ principal }) => feedResponse(principal))
     .get('/sitemap.xml', () => sitemapResponse())

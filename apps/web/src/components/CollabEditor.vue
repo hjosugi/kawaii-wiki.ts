@@ -6,14 +6,18 @@ import { yCollab } from 'y-codemirror.next'
 import { basicSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
+import { autocompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import { Api, getToken } from '@/lib/api'
 import { WS_BASE_URL } from '@/lib/url'
+import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
 import { useAuth } from '@/stores/auth'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
+import { useI18n, type MessageKey } from '@/lib/i18n'
 import AssetPicker from '@/components/AssetPicker.vue'
+import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
 
 const props = defineProps<{ room: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -24,11 +28,13 @@ const text = ref('')
 const synced = ref(false)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
+const pendingImageFiles = ref<File[]>([])
 const showAssets = ref(false)
 const mode = ref<'write' | 'preview'>('write')
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 const preview = computed(() => markdownRenderer.value.renderMarkdown(text.value).html)
 const auth = useAuth()
+const { t } = useI18n()
 
 let view: EditorView | null = null
 let provider: WebsocketProvider | null = null
@@ -61,6 +67,40 @@ url:
 description:
 \`\`\`
 `
+}
+
+const infoboxSnippet = (): string => `\`\`\`infobox
+title: Name
+image:
+caption:
+Field: value
+
+Details go here.
+\`\`\`
+`
+
+const linksSnippet = (): string => `\`\`\`links
+[YouTube](https://youtube.com/@handle)
+[X](https://x.com/handle)
+[Shop](https://booth.pm/)
+\`\`\`
+`
+
+const embedSnippet = (): string => `\`\`\`embed
+url: https://example.com
+title:
+description:
+\`\`\`
+`
+
+interface EditorAction {
+  id: string
+  group: 'text' | 'insert' | 'media'
+  label: MessageKey
+  icon: string
+  detail: string
+  keywords: string[]
+  run: () => void
 }
 
 function replaceSelection(insert: string): void {
@@ -101,14 +141,55 @@ function insertLinePrefix(prefix: string, fallback: string): void {
   view.focus()
 }
 
-const imageFiles = (files: FileList | readonly File[] | null | undefined): File[] =>
-  Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
+function chooseImage(): void {
+  uploadInput.value?.click()
+}
 
-const clipboardImageFiles = (data: DataTransfer | null): File[] =>
-  Array.from(data?.items ?? [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => Boolean(file && file.type.startsWith('image/')))
+const editorActions = computed<EditorAction[]>(() => [
+  { id: 'heading', group: 'text', label: 'toolbarHeading', icon: 'H2', detail: 'Add a section heading', keywords: ['heading', 'title', '見出し'], run: () => insertLinePrefix('## ', 'Heading') },
+  { id: 'bold', group: 'text', label: 'toolbarBold', icon: 'B', detail: 'Make selected text bold', keywords: ['bold', '太字'], run: () => surround('**', '**', 'bold') },
+  { id: 'link', group: 'text', label: 'toolbarLink', icon: '[]', detail: 'Insert a Markdown link', keywords: ['link', 'url', 'リンク'], run: () => surround('[', '](https://)', 'link') },
+  { id: 'code', group: 'text', label: 'toolbarCode', icon: '</>', detail: 'Format selected text as code', keywords: ['code', 'コード'], run: () => surround('`', '`', 'code') },
+  { id: 'table', group: 'insert', label: 'toolbarTable', icon: '| |', detail: 'Insert a two-column table', keywords: ['table', '表'], run: () => insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n') },
+  { id: 'event', group: 'insert', label: 'toolbarEvent', icon: 'Cal', detail: 'Insert an event card block', keywords: ['event', 'calendar', '予定', 'イベント'], run: () => insertSnippet(eventSnippet()) },
+  { id: 'callout', group: 'insert', label: 'toolbarCallout', icon: '!', detail: 'Insert a highlighted note block', keywords: ['callout', 'note', '注意', 'メモ'], run: () => insertSnippet('```callout\\ntype: info\\ntitle: Note\\n\\nCallout text\\n```\\n') },
+  { id: 'infobox', group: 'insert', label: 'toolbarInfobox', icon: 'ID', detail: 'Insert a profile or info card', keywords: ['infobox', 'profile', 'プロフィール'], run: () => insertSnippet(infoboxSnippet()) },
+  { id: 'embed', group: 'insert', label: 'toolbarEmbed', icon: '<>', detail: 'Insert a rich link card', keywords: ['embed', 'bookmark', 'card', '埋め込み'], run: () => insertSnippet(embedSnippet()) },
+  { id: 'links', group: 'insert', label: 'toolbarLinks', icon: '@', detail: 'Insert social/link buttons', keywords: ['links', 'social', 'sns', 'リンク集'], run: () => insertSnippet(linksSnippet()) },
+  { id: 'image', group: 'media', label: 'toolbarImage', icon: 'Img', detail: 'Upload and insert an image', keywords: ['image', 'upload', '画像'], run: chooseImage },
+  { id: 'assets', group: 'media', label: 'toolbarAssets', icon: 'Lib', detail: 'Browse uploaded assets', keywords: ['asset', 'file', '添付'], run: () => { showAssets.value = true } },
+])
+
+const actionsByGroup = (group: EditorAction['group']): EditorAction[] =>
+  editorActions.value.filter((action) => action.group === group)
+
+const slashCompletions = (context: CompletionContext) => {
+  const line = context.state.doc.lineAt(context.pos)
+  const before = context.state.sliceDoc(line.from, context.pos)
+  const match = before.match(/^\s*\/([\p{L}\p{N}_-]*)$/u)
+  if (!match) return null
+  const query = (match[1] ?? '').toLowerCase()
+  const from = line.from + before.lastIndexOf('/')
+  const options: Completion[] = editorActions.value
+    .filter((action) => {
+      const label = t(action.label).toLowerCase()
+      return !query || label.includes(query) || action.id.includes(query) || action.keywords.some((keyword) => keyword.toLowerCase().includes(query))
+    })
+    .map((action) => ({
+      label: t(action.label),
+      detail: action.detail,
+      type: action.group === 'media' ? 'file' : 'keyword',
+      apply(completionView) {
+        completionView.dispatch({
+          changes: { from, to: context.pos, insert: '' },
+          selection: { anchor: from },
+          scrollIntoView: true,
+        })
+        action.run()
+      },
+    }))
+  return { from, options, validFor: /^\/[\p{L}\p{N}_-]*$/u }
+}
 
 async function uploadImages(files: File[]): Promise<void> {
   if (!files.length) return
@@ -127,9 +208,20 @@ async function uploadImages(files: File[]): Promise<void> {
   }
 }
 
+function prepareImageUpload(files: File[]): void {
+  if (!files.length || uploading.value) return
+  uploadError.value = null
+  pendingImageFiles.value = [...files]
+}
+
+async function uploadPreparedImages(files: File[]): Promise<void> {
+  pendingImageFiles.value = []
+  await uploadImages(files)
+}
+
 async function onImageInput(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  await uploadImages(imageFiles(input.files))
+  prepareImageUpload(imageFiles(input.files))
   input.value = ''
 }
 
@@ -173,6 +265,7 @@ onMounted(async () => {
       extensions: [
         basicSetup,
         markdown(),
+        autocompletion({ override: [slashCompletions] }),
         oneDark,
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
@@ -180,14 +273,14 @@ onMounted(async () => {
             const files = imageFiles(event.dataTransfer?.files)
             if (!files.length) return false
             event.preventDefault()
-            void uploadImages(files)
+            prepareImageUpload(files)
             return true
           },
           paste(event) {
             const files = clipboardImageFiles(event.clipboardData)
             if (!files.length) return false
             event.preventDefault()
-            void uploadImages(files)
+            prepareImageUpload(files)
             return true
           },
         }),
@@ -213,22 +306,30 @@ onBeforeUnmount(() => {
         <span class="w-2 h-2 rounded-full" :class="synced ? 'bg-green-500' : 'bg-gray-400'"></span>
         {{ synced ? 'Live - collaborative editing' : 'connecting...' }}
       </div>
-      <div class="flex flex-wrap items-center gap-2">
-        <button class="btn-ghost" type="button" title="Heading" aria-label="Heading" @click="insertLinePrefix('## ', 'Heading')">H</button>
-        <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @click="surround('**', '**', 'bold')">B</button>
-        <button class="btn-ghost" type="button" title="Link" aria-label="Link" @click="surround('[', '](https://)', 'link')">Link</button>
-        <button class="btn-ghost" type="button" title="Code" aria-label="Code" @click="surround('`', '`', 'code')">Code</button>
-        <button class="btn-ghost" type="button" title="Table" aria-label="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">Table</button>
-        <button class="btn-ghost" type="button" title="Event" aria-label="Event" @click="insertSnippet(eventSnippet())">Event</button>
-        <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @click="uploadInput?.click()">
-          {{ uploading ? 'Uploading...' : 'Image' }}
-        </button>
-        <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @click="showAssets = true">
-          Assets
-        </button>
+      <div class="editor-toolbar" :aria-label="t('toolbarInsert')">
+        <div v-for="group in (['text', 'insert', 'media'] as const)" :key="group" class="editor-toolbar-group">
+          <span class="editor-toolbar-label">
+            {{ group === 'text' ? t('toolbarText') : group === 'media' ? t('toolbarMedia') : t('toolbarInsert') }}
+          </span>
+          <button
+            v-for="action in actionsByGroup(group)"
+            :key="action.id"
+            class="btn-ghost editor-tool"
+            type="button"
+            :data-tooltip="action.detail"
+            :title="t(action.label)"
+            :aria-label="t(action.label)"
+            :disabled="(uploading || pendingImageFiles.length > 0) && action.id === 'image'"
+            @click="action.run"
+          >
+            <span class="editor-tool-icon" aria-hidden="true">{{ action.icon }}</span>
+            <span>{{ uploading && action.id === 'image' ? 'Uploading...' : t(action.label) }}</span>
+          </button>
+        </div>
         <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
       </div>
     </div>
+    <p class="mb-2 text-xs text-[var(--c-text-muted)]">{{ t('insertMenuHint') }}</p>
     <p v-if="uploadError" class="text-sm text-red-600 mb-2">{{ uploadError }}</p>
     <div class="inline-flex rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)] p-1 text-sm lg:hidden">
       <button
@@ -264,6 +365,12 @@ onBeforeUnmount(() => {
       ></div>
     </div>
     <AssetPicker :open="showAssets" :folder="props.assetFolder" @close="showAssets = false" @insert="insertAsset" />
+    <ImageUploadDialog
+      :open="pendingImageFiles.length > 0"
+      :files="pendingImageFiles"
+      @cancel="pendingImageFiles = []"
+      @complete="uploadPreparedImages"
+    />
   </div>
 </template>
 

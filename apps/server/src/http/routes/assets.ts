@@ -4,7 +4,6 @@ import {
   type Principal,
   validationError,
 } from '@ts-wiki/core'
-import type { Env } from '../../env.ts'
 import type { Services } from '../../services/index.ts'
 import type { AssetStorage, AssetObject } from '../../storage/assets.ts'
 import {
@@ -76,9 +75,9 @@ const generateImageThumbnail = async (file: File, mime: string): Promise<File | 
 }
 
 export interface AssetRoutesContext {
-  readonly env: Env
   readonly logger: StructuredLogger
   readonly assetStorage: AssetStorage
+  readonly assetPolicy: () => { readonly maxBytes: number }
   readonly enforceAssetUploadLimit: (
     request: Request,
     server: RequestIpServer | null | undefined,
@@ -88,9 +87,9 @@ export interface AssetRoutesContext {
 }
 
 export const createAssetRoutes = ({
-  env,
   logger,
   assetStorage,
+  assetPolicy,
   enforceAssetUploadLimit,
   publishAutomation,
 }: AssetRoutesContext) => {
@@ -182,8 +181,9 @@ export const createAssetRoutes = ({
           enforceAssetUploadLimit(request, server, principal)
           requireHttpPermission(principal, 'asset:write')
           const file = body.file
-          if (file.size > env.assetUpload.maxBytes) {
-            throw new HttpError(validationError(`Asset must be ${formatBytes(env.assetUpload.maxBytes)} or smaller`, 'file'))
+          const maxBytes = assetPolicy().maxBytes
+          if (file.size > maxBytes) {
+            throw new HttpError(validationError(`Asset must be ${formatBytes(maxBytes)} or smaller`, 'file'))
           }
           const mime = unwrap(await validateAssetUpload(file))
           const id = crypto.randomUUID()

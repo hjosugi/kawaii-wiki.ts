@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Env } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
+import { sampleGuidePages } from '../sample-content.ts'
 import { ASSET_MAX_BYTES, safeAssetFilename } from '../services/assets.ts'
 import { totpCode } from '../services/auth.ts'
 import type { MailMessage, MailSender } from '../services/mail.ts'
@@ -272,6 +273,17 @@ const realtimeTicket = async (app: App, token: string): Promise<string> => {
 const tableCount = (db: DB, table: string): number =>
   (db.$client.prepare(`SELECT count(*) AS count FROM ${table}`).get() as { count: number }).count
 
+const pageRows = (db: DB): Array<{
+  path: string
+  title: string
+  locale: string
+  labels: string
+  content: string
+}> =>
+  db.$client
+    .prepare('SELECT path, title, locale, labels, content FROM pages ORDER BY path')
+    .all() as Array<{ path: string; title: string; locale: string; labels: string; content: string }>
+
 afterEach(() => {
   for (const fixture of fixtures.splice(0)) {
     fixture.app.server?.stop(true)
@@ -313,7 +325,20 @@ describe('http app setup', () => {
     expect(body.home).toMatchObject({ path: 'home', title: 'Welcome to Knowledge Base', pinned: true })
     expect(body.searchIndex.tokenizer).toBe('trigram')
     expect(tableCount(db, 'users')).toBe(1)
-    expect(tableCount(db, 'pages')).toBe(3)
+    expect(tableCount(db, 'pages')).toBe(1 + sampleGuidePages.length)
+
+    const seededPages = new Map(pageRows(db).map((page) => [page.path, page]))
+    for (const page of sampleGuidePages) {
+      const seeded = seededPages.get(page.path)
+      expect(seeded).toBeDefined()
+      expect(seeded?.title).toBe(page.title)
+      expect(seeded?.locale).toBe(page.locale)
+      expect(JSON.parse(seeded?.labels ?? '[]')).toEqual([...page.labels])
+    }
+    expect(seededPages.get('home')?.content).toContain('/help/en/basic-editing')
+    expect(seededPages.get('home')?.content).toContain('/help/ja/basic-editing')
+    expect(seededPages.get('help/en/basic-editing')?.content).toContain('[[home]]')
+    expect(seededPages.get('help/ja/basic-editing')?.content).toContain('テンプレート')
 
     const after = await app.handle(new Request('http://localhost/api/setup/status'))
     expect(after.status).toBe(200)
@@ -992,6 +1017,7 @@ describe('http app auth', () => {
           'nav:collapsed': ['docs'],
           'nav:starred': ['docs/alpha'],
           'nav:page-order': { 'docs/alpha': 0, 'docs/beta': 1 },
+          'editor:mode': 'visual',
         },
       }),
     }))
@@ -1000,6 +1026,7 @@ describe('http app auth', () => {
       'nav:collapsed': ['docs'],
       'nav:starred': ['docs/alpha'],
       'nav:page-order': { 'docs/alpha': 0, 'docs/beta': 1 },
+      'editor:mode': 'visual',
     })
 
     const reloaded = await app.handle(new Request('http://localhost/api/me/preferences', {
@@ -1010,6 +1037,7 @@ describe('http app auth', () => {
       'nav:collapsed': ['docs'],
       'nav:starred': ['docs/alpha'],
       'nav:page-order': { 'docs/alpha': 0, 'docs/beta': 1 },
+      'editor:mode': 'visual',
     })
 
     const isolated = await app.handle(new Request('http://localhost/api/me/preferences', {
@@ -1024,6 +1052,13 @@ describe('http app auth', () => {
       body: JSON.stringify({ preferences: { 'nav:starred': [42] } }),
     }))
     expect(invalid.status).toBe(422)
+
+    const invalidMode = await app.handle(new Request('http://localhost/api/me/preferences', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json', authorization: `Bearer ${admin.token}` },
+      body: JSON.stringify({ preferences: { 'editor:mode': 'wysiwyg' } }),
+    }))
+    expect(invalidMode.status).toBe(422)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('serves an Atom feed of recent page changes', async () => {
@@ -1710,6 +1745,99 @@ describe('http app settings', () => {
     expect(await publicSettings.json()).toMatchObject({
       customHeadHtml: '<meta name="x-test" content="ok">',
     })
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('env policy defaults seed settings and admin policy changes affect runtime behavior', async () => {
+    const { app } = createFixture(undefined, {
+      env: (env) => ({
+        ...env,
+        auth: {
+          ...env.auth,
+          registration: 'off',
+          privateWiki: true,
+          tokenTtlSeconds: 900,
+        },
+        assetUpload: { maxBytes: 2048 },
+      }),
+    })
+
+    const seeded = await app.handle(new Request('http://localhost/api/settings/public'))
+    expect(await seeded.json()).toMatchObject({
+      registration: 'off',
+      privateWiki: true,
+      tokenTtlSeconds: 900,
+      assetMaxBytes: 2048,
+      defaultEditorMode: 'visual',
+    })
+
+    const admin = await register(app, 'admin@example.com')
+    const policy = await app.handle(new Request('http://localhost/api/admin/settings', {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${admin.token}`,
+      },
+      body: JSON.stringify({
+        registration: 'open',
+        privateWiki: false,
+        tokenTtlSeconds: 600,
+        assetMaxBytes: 1024,
+        defaultEditorMode: 'markdown',
+      }),
+    }))
+    expect(policy.status).toBe(200)
+
+    const login = await app.handle(jsonRequest('/api/auth/login', {
+      email: 'admin@example.com',
+      password: 'password',
+    }))
+    expect(login.status).toBe(200)
+    const loginBody = await login.json() as { token: string }
+    const payload = JSON.parse(Buffer.from(loginBody.token.split('.')[1] ?? '', 'base64url').toString()) as {
+      exp: number
+      iatMs: number
+    }
+    expect(payload.exp - Math.floor(payload.iatMs / 1000)).toBe(600)
+
+    const locked = await app.handle(new Request('http://localhost/api/admin/settings', {
+      method: 'PUT',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${admin.token}`,
+      },
+      body: JSON.stringify({
+        registration: 'off',
+        privateWiki: true,
+        requireTwoFactor: true,
+      }),
+    }))
+    expect(locked.status).toBe(200)
+
+    const viewer = await app.handle(jsonRequest('/api/auth/register', {
+      email: 'viewer@example.com',
+      name: 'Viewer',
+      password: 'password',
+    }))
+    expect(viewer.status).toBe(403)
+
+    const pages = await app.handle(new Request('http://localhost/api/pages'))
+    expect(pages.status).toBe(401)
+
+    const twoFactor = await app.handle(jsonRequest('/api/auth/login', {
+      email: 'admin@example.com',
+      password: 'password',
+    }))
+    expect(twoFactor.status).toBe(202)
+    expect(await twoFactor.json()).toMatchObject({ twoFactorSetupRequired: true })
+
+    const form = new FormData()
+    form.set('file', new File([new Uint8Array(2048)], 'too-large.png', { type: 'image/png' }))
+    const tooLarge = await app.handle(new Request('http://localhost/api/assets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${admin.token}` },
+      body: form,
+    }))
+    expect(tooLarge.status).toBe(422)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('markdown feature settings affect saved page rendering', async () => {

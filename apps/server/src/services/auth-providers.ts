@@ -60,6 +60,10 @@ export interface AuthProviderService {
   ): Promise<Result<AuthProviderCallbackResult, AppError>>
 }
 
+export interface AuthProviderPolicy {
+  readonly registration: () => AuthEnv['registration']
+}
+
 const randomUrlToken = (bytes = 32): string => Buffer.from(randomBytes(bytes)).toString('base64url')
 
 const notFoundProvider = (): AppError => validationError('Unknown auth provider', 'provider')
@@ -82,6 +86,7 @@ export const createAuthProviderService = (
   auth: AuthEnv,
   authz: AuthzService,
   providers: readonly AuthProvider[],
+  policy: AuthProviderPolicy = { registration: () => auth.registration },
 ): AuthProviderService => {
   const byId = new Map(providers.map((provider) => [provider.id, provider]))
 
@@ -172,7 +177,7 @@ export const createAuthProviderService = (
       return ok({ user: existingByEmail, isNewUser: false, identity })
     }
 
-    if (!identity.allowRegistration || auth.registration === 'off') {
+    if (!identity.allowRegistration || policy.registration() === 'off') {
       return err(forbidden('External self-registration is disabled'))
     }
 

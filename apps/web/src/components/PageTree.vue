@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { normalizePath } from '@ts-wiki/core'
 import { Api, type PageSummary, type UserPreferenceKey, type UserPreferenceMap } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
+import { usePages } from '@/stores/pages'
 
 interface TreeNode {
   key: string
@@ -28,7 +30,9 @@ const props = defineProps<{
 }>()
 
 const route = useRoute()
+const router = useRouter()
 const auth = useAuth()
+const pagesStore = usePages()
 
 const COLLAPSED_STORAGE_KEY = 'ts-wiki:collapsed-folders'
 const STARRED_STORAGE_KEY = 'ts-wiki:starred-pages'
@@ -79,6 +83,12 @@ const collapsed = ref(readStringList(COLLAPSED_STORAGE_KEY))
 const starred = ref(readStringList(STARRED_STORAGE_KEY))
 const recent = ref(readStringList(RECENT_STORAGE_KEY))
 const manualOrder = ref(readOrder())
+const draggingPath = ref<string | null>(null)
+const moveSourcePath = ref('')
+const moveDestinationFolder = ref('')
+const moving = ref(false)
+const moveError = ref<string | null>(null)
+const moveNotice = ref<string | null>(null)
 
 const persist = (key: string, value: unknown): void => {
   if (typeof window === 'undefined') return
@@ -189,7 +199,7 @@ function compareNodes(a: TreeNode, b: TreeNode): number {
   return a.label.localeCompare(b.label)
 }
 
-function movePage(path: string, delta: -1 | 1): void {
+function movePersonalOrder(path: string, delta: -1 | 1): void {
   const ordered = [...props.pages].sort(comparePages)
   const index = ordered.findIndex((page) => page.path === path)
   const next = index + delta
@@ -200,6 +210,72 @@ function movePage(path: string, delta: -1 | 1): void {
   manualOrder.value = Object.fromEntries(ordered.map((item, order) => [item.path, order]))
   persist(ORDER_STORAGE_KEY, manualOrder.value)
   persistPreference(ORDER_PREFERENCE_KEY, manualOrder.value)
+}
+
+const parentFolder = (path: string): string => path.split('/').slice(0, -1).join('/')
+const basename = (path: string): string => path.split('/').filter(Boolean).at(-1) ?? path
+
+function movedPath(sourcePath: string, destinationFolder: string): string {
+  const folder = normalizePath(destinationFolder)
+  const name = basename(sourcePath)
+  return folder ? `${folder}/${name}` : name
+}
+
+function openMoveDialog(path: string): void {
+  moveSourcePath.value = path
+  moveDestinationFolder.value = parentFolder(path)
+  moveError.value = null
+  moveNotice.value = null
+}
+
+function closeMoveDialog(): void {
+  if (moving.value) return
+  moveSourcePath.value = ''
+  moveDestinationFolder.value = ''
+}
+
+async function moveWikiPage(sourcePath: string, destinationFolder: string): Promise<void> {
+  if (!auth.canEdit || moving.value) return
+  const destination = movedPath(sourcePath, destinationFolder)
+  if (!destination || destination === sourcePath) return
+  if (destination.startsWith(`${sourcePath}/`)) {
+    moveError.value = 'Move a page outside its own subtree.'
+    return
+  }
+  const inbound = await Api.backlinks(sourcePath).catch(() => [])
+  const warning = inbound.length
+    ? `\n\n${inbound.length} inbound link${inbound.length === 1 ? '' : 's'} point to /${sourcePath}.`
+    : ''
+  if (!confirm(`Move /${sourcePath} to /${destination}? This changes the page URL.${warning}`)) return
+  moving.value = true
+  moveError.value = null
+  moveNotice.value = null
+  try {
+    const moved = await Api.movePage(sourcePath, destination)
+    await pagesStore.refresh()
+    moveNotice.value = `Moved to /${moved.path}`
+    if (currentPath.value === sourcePath) await router.push('/' + moved.path)
+    moveSourcePath.value = ''
+    moveDestinationFolder.value = ''
+  } catch (e) {
+    moveError.value = (e as Error).message
+  } finally {
+    moving.value = false
+  }
+}
+
+function onDragStart(row: TreeRow, event: DragEvent): void {
+  if (!auth.canEdit || !row.isPage) return
+  draggingPath.value = row.path
+  event.dataTransfer?.setData('text/plain', row.path)
+  if (event.dataTransfer) event.dataTransfer.effectAllowed = 'move'
+}
+
+function onDrop(row: TreeRow, event: DragEvent): void {
+  const source = draggingPath.value || event.dataTransfer?.getData('text/plain')
+  draggingPath.value = null
+  if (!source || source === row.path) return
+  void moveWikiPage(source, row.path)
 }
 
 const rows = computed<TreeRow[]>(() => {
@@ -274,7 +350,16 @@ const rows = computed<TreeRow[]>(() => {
 
     <section class="flex flex-col gap-0.5">
     <template v-for="row in rows" :key="row.key">
-      <div class="page-tree-line" :style="{ paddingLeft: 0.25 + row.depth * 0.75 + 'rem' }">
+      <div
+        class="page-tree-line"
+        :class="draggingPath && draggingPath !== row.path ? 'outline outline-1 outline-[var(--c-accent)]/40' : ''"
+        :style="{ paddingLeft: 0.25 + row.depth * 0.75 + 'rem' }"
+        :draggable="auth.canEdit && row.isPage"
+        @dragstart="onDragStart(row, $event)"
+        @dragend="draggingPath = null"
+        @dragover.prevent
+        @drop.prevent="onDrop(row, $event)"
+      >
         <button
           v-if="row.hasChildren"
           class="page-tree-icon"
@@ -307,11 +392,40 @@ const rows = computed<TreeRow[]>(() => {
           >
             {{ isStarred(row.path) ? '★' : '☆' }}
           </button>
-          <button class="page-tree-icon" type="button" title="Move up" :aria-label="`Move ${row.label} up`" @click="movePage(row.path, -1)">^</button>
-          <button class="page-tree-icon" type="button" title="Move down" :aria-label="`Move ${row.label} down`" @click="movePage(row.path, 1)">v</button>
+          <button class="page-tree-icon" type="button" title="Move up in my order" :aria-label="`Move ${row.label} up in my order`" @click="movePersonalOrder(row.path, -1)">^</button>
+          <button class="page-tree-icon" type="button" title="Move down in my order" :aria-label="`Move ${row.label} down in my order`" @click="movePersonalOrder(row.path, 1)">v</button>
+          <button
+            v-if="auth.canEdit"
+            class="page-tree-move"
+            type="button"
+            title="Move page to another folder"
+            :aria-label="`Move page ${row.label}`"
+            @click="openMoveDialog(row.path)"
+          >
+            Move
+          </button>
         </template>
       </div>
     </template>
     </section>
+
+    <section v-if="moveSourcePath" class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3 text-sm">
+      <div class="mb-2 font-medium">Move /{{ moveSourcePath }}</div>
+      <label class="block text-xs text-[var(--c-text-muted)]">
+        Destination folder
+        <input v-model="moveDestinationFolder" class="input mt-1 font-mono text-sm" placeholder="docs/folder" />
+      </label>
+      <p class="mt-2 text-xs text-[var(--c-text-muted)]">
+        New path: /{{ movedPath(moveSourcePath, moveDestinationFolder) }}
+      </p>
+      <p v-if="moveError" class="mt-2 text-xs text-red-600">{{ moveError }}</p>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button class="btn-primary py-1 text-xs" type="button" :disabled="moving" @click="moveWikiPage(moveSourcePath, moveDestinationFolder)">
+          {{ moving ? 'Moving...' : 'Move URL' }}
+        </button>
+        <button class="btn-ghost py-1 text-xs" type="button" :disabled="moving" @click="closeMoveDialog">Cancel</button>
+      </div>
+    </section>
+    <p v-if="moveNotice" class="text-xs text-green-600 dark:text-green-400">{{ moveNotice }}</p>
   </nav>
 </template>

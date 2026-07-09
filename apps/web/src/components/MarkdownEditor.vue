@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch, computed } from 'vue'
 import { basicSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
 import { markdown } from '@codemirror/lang-markdown'
+import { autocompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { EditorView } from '@codemirror/view'
 import {
@@ -11,9 +12,12 @@ import {
   type CalendarEvent,
 } from '@ts-wiki/core'
 import { Api } from '@/lib/api'
+import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
+import { useI18n, type MessageKey } from '@/lib/i18n'
 import AssetPicker from '@/components/AssetPicker.vue'
+import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 
 const props = defineProps<{ modelValue: string; assetFolder?: string }>()
@@ -24,12 +28,14 @@ const uploadInput = ref<HTMLInputElement | null>(null)
 const icsInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 const uploadError = ref<string | null>(null)
+const pendingImageFiles = ref<File[]>([])
 const showIcs = ref(false)
 const showAssets = ref(false)
 const icsText = ref('')
 const mode = ref<'write' | 'preview'>('write')
 let view: EditorView | null = null
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
+const { t } = useI18n()
 
 // Live preview shares the EXACT renderer the server uses on save.
 const preview = computed(() => markdownRenderer.value.renderMarkdown(props.modelValue).html)
@@ -73,6 +79,23 @@ const linksSnippet = (): string => `\`\`\`links
 \`\`\`
 `
 
+const embedSnippet = (): string => `\`\`\`embed
+url: https://example.com
+title:
+description:
+\`\`\`
+`
+
+interface EditorAction {
+  id: string
+  group: 'text' | 'insert' | 'media'
+  label: MessageKey
+  icon: string
+  detail: string
+  keywords: string[]
+  run: () => void
+}
+
 function replaceSelection(insert: string): void {
   if (!view) return
   const selection = view.state.selection.main
@@ -111,14 +134,158 @@ function insertLinePrefix(prefix: string, fallback: string): void {
   view.focus()
 }
 
-const imageFiles = (files: FileList | readonly File[] | null | undefined): File[] =>
-  Array.from(files ?? []).filter((file) => file.type.startsWith('image/'))
+const editorActions = computed<EditorAction[]>(() => [
+  {
+    id: 'heading',
+    group: 'text',
+    label: 'toolbarHeading',
+    icon: 'H2',
+    detail: 'Add a section heading',
+    keywords: ['heading', 'title', '見出し'],
+    run: () => insertLinePrefix('## ', 'Heading'),
+  },
+  {
+    id: 'bold',
+    group: 'text',
+    label: 'toolbarBold',
+    icon: 'B',
+    detail: 'Make selected text bold',
+    keywords: ['bold', '太字'],
+    run: () => surround('**', '**', 'bold'),
+  },
+  {
+    id: 'link',
+    group: 'text',
+    label: 'toolbarLink',
+    icon: '[]',
+    detail: 'Insert a Markdown link',
+    keywords: ['link', 'url', 'リンク'],
+    run: () => surround('[', '](https://)', 'link'),
+  },
+  {
+    id: 'code',
+    group: 'text',
+    label: 'toolbarCode',
+    icon: '</>',
+    detail: 'Format selected text as code',
+    keywords: ['code', 'コード'],
+    run: () => surround('`', '`', 'code'),
+  },
+  {
+    id: 'table',
+    group: 'insert',
+    label: 'toolbarTable',
+    icon: '| |',
+    detail: 'Insert a two-column table',
+    keywords: ['table', '表'],
+    run: () => insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n'),
+  },
+  {
+    id: 'event',
+    group: 'insert',
+    label: 'toolbarEvent',
+    icon: 'Cal',
+    detail: 'Insert an event card block',
+    keywords: ['event', 'calendar', '予定', 'イベント'],
+    run: () => insertSnippet(eventSnippet()),
+  },
+  {
+    id: 'callout',
+    group: 'insert',
+    label: 'toolbarCallout',
+    icon: '!',
+    detail: 'Insert a highlighted note block',
+    keywords: ['callout', 'note', '注意', 'メモ'],
+    run: () => insertSnippet('```callout\\ntype: info\\ntitle: Note\\n\\nCallout text\\n```\\n'),
+  },
+  {
+    id: 'infobox',
+    group: 'insert',
+    label: 'toolbarInfobox',
+    icon: 'ID',
+    detail: 'Insert a profile or info card',
+    keywords: ['infobox', 'profile', 'プロフィール'],
+    run: () => insertSnippet(infoboxSnippet()),
+  },
+  {
+    id: 'embed',
+    group: 'insert',
+    label: 'toolbarEmbed',
+    icon: '<>',
+    detail: 'Insert a rich link card',
+    keywords: ['embed', 'bookmark', 'card', '埋め込み'],
+    run: () => insertSnippet(embedSnippet()),
+  },
+  {
+    id: 'links',
+    group: 'insert',
+    label: 'toolbarLinks',
+    icon: '@',
+    detail: 'Insert social/link buttons',
+    keywords: ['links', 'social', 'sns', 'リンク集'],
+    run: () => insertSnippet(linksSnippet()),
+  },
+  {
+    id: 'image',
+    group: 'media',
+    label: 'toolbarImage',
+    icon: 'Img',
+    detail: 'Upload and insert an image',
+    keywords: ['image', 'upload', '画像'],
+    run: chooseImage,
+  },
+  {
+    id: 'assets',
+    group: 'media',
+    label: 'toolbarAssets',
+    icon: 'Lib',
+    detail: 'Browse uploaded assets',
+    keywords: ['asset', 'file', '添付'],
+    run: () => {
+      showAssets.value = true
+    },
+  },
+  {
+    id: 'ics',
+    group: 'media',
+    label: 'toolbarIcs',
+    icon: '.ics',
+    detail: 'Import calendar events',
+    keywords: ['ics', 'calendar', '予定'],
+    run: chooseIcs,
+  },
+])
 
-const clipboardImageFiles = (data: DataTransfer | null): File[] =>
-  Array.from(data?.items ?? [])
-    .filter((item) => item.kind === 'file')
-    .map((item) => item.getAsFile())
-    .filter((file): file is File => Boolean(file && file.type.startsWith('image/')))
+const actionsByGroup = (group: EditorAction['group']): EditorAction[] =>
+  editorActions.value.filter((action) => action.group === group)
+
+const slashCompletions = (context: CompletionContext) => {
+  const line = context.state.doc.lineAt(context.pos)
+  const before = context.state.sliceDoc(line.from, context.pos)
+  const match = before.match(/^\s*\/([\p{L}\p{N}_-]*)$/u)
+  if (!match) return null
+  const query = (match[1] ?? '').toLowerCase()
+  const from = line.from + before.lastIndexOf('/')
+  const options: Completion[] = editorActions.value
+    .filter((action) => {
+      const label = t(action.label).toLowerCase()
+      return !query || label.includes(query) || action.id.includes(query) || action.keywords.some((keyword) => keyword.toLowerCase().includes(query))
+    })
+    .map((action) => ({
+      label: t(action.label),
+      detail: action.detail,
+      type: action.group === 'media' ? 'file' : 'keyword',
+      apply(completionView) {
+        completionView.dispatch({
+          changes: { from, to: context.pos, insert: '' },
+          selection: { anchor: from },
+          scrollIntoView: true,
+        })
+        action.run()
+      },
+    }))
+  return { from, options, validFor: /^\/[\p{L}\p{N}_-]*$/u }
+}
 
 async function uploadImages(files: File[]): Promise<void> {
   if (!files.length) return
@@ -137,6 +304,17 @@ async function uploadImages(files: File[]): Promise<void> {
   }
 }
 
+function prepareImageUpload(files: File[]): void {
+  if (!files.length || uploading.value) return
+  uploadError.value = null
+  pendingImageFiles.value = [...files]
+}
+
+async function uploadPreparedImages(files: File[]): Promise<void> {
+  pendingImageFiles.value = []
+  await uploadImages(files)
+}
+
 function chooseImage(): void {
   uploadInput.value?.click()
 }
@@ -147,7 +325,7 @@ function chooseIcs(): void {
 
 async function onImageInput(event: Event): Promise<void> {
   const input = event.target as HTMLInputElement
-  await uploadImages(imageFiles(input.files))
+  prepareImageUpload(imageFiles(input.files))
   input.value = ''
 }
 
@@ -179,6 +357,7 @@ onMounted(() => {
       extensions: [
         basicSetup,
         markdown(),
+        autocompletion({ override: [slashCompletions] }),
         oneDark,
         EditorView.lineWrapping,
         EditorView.domEventHandlers({
@@ -186,14 +365,14 @@ onMounted(() => {
             const files = imageFiles(event.dataTransfer?.files)
             if (!files.length) return false
             event.preventDefault()
-            void uploadImages(files)
+            prepareImageUpload(files)
             return true
           },
           paste(event) {
             const files = clipboardImageFiles(event.clipboardData)
             if (!files.length) return false
             event.preventDefault()
-            void uploadImages(files)
+            prepareImageUpload(files)
             return true
           },
         }),
@@ -220,43 +399,30 @@ onBeforeUnmount(() => view?.destroy())
 
 <template>
   <div class="space-y-3">
-    <div class="flex flex-wrap items-center gap-2">
-      <button class="btn-ghost" type="button" title="Heading" aria-label="Heading" @click="insertLinePrefix('## ', 'Heading')">
-        H
-      </button>
-      <button class="btn-ghost" type="button" title="Bold" aria-label="Bold" @click="surround('**', '**', 'bold')">
-        B
-      </button>
-      <button class="btn-ghost" type="button" title="Link" aria-label="Link" @click="surround('[', '](https://)', 'link')">
-        Link
-      </button>
-      <button class="btn-ghost" type="button" title="Code" aria-label="Code" @click="surround('`', '`', 'code')">
-        Code
-      </button>
-      <button class="btn-ghost" type="button" title="Table" aria-label="Table" @click="insertSnippet('| Column | Value |\\n| --- | --- |\\n|  |  |\\n')">
-        Table
-      </button>
-      <button class="btn-ghost" type="button" title="Event" aria-label="Event" @click="insertSnippet(eventSnippet())">
-        Event
-      </button>
-      <button class="btn-ghost" type="button" title="Infobox / profile card" aria-label="Infobox or profile card" @click="insertSnippet(infoboxSnippet())">
-        Infobox
-      </button>
-      <button class="btn-ghost" type="button" title="Link / social buttons" aria-label="Link or social buttons" @click="insertSnippet(linksSnippet())">
-        Links
-      </button>
-      <button class="btn-ghost" type="button" title="Upload image" aria-label="Upload image" :disabled="uploading" @click="chooseImage">
-        {{ uploading ? 'Uploading...' : 'Image' }}
-      </button>
-      <button class="btn-ghost" type="button" title="Browse assets" aria-label="Browse assets" @click="showAssets = true">
-        Assets
-      </button>
-      <button class="btn-ghost" type="button" title="Import .ics" aria-label="Import .ics" @click="chooseIcs">
-        .ics
-      </button>
+    <div class="editor-toolbar" :aria-label="t('toolbarInsert')">
+      <div v-for="group in (['text', 'insert', 'media'] as const)" :key="group" class="editor-toolbar-group">
+        <span class="editor-toolbar-label">
+          {{ group === 'text' ? t('toolbarText') : group === 'media' ? t('toolbarMedia') : t('toolbarInsert') }}
+        </span>
+        <button
+          v-for="action in actionsByGroup(group)"
+          :key="action.id"
+          class="btn-ghost editor-tool"
+          type="button"
+          :data-tooltip="action.detail"
+          :title="t(action.label)"
+          :aria-label="t(action.label)"
+          :disabled="(uploading || pendingImageFiles.length > 0) && action.id === 'image'"
+          @click="action.run"
+        >
+          <span class="editor-tool-icon" aria-hidden="true">{{ action.icon }}</span>
+          <span>{{ uploading && action.id === 'image' ? 'Uploading...' : t(action.label) }}</span>
+        </button>
+      </div>
       <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
       <input ref="icsInput" class="hidden" type="file" accept=".ics,text/calendar" aria-label="Import .ics file" @change="onIcsInput" />
     </div>
+    <p class="text-xs text-[var(--c-text-muted)]">{{ t('insertMenuHint') }}</p>
     <p v-if="uploadError" class="text-sm text-red-600">{{ uploadError }}</p>
     <div class="inline-flex rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)] p-1 text-sm lg:hidden">
       <button
@@ -320,5 +486,11 @@ onBeforeUnmount(() => view?.destroy())
         <p v-else class="text-sm text-gray-500">No events found.</p>
     </ModalDialog>
     <AssetPicker :open="showAssets" :folder="props.assetFolder" @close="showAssets = false" @insert="insertAsset" />
+    <ImageUploadDialog
+      :open="pendingImageFiles.length > 0"
+      :files="pendingImageFiles"
+      @cancel="pendingImageFiles = []"
+      @complete="uploadPreparedImages"
+    />
   </div>
 </template>

@@ -4,7 +4,7 @@
  */
 import type { DB } from '../db/client.ts'
 import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
-import type { AuthEnv, BrandingEnv, LocalizationEnv, MailEnv, SearchEnv, WebhookEnv } from '../env.ts'
+import type { AssetUploadEnv, AuthEnv, BrandingEnv, LocalizationEnv, MailEnv, SearchEnv, WebhookEnv } from '../env.ts'
 import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
 import { createFtsSearchIndexer, createSearchService, type SearchService } from './search.ts'
@@ -34,6 +34,7 @@ import {
 export interface ServiceOptions {
   readonly assetUrl?: (storageName: string) => string
   readonly auth?: AuthEnv
+  readonly assetUpload?: AssetUploadEnv
   readonly search?: SearchEnv
   readonly branding?: BrandingEnv
   readonly localization?: LocalizationEnv
@@ -86,6 +87,10 @@ const defaultMail: MailEnv = {
   timeoutMs: 10_000,
 }
 
+const defaultAssetUpload: AssetUploadEnv = {
+  maxBytes: 25 * 1024 * 1024,
+}
+
 const defaultBranding: BrandingEnv = {
   siteTitle: null,
   accentColor: null,
@@ -103,6 +108,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   const authz = createAuthzService(db)
   authz.ensureDefaults()
   const auth = options.auth ?? defaultAuth
+  const assetUpload = options.assetUpload ?? defaultAssetUpload
   const search = options.search ?? { ftsTokenizer: 'unicode61' as const }
   const branding = options.branding ?? defaultBranding
   const localization = options.localization ?? defaultLocalization
@@ -112,6 +118,12 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
       ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
       ...(branding.accentColor ? { accentColor: branding.accentColor } : {}),
       ...(branding.theme ? { theme: branding.theme } : {}),
+      registration: auth.registration,
+      privateWiki: auth.privateWiki,
+      requireEmailVerification: auth.requireEmailVerification,
+      requireTwoFactor: auth.requireTwoFactor,
+      tokenTtlSeconds: auth.tokenTtlSeconds,
+      assetMaxBytes: assetUpload.maxBytes,
       ...(localization.defaultLocale ? { defaultLocale: localization.defaultLocale } : {}),
       ...(localization.timezone ? { timezone: localization.timezone } : {}),
       ...(localization.dateFormat ? { dateFormat: localization.dateFormat } : {}),
@@ -152,7 +164,9 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     renderMarkdown: (content) => rendererForSettings().renderMarkdown(content),
     defaultLocale: () => settings.public().defaultLocale,
   })
-  const authProviders = createAuthProviderService(db, auth, authz, createOidcAuthProviders(db, auth))
+  const authProviders = createAuthProviderService(db, auth, authz, createOidcAuthProviders(db, auth), {
+    registration: () => settings.public().registration,
+  })
   return {
     pages: pageService,
     search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer, indexer: searchIndexer }),

@@ -1,6 +1,5 @@
 import { t } from 'elysia'
 import { type Principal, requirePermission, unauthorized } from '@ts-wiki/core'
-import type { Env } from '../../env.ts'
 import type { Services } from '../../services/index.ts'
 import type { EventBus } from '../../realtime/bus.ts'
 import { createCollabRuntime, createPresenceRuntime } from '../../realtime/runtime.ts'
@@ -10,21 +9,21 @@ import { requireHttpPermission } from '../permissions.ts'
 import type { BaseApp } from '../base.ts'
 
 export interface RealtimeRoutesContext {
-  readonly env: Env
   readonly services: Services
   readonly bus: EventBus
   readonly presenceRuntime: ReturnType<typeof createPresenceRuntime>
   readonly collab: ReturnType<typeof createCollabRuntime>
+  readonly privateWiki: () => boolean
   readonly mintRealtimeTicket: (principal: Principal | null) => { ticket: string; expiresAt: number }
   readonly consumeRealtimeTicket: (ticket: string | null | undefined) => Principal | null
 }
 
 export const createRealtimeRoutes = ({
-  env,
   services,
   bus,
   presenceRuntime,
   collab,
+  privateWiki,
   mintRealtimeTicket,
   consumeRealtimeTicket,
 }: RealtimeRoutesContext) => (app: BaseApp) =>
@@ -87,7 +86,7 @@ export const createRealtimeRoutes = ({
         void (async () => {
           const { path, ticket, name, userId, mode } = ws.data.query
           const principal = consumeRealtimeTicket(ticket)
-          if (env.auth.privateWiki && !principal) {
+          if (privateWiki() && !principal) {
             ws.close(1008, 'Authentication required')
             return
           }

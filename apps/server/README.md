@@ -33,14 +33,17 @@ Set `JWT_SECRET` to a strong unique value before running with `NODE_ENV=producti
 or `BUN_ENV=production`; the server refuses to start with the development
 default in production mode.
 
-JWTs expire by default after 30 days. Set `TS_WIKI_JWT_TTL_SECONDS` to shorten
-or lengthen that window. Role changes and user deactivation are rechecked
-against the database on every request, so old tokens do not keep stale admin
-access.
+JWTs expire by default after 30 days. `TS_WIKI_JWT_TTL_SECONDS` seeds the
+initial session lifetime, and admins can later change it from Admin -> Site
+policy. Role changes and user deactivation are rechecked against the database
+on every request, so old tokens do not keep stale admin access.
 
-Set `TS_WIKI_PRIVATE=true` to require login for page/search/realtime read
-routes. Set `TS_WIKI_REGISTRATION=off` to disable self-registration after the
-first-admin bootstrap.
+`TS_WIKI_PRIVATE`, `TS_WIKI_REGISTRATION`, `TS_WIKI_REQUIRE_EMAIL_VERIFICATION`,
+`TS_WIKI_REQUIRE_2FA`, `TS_WIKI_JWT_TTL_SECONDS`, and `ASSET_MAX_BYTES` are
+bootstrap defaults for safe site policy. Admins can later change them from the
+web UI. Secrets and infrastructure settings stay env-only: `JWT_SECRET`,
+database/storage credentials, SMTP/OIDC secrets, ports, CORS, webhook SSRF
+policy, and Git remotes.
 
 Initial appearance settings can come from the environment:
 `TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR` (`#rrggbb`), and
@@ -124,8 +127,9 @@ and can update metadata, move pages under a path, or fire custom webhook events.
 
 Uploaded assets use local disk by default. Set `ASSET_STORAGE=r2` with R2
 account credentials to store files in Cloudflare R2 while keeping the same
-`/assets/...` serving route. `ASSET_MAX_BYTES` controls the upload limit
-(default 25 MiB); non-image assets are served as downloads.
+`/assets/...` serving route. `ASSET_MAX_BYTES` seeds the upload limit (default
+25 MiB), which admins can later change from Site policy; non-image assets are
+served as downloads.
 
 The server can serve the built Vue app directly. Build the web workspace and set
 `WEB_DIST_DIR` when the default `apps/web/dist` path is not correct:

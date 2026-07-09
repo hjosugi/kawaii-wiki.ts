@@ -4,8 +4,8 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 [../README.md](../README.md); this document is the **developer handoff**: current status, why
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
-- **As of:** 2026-07-08
-- **State:** v0.4.14 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **As of:** 2026-07-09
+- **State:** v0.4.15 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
@@ -28,7 +28,7 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Vue app: view/edit/search/graph/login | ✅ | breadcrumbs, page header actions, desktop tree sidebar plus mobile drawer, keyboard-traversable graph view, empty states, runtime branding |
 | Markdown editor (CodeMirror + visual mode) | ✅ | Markdown remains canonical; visual mode round-trips common blocks |
 | Webhooks + automation | ✅ | signed deliveries, retry history, event automation rules with priority/conditions/actions |
-| Site configuration | ✅ | runtime branding, nav settings, default locale/timezone/date format, webhook retry policy, shared `PublicSettings` shape |
+| Site configuration | ✅ | runtime branding, nav settings, site policy, default locale/timezone/date format, webhook retry policy, shared `PublicSettings` shape |
 | Tests / typecheck / build | ✅ | core/server Bun tests, direct service coverage, and web Vitest tests; all 3 packages typecheck; web builds |
 | Mobile shell | ✅ | compact header, touch-visible command palette trigger, focus-managed navigation drawer, collapsible page TOC below `xl`, full-height mobile editor Write/Preview panes |
 | Accessibility shell | ✅ | skip-to-content link, focused main landmark after navigation, visible focus rings, labeled controls, reduced-motion handling, skeleton loading states, dialog semantics, Escape handling, focus trap/restore for app modals |
@@ -197,7 +197,10 @@ Each item notes **where to plug in**.
       custom CSS, and gated custom head HTML. CSS variables (`--c-bg`,
       `--c-surface`, `--c-text`, `--c-border`, `--c-accent`, `--radius`) drive
       app chrome and rendered Markdown blocks.
-- [x] **Configuration controls** — multiple OIDC providers can be supplied via
+- [x] **Configuration controls** — safe site policy settings (registration,
+      private wiki mode, required email/2FA, session lifetime, upload limit)
+      seed from env and can later be managed from Admin → Site policy. Multiple
+      OIDC providers can be supplied via
       `TS_WIKI_OIDC_PROVIDERS` JSON or numbered `OIDC_1_*` prefixes; site
       locale/timezone/date-format defaults seed page locale and rendered dates;
       webhook retry attempts/backoff/body/error limits are env-configurable.

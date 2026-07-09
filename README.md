@@ -3,13 +3,15 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.4.14** — a small, complete, runnable wiki: first-run `/setup`,
+> **Status: v0.4.15** — a small, complete, runnable wiki: first-run `/setup`,
 > Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth, private-wiki mode, groups/page rules,
 > R2 assets, libSQL/Turso support, webhooks plus event automation, persisted page
 > templates, responsive mobile navigation, shared and personal navigation state,
 > accessible dialog/focus/graph behavior, reduced-motion handling, skeleton
 > loading states, runtime branding, configurable site locale/date defaults, and
+> non-engineer editing workflows with visual-first defaults, slash insert,
+> friendly errors, guide pages, path generation, crop/resize image upload, and
 > a typed API.
 
 ## Quick start
@@ -102,14 +104,14 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.14
+docker pull ghcr.io/hjosugi/ts-wiki:v0.4.15
 docker volume create ts-wiki-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run -d --name ts-wiki --restart unless-stopped \
   -p 4000:4000 -v ts-wiki-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.14
+  ghcr.io/hjosugi/ts-wiki:v0.4.15
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS
@@ -153,10 +155,12 @@ Run any task with `bun run <name>` (`dev`, `db:seed`, `db:reset`, `test`, `typec
 
 ## Security knobs
 
-Set `TS_WIKI_PRIVATE=true` to require login for page/search/realtime read routes.
-Set `TS_WIKI_REGISTRATION=off` to disable self-registration after the first
-admin bootstrap. JWT lifetime is configurable with `TS_WIKI_JWT_TTL_SECONDS`,
-and uploads are capped by `ASSET_MAX_BYTES` (default 25 MiB).
+`TS_WIKI_PRIVATE`, `TS_WIKI_REGISTRATION`, `TS_WIKI_JWT_TTL_SECONDS`, and
+`ASSET_MAX_BYTES` seed safe site policy defaults. After first setup, admins can
+change those from Admin -> Site policy without redeploying. Secrets and
+infrastructure settings such as `JWT_SECRET`, database/storage credentials,
+SMTP/OIDC secrets, ports, CORS, webhook SSRF policy, and Git remotes stay in
+the server environment.
 
 Branding defaults are configurable with `TS_WIKI_SITE_TITLE`,
 `TS_WIKI_ACCENT_COLOR`, and `TS_WIKI_THEME`. Custom head HTML is admin-trusted

@@ -31,10 +31,7 @@ export interface SettingsService {
 }
 
 export interface SettingsServiceOptions {
-  readonly defaults?: Partial<Pick<
-    SiteSettings,
-    'siteTitle' | 'accentColor' | 'theme' | 'defaultLocale' | 'timezone' | 'dateFormat'
-  >>
+  readonly defaults?: Partial<SiteSettings>
   readonly allowHeadInjection?: boolean
 }
 
@@ -63,6 +60,12 @@ const cleanTimezone = (value: string): string => {
 
 const cleanDateFormat = (value: string): SiteSettings['dateFormat'] =>
   value === 'short' || value === 'medium' || value === 'long' ? value : 'medium'
+
+const cleanEditorMode = (value: string): SiteSettings['defaultEditorMode'] =>
+  value === 'markdown' || value === 'visual' ? value : 'visual'
+
+const cleanPositiveInteger = (value: number, fallback: number): number =>
+  Number.isSafeInteger(value) && value > 0 ? value : fallback
 
 const cleanUrl = (value: string): string => {
   const clean = value.trim().slice(0, 500)
@@ -118,7 +121,17 @@ const parseStoredValue = (key: SiteSettingKey, value: string): unknown => {
   if (key === 'defaultLocale') return normalizeLocale(value)
   if (key === 'timezone') return cleanTimezone(value)
   if (key === 'dateFormat') return cleanDateFormat(value)
-  if (key === 'enableMath' || key === 'enableEmoji' || key === 'enableMermaid') return value === 'true'
+  if (key === 'defaultEditorMode') return cleanEditorMode(value)
+  if (
+    key === 'privateWiki'
+    || key === 'requireEmailVerification'
+    || key === 'requireTwoFactor'
+    || key === 'enableMath'
+    || key === 'enableEmoji'
+    || key === 'enableMermaid'
+  ) return value === 'true'
+  if (key === 'tokenTtlSeconds') return cleanPositiveInteger(Number(value), 30 * 24 * 60 * 60)
+  if (key === 'assetMaxBytes') return cleanPositiveInteger(Number(value), 25 * 1024 * 1024)
   return value
 }
 
@@ -139,6 +152,22 @@ const validatePatch = (
   if (theme !== 'system' && theme !== 'light' && theme !== 'dark') {
     return err(validationError('Unknown theme', 'theme'))
   }
+  const registration = patch.registration ?? current.registration
+  if (registration !== 'open' && registration !== 'off') {
+    return err(validationError('Registration must be open or off', 'registration'))
+  }
+  const tokenTtlSeconds = patch.tokenTtlSeconds ?? current.tokenTtlSeconds
+  if (!Number.isSafeInteger(tokenTtlSeconds) || tokenTtlSeconds < 300 || tokenTtlSeconds > 365 * 24 * 60 * 60) {
+    return err(validationError('Session lifetime must be between 5 minutes and 365 days', 'tokenTtlSeconds'))
+  }
+  const assetMaxBytes = patch.assetMaxBytes ?? current.assetMaxBytes
+  if (!Number.isSafeInteger(assetMaxBytes) || assetMaxBytes < 1024 || assetMaxBytes > 100 * 1024 * 1024) {
+    return err(validationError('Upload limit must be between 1KB and 100MB', 'assetMaxBytes'))
+  }
+  const defaultEditorMode = patch.defaultEditorMode ?? current.defaultEditorMode
+  if (defaultEditorMode !== 'markdown' && defaultEditorMode !== 'visual') {
+    return err(validationError('Default editor must be Markdown or visual', 'defaultEditorMode'))
+  }
   const defaultLocale = patch.defaultLocale === undefined ? current.defaultLocale : patch.defaultLocale.trim() || 'und'
   if (!validLocale(defaultLocale)) return err(validationError('Unknown locale', 'defaultLocale'))
   const timezone = patch.timezone === undefined ? current.timezone : patch.timezone.trim() || 'UTC'
@@ -155,6 +184,13 @@ const validatePatch = (
     siteTitle,
     accentColor,
     theme,
+    registration,
+    privateWiki: patch.privateWiki ?? current.privateWiki,
+    requireEmailVerification: patch.requireEmailVerification ?? current.requireEmailVerification,
+    requireTwoFactor: patch.requireTwoFactor ?? current.requireTwoFactor,
+    tokenTtlSeconds,
+    assetMaxBytes,
+    defaultEditorMode,
     homePath: patch.homePath === undefined ? current.homePath : cleanHomePath(patch.homePath),
     defaultLocale: normalizeLocale(defaultLocale),
     timezone,
@@ -191,6 +227,13 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
       { key: 'siteTitle', value: settings.siteTitle, updatedAt: now },
       { key: 'accentColor', value: settings.accentColor, updatedAt: now },
       { key: 'theme', value: settings.theme, updatedAt: now },
+      { key: 'registration', value: settings.registration, updatedAt: now },
+      { key: 'privateWiki', value: String(settings.privateWiki), updatedAt: now },
+      { key: 'requireEmailVerification', value: String(settings.requireEmailVerification), updatedAt: now },
+      { key: 'requireTwoFactor', value: String(settings.requireTwoFactor), updatedAt: now },
+      { key: 'tokenTtlSeconds', value: String(settings.tokenTtlSeconds), updatedAt: now },
+      { key: 'assetMaxBytes', value: String(settings.assetMaxBytes), updatedAt: now },
+      { key: 'defaultEditorMode', value: settings.defaultEditorMode, updatedAt: now },
       { key: 'homePath', value: settings.homePath, updatedAt: now },
       { key: 'defaultLocale', value: settings.defaultLocale, updatedAt: now },
       { key: 'timezone', value: settings.timezone, updatedAt: now },
