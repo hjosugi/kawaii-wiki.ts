@@ -9,6 +9,8 @@ import type { AuthRecoveryRepository } from '../../repositories/auth-recovery.ts
 import { createSqliteAuthAccountRepository } from './auth-accounts.ts'
 import { createSqliteAuthRecoveryRepository } from './auth-recovery.ts'
 import { createSqliteUserPreferenceRepository } from './user-preferences.ts'
+import type { AuthzRepository } from '../../repositories/authz.ts'
+import { createSqliteAuthzRepository } from './authz.ts'
 
 /**
  * Repository composition boundary for the active database driver.
@@ -22,6 +24,7 @@ export interface DatabaseRepositories {
   readonly users: UserRepository
   readonly authAccounts: AuthAccountRepository
   readonly authRecovery: AuthRecoveryRepository
+  readonly authz: AuthzRepository
 }
 
 export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
@@ -30,4 +33,5 @@ export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
   users: createSqliteUserRepository(db),
   authAccounts: createSqliteAuthAccountRepository(db),
   authRecovery: createSqliteAuthRecoveryRepository(db),
+  authz: createSqliteAuthzRepository(db),
 })

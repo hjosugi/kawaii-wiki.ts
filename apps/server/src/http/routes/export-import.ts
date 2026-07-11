@@ -17,7 +17,7 @@ import { OFFICIAL_DOCS_VERSION, officialDocumentationPages } from '../../officia
 const htmlText = (value: string): string => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 export interface ExportImportRoutesContext {
-  readonly requirePageRead: (principal: Principal | null, path?: string) => void
+  readonly requirePageRead: (principal: Principal | null, path?: string) => Promise<void>
   readonly pageWriteEffects: (input: PageWriteEffectsInput) => Promise<void>
   readonly assetStorage: AssetStorage
 }
@@ -30,8 +30,8 @@ export const createExportImportRoutes = ({
   app
     .get(
       '/api/export/page',
-      ({ query, services, principal }) => {
-        requirePageRead(principal, query.path)
+      async ({ query, services, principal }) => {
+        await requirePageRead(principal, query.path)
         const page = unwrap(services.pages.getByPath(query.path))
         const htmlFormat = query.format === 'html' || query.format === 'print'
         const filename = `${page.path.split('/').at(-1) || 'page'}.${htmlFormat ? 'html' : 'md'}`

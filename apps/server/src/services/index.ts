@@ -113,8 +113,7 @@ const defaultLocalization: LocalizationEnv = {
 
 export const createServices = (db: DB, options: ServiceOptions = {}): Services => {
   const repositories = createDatabaseRepositories(db)
-  const authz = createAuthzService(db)
-  authz.ensureDefaults()
+  const authz = createAuthzService(repositories.authz)
   const auth = options.auth ?? defaultAuth
   const assetUpload = options.assetUpload ?? defaultAssetUpload
   const search = options.search ?? { ftsTokenizer: 'unicode61' as const }

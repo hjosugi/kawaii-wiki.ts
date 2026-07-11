@@ -1,4 +1,3 @@
-import { and, asc, eq, sql } from 'drizzle-orm'
 import {
   type Action,
   type AppError,
@@ -18,18 +17,14 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { isUniqueConstraintError } from '../db/errors.ts'
 import {
-  groupMemberships,
-  groups,
-  pageRules,
-  permissionGrants,
-  type Group,
-  type PageRuleRow,
-  type PermissionGrantRow,
-  type User,
-} from '../db/schema.ts'
+  DuplicateAuthzGroupError,
+  type AuthzGroupRecord,
+  type AuthzRepository,
+  type PageRuleRecord,
+  type PermissionGrantRecord,
+} from '../repositories/authz.ts'
+import type { UserRecord } from '../repositories/users.ts'
 
 export interface AuthzGroupView {
   readonly id: string
@@ -56,18 +51,18 @@ export interface UpsertPageRuleInput {
 }
 
 export interface AuthzService {
-  ensureDefaults(): void
-  principalForUser(user: User): Principal
-  principalForApiKey(apiKeyId: string, role: Role): Principal
-  canAnonymous(action: Action, path?: string): boolean
-  syncRoleGroup(userId: string, role: Role): void
-  listGroups(principal: Principal | null): Result<AuthzGroupView[], AppError>
-  createGroup(principal: Principal | null, input: CreateGroupInput): Result<AuthzGroupView, AppError>
-  addUserToGroup(principal: Principal | null, userId: string, groupKey: string): Result<{ userId: string; groupKey: string }, AppError>
-  removeUserFromGroup(principal: Principal | null, userId: string, groupKey: string): Result<{ userId: string; groupKey: string }, AppError>
-  listPageRules(principal: Principal | null): Result<PageRuleRow[], AppError>
-  createPageRule(principal: Principal | null, input: UpsertPageRuleInput): Result<PageRuleRow, AppError>
-  deletePageRule(principal: Principal | null, id: string): Result<{ id: string }, AppError>
+  ensureDefaults(): Promise<void>
+  principalForUser(user: UserRecord): Promise<Principal>
+  principalForApiKey(apiKeyId: string, role: Role): Promise<Principal>
+  canAnonymous(action: Action, path?: string): Promise<boolean>
+  syncRoleGroup(userId: string, role: Role): Promise<void>
+  listGroups(principal: Principal | null): Promise<Result<AuthzGroupView[], AppError>>
+  createGroup(principal: Principal | null, input: CreateGroupInput): Promise<Result<AuthzGroupView, AppError>>
+  addUserToGroup(principal: Principal | null, userId: string, groupKey: string): Promise<Result<{ userId: string; groupKey: string }, AppError>>
+  removeUserFromGroup(principal: Principal | null, userId: string, groupKey: string): Promise<Result<{ userId: string; groupKey: string }, AppError>>
+  listPageRules(principal: Principal | null): Promise<Result<PageRuleRecord[], AppError>>
+  createPageRule(principal: Principal | null, input: UpsertPageRuleInput): Promise<Result<PageRuleRecord, AppError>>
+  deletePageRule(principal: Principal | null, id: string): Promise<Result<{ id: string }, AppError>>
 }
 
 const ROLE_GROUPS: Record<Role, string> = {
@@ -128,10 +123,9 @@ const isAction = (value: string): value is Action => ACTIONS.has(value as Action
 const isEffect = (value: string): value is PermissionEffect => EFFECTS.has(value as PermissionEffect)
 const isSubjectType = (value: string): value is PermissionSubjectType => SUBJECT_TYPES.has(value as PermissionSubjectType)
 const isMatcher = (value: string): value is PageRuleMatcher => MATCHERS.has(value as PageRuleMatcher)
-
 const cleanKey = (value: string): string => normalizePath(value).replace(/\//g, '-').slice(0, 80)
 
-const toGrant = (row: PermissionGrantRow): PermissionGrant | null =>
+const toGrant = (row: PermissionGrantRecord): PermissionGrant | null =>
   isSubjectType(row.subjectType) && isAction(row.action) && isEffect(row.effect)
     ? {
         subjectType: row.subjectType,
@@ -141,7 +135,7 @@ const toGrant = (row: PermissionGrantRow): PermissionGrant | null =>
       }
     : null
 
-const toPolicyRule = (row: PageRuleRow) =>
+const toPolicyRule = (row: PageRuleRecord) =>
   isSubjectType(row.subjectType) && isAction(row.action) && isEffect(row.effect) && isMatcher(row.matcher)
     ? {
         subjectType: row.subjectType,
@@ -153,156 +147,116 @@ const toPolicyRule = (row: PageRuleRow) =>
       }
     : null
 
-export const createAuthzService = (db: DB): AuthzService => {
-  let defaultsReady = false
+export const createAuthzService = (repository: AuthzRepository): AuthzService => {
+  let defaultsReady: Promise<void> | null = null
   let cachedPolicy: PermissionPolicy | null = null
-  const findGroup = (key: string): Group | undefined =>
-    db.select().from(groups).where(eq(groups.key, cleanKey(key))).get()
+  let policyLoading: Promise<PermissionPolicy> | null = null
+  let policyGeneration = 0
 
-  const insertDefaultGrant = (subjectType: PermissionSubjectType, subjectId: string | null, action: Action): void => {
-    const existing = db
-      .select({ id: permissionGrants.id })
-      .from(permissionGrants)
-      .where(
-        and(
-          eq(permissionGrants.subjectType, subjectType),
-          subjectId === null ? sql`${permissionGrants.subjectId} IS NULL` : eq(permissionGrants.subjectId, subjectId),
-          eq(permissionGrants.action, action),
-          eq(permissionGrants.effect, 'allow'),
-        ),
-      )
-      .get()
-    if (existing) return
-    db.insert(permissionGrants)
-      .values({
-        id: crypto.randomUUID(),
-        subjectType,
-        subjectId,
-        action,
-        effect: 'allow',
-        createdAt: Date.now(),
-      })
-      .run()
+  const ensureDefaults = (): Promise<void> => {
+    if (defaultsReady) return defaultsReady
+    const now = Date.now()
+    const defaultGroups: AuthzGroupRecord[] = DEFAULT_GROUPS.map((group) => ({
+      id: crypto.randomUUID(),
+      ...group,
+      createdAt: now,
+    }))
+    const defaultGrants: PermissionGrantRecord[] = []
+    for (const [groupKey, actions] of Object.entries(DEFAULT_ACTIONS) as Array<[keyof typeof DEFAULT_ACTIONS, readonly Action[]]>) {
+      for (const action of actions) {
+        defaultGrants.push({
+          id: crypto.randomUUID(),
+          subjectType: groupKey === 'guests' ? 'anonymous' : 'group',
+          subjectId: groupKey === 'guests' ? null : groupKey,
+          action,
+          effect: 'allow',
+          createdAt: now,
+        })
+      }
+    }
+    defaultsReady = repository.ensureDefaults(defaultGroups, defaultGrants).catch((error) => {
+      defaultsReady = null
+      throw error
+    })
+    return defaultsReady
   }
 
-  const groupsForUser = (userId: string, role: Role): string[] => {
-    const rows = db
-      .select({ key: groups.key })
-      .from(groupMemberships)
-      .innerJoin(groups, eq(groups.id, groupMemberships.groupId))
-      .where(eq(groupMemberships.userId, userId))
-      .all()
-    return [...new Set([ROLE_GROUPS[role], ...rows.map((row) => row.key)])]
-  }
-
-  const policy = (): PermissionPolicy => {
+  const policy = async (): Promise<PermissionPolicy> => {
     if (cachedPolicy) return cachedPolicy
-    const grants = db.select().from(permissionGrants).all().map(toGrant).filter((grant): grant is PermissionGrant => Boolean(grant))
-    const rules = db.select().from(pageRules).all().map(toPolicyRule).filter((rule): rule is NonNullable<ReturnType<typeof toPolicyRule>> => Boolean(rule))
-    cachedPolicy = { grants, pageRules: rules }
-    return cachedPolicy
+    if (policyLoading) return policyLoading
+    const generation = policyGeneration
+    const loading = (async () => {
+      const [grantRows, ruleRows] = await Promise.all([
+        repository.listPermissionGrants(),
+        repository.listPageRules(),
+      ])
+      const grants = grantRows.map(toGrant).filter((grant): grant is PermissionGrant => Boolean(grant))
+      const rules = ruleRows
+        .map(toPolicyRule)
+        .filter((rule): rule is NonNullable<ReturnType<typeof toPolicyRule>> => Boolean(rule))
+      if (generation !== policyGeneration) {
+        policyLoading = null
+        return policy()
+      }
+      cachedPolicy = { grants, pageRules: rules }
+      return cachedPolicy
+    })()
+    policyLoading = loading
+    try {
+      return await loading
+    } finally {
+      if (policyLoading === loading) policyLoading = null
+    }
   }
-
-  const toGroupView = (group: Group): AuthzGroupView => ({
-    id: group.id,
-    key: group.key,
-    name: group.name,
-    description: group.description,
-    createdAt: group.createdAt,
-    members: db
-      .select({ c: sql<number>`count(*)` })
-      .from(groupMemberships)
-      .where(eq(groupMemberships.groupId, group.id))
-      .get()?.c ?? 0,
-  })
 
   return {
-    ensureDefaults() {
-      if (defaultsReady) return
-      const now = Date.now()
-      for (const group of DEFAULT_GROUPS) {
-        if (!findGroup(group.key)) {
-          db.insert(groups).values({ id: crypto.randomUUID(), ...group, createdAt: now }).run()
-        }
-      }
-      for (const [groupKey, actions] of Object.entries(DEFAULT_ACTIONS) as Array<[keyof typeof DEFAULT_ACTIONS, readonly Action[]]>) {
-        if (groupKey === 'guests') {
-          for (const action of actions) insertDefaultGrant('anonymous', null, action)
-        } else {
-          for (const action of actions) insertDefaultGrant('group', groupKey, action)
-        }
-      }
-      defaultsReady = true
-      cachedPolicy = null
-    },
+    ensureDefaults,
 
-    principalForUser(user) {
-      this.ensureDefaults()
+    async principalForUser(user) {
+      await ensureDefaults()
+      const groups = await repository.groupsForUser(user.id)
       return {
         id: user.id,
         role: user.role,
-        groups: groupsForUser(user.id, user.role),
-        policy: policy(),
+        groups: [...new Set([ROLE_GROUPS[user.role], ...groups])],
+        policy: await policy(),
       }
     },
 
-    principalForApiKey(apiKeyId, role) {
-      this.ensureDefaults()
+    async principalForApiKey(apiKeyId, role) {
+      await ensureDefaults()
       return {
         id: `api-key:${apiKeyId}`,
         role,
         groups: [ROLE_GROUPS[role]],
-        policy: policy(),
+        policy: await policy(),
       }
     },
 
-    canAnonymous(action, path) {
-      this.ensureDefaults()
-      return can(null, action, { path }, policy())
+    async canAnonymous(action, path) {
+      await ensureDefaults()
+      return can(null, action, { path }, await policy())
     },
 
-    syncRoleGroup(userId, role) {
-      this.ensureDefaults()
-      const roleKeys = new Set(Object.values(ROLE_GROUPS))
-      const memberships = db
-        .select({ membershipId: groupMemberships.id, groupKey: groups.key })
-        .from(groupMemberships)
-        .innerJoin(groups, eq(groups.id, groupMemberships.groupId))
-        .where(eq(groupMemberships.userId, userId))
-        .all()
-      for (const membership of memberships) {
-        if (roleKeys.has(membership.groupKey) && membership.groupKey !== ROLE_GROUPS[role]) {
-          db.delete(groupMemberships).where(eq(groupMemberships.id, membership.membershipId)).run()
-        }
-      }
-      const group = findGroup(ROLE_GROUPS[role])
-      if (!group) return
-      const existing = db
-        .select({ id: groupMemberships.id })
-        .from(groupMemberships)
-        .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, group.id)))
-        .get()
-      if (!existing) {
-        db.insert(groupMemberships)
-          .values({ id: crypto.randomUUID(), userId, groupId: group.id, createdAt: Date.now() })
-          .run()
-      }
+    async syncRoleGroup(userId, role) {
+      await ensureDefaults()
+      await repository.syncRoleGroup(userId, ROLE_GROUPS[role], Object.values(ROLE_GROUPS), Date.now())
     },
 
-    listGroups(principal) {
+    async listGroups(principal) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      this.ensureDefaults()
-      return ok(db.select().from(groups).orderBy(asc(groups.key)).all().map(toGroupView))
+      await ensureDefaults()
+      return ok(await repository.listGroups())
     },
 
-    createGroup(principal, input) {
+    async createGroup(principal, input) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const key = cleanKey(input.key)
       if (!key) return err(validationError('Group key is required', 'key'))
-      if (findGroup(key)) return err(conflict('Group already exists'))
-      const group: Group = {
+      if (await repository.findGroup(key)) return err(conflict('Group already exists'))
+      const group: AuthzGroupRecord = {
         id: crypto.randomUUID(),
         key,
         name: input.name.trim() || key,
@@ -310,51 +264,38 @@ export const createAuthzService = (db: DB): AuthzService => {
         createdAt: Date.now(),
       }
       try {
-        db.insert(groups).values(group).run()
+        await repository.insertGroup(group)
       } catch (error) {
-        if (isUniqueConstraintError(error)) return err(conflict('Group already exists'))
+        if (error instanceof DuplicateAuthzGroupError) return err(conflict('Group already exists'))
         throw error
       }
-      return ok(toGroupView(group))
+      return ok({ ...group, members: 0 })
     },
 
-    addUserToGroup(principal, userId, groupKey) {
+    async addUserToGroup(principal, userId, groupKey) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      this.ensureDefaults()
-      const group = findGroup(groupKey)
-      if (!group) return err(validationError('Group not found', 'groupKey'))
-      const existing = db
-        .select({ id: groupMemberships.id })
-        .from(groupMemberships)
-        .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, group.id)))
-        .get()
-      if (!existing) {
-        db.insert(groupMemberships)
-          .values({ id: crypto.randomUUID(), userId, groupId: group.id, createdAt: Date.now() })
-          .run()
-      }
-      return ok({ userId, groupKey: group.key })
+      await ensureDefaults()
+      const key = await repository.addUserToGroup(userId, cleanKey(groupKey), Date.now())
+      if (!key) return err(validationError('Group not found', 'groupKey'))
+      return ok({ userId, groupKey: key })
     },
 
-    removeUserFromGroup(principal, userId, groupKey) {
+    async removeUserFromGroup(principal, userId, groupKey) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const group = findGroup(groupKey)
-      if (!group) return err(validationError('Group not found', 'groupKey'))
-      db.delete(groupMemberships)
-        .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, group.id)))
-        .run()
-      return ok({ userId, groupKey: group.key })
+      const key = await repository.removeUserFromGroup(userId, cleanKey(groupKey))
+      if (!key) return err(validationError('Group not found', 'groupKey'))
+      return ok({ userId, groupKey: key })
     },
 
-    listPageRules(principal) {
+    async listPageRules(principal) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      return ok(db.select().from(pageRules).orderBy(asc(pageRules.createdAt)).all())
+      return ok(await repository.listPageRules())
     },
 
-    createPageRule(principal, input) {
+    async createPageRule(principal, input) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       if (!ACTIONS.has(input.action)) return err(validationError('Unknown action', 'action'))
@@ -363,7 +304,7 @@ export const createAuthzService = (db: DB): AuthzService => {
       if (!MATCHERS.has(input.matcher)) return err(validationError('Unknown matcher', 'matcher'))
       const pattern = input.matcher === 'regex' ? input.pattern.trim() : normalizePath(input.pattern)
       if (!pattern) return err(validationError('Rule pattern is required', 'pattern'))
-      const rule: PageRuleRow = {
+      const rule: PageRuleRecord = {
         id: crypto.randomUUID(),
         subjectType: input.subjectType,
         subjectId: input.subjectType === 'anonymous' ? null : input.subjectId?.trim() || null,
@@ -373,16 +314,20 @@ export const createAuthzService = (db: DB): AuthzService => {
         pattern,
         createdAt: Date.now(),
       }
-      db.insert(pageRules).values(rule).run()
+      await repository.insertPageRule(rule)
       cachedPolicy = null
+      policyLoading = null
+      policyGeneration += 1
       return ok(rule)
     },
 
-    deletePageRule(principal, id) {
+    async deletePageRule(principal, id) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      db.delete(pageRules).where(eq(pageRules.id, id)).run()
+      await repository.deletePageRule(id)
       cachedPolicy = null
+      policyLoading = null
+      policyGeneration += 1
       return ok({ id })
     },
   }

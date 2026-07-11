@@ -130,7 +130,7 @@ export const createAuthProviderService = (
       createdAt: now,
     }
     await authAccounts.createUserWithAccount(user, accountFor(user, identity, now))
-    authz.syncRoleGroup(user.id, user.role)
+    await authz.syncRoleGroup(user.id, user.role)
     return user
   }
 

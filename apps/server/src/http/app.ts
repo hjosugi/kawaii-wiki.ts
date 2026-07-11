@@ -242,12 +242,12 @@ export const createApp = ({
     return principalForUserId(userId)
   }
 
-  const canReadPage = (principal: Principal | null, path?: string): boolean =>
+  const canReadPage = async (principal: Principal | null, path?: string): Promise<boolean> =>
     principal ? can(principal, 'page:read', { path }) : services.authz.canAnonymous('page:read', path)
 
-  const requirePageRead = (principal: Principal | null, path?: string): void => {
+  const requirePageRead = async (principal: Principal | null, path?: string): Promise<void> => {
     if (privateWiki() && !principal) throw new HttpError(unauthorized())
-    if (!canReadPage(principal, path)) throw new HttpError(forbidden())
+    if (!(await canReadPage(principal, path))) throw new HttpError(forbidden())
   }
 
   const requireSearchRead = (principal: Principal | null): void => {

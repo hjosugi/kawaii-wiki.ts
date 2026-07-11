@@ -4,13 +4,17 @@ import type { BaseApp } from '../base.ts'
 
 export interface SearchRoutesContext {
   readonly requireSearchRead: (principal: Principal | null) => void
-  readonly canReadPage: (principal: Principal | null, path?: string) => boolean
+  readonly canReadPage: (principal: Principal | null, path?: string) => Promise<boolean>
 }
 
 export const createSearchRoutes = ({ requireSearchRead, canReadPage }: SearchRoutesContext) => (app: BaseApp) =>
-  app.get('/api/search', ({ query, services, principal }) => {
+  app.get('/api/search', async ({ query, services, principal }) => {
     requireSearchRead(principal)
-    const publicationByPath = new Map(services.pages.list().map((page) => [page.path, page]))
+    const pages = services.pages.list()
+    const publicationByPath = new Map(pages.map((page) => [page.path, page]))
+    const readablePaths = new Set((await Promise.all(pages.map(async (page) =>
+      await canReadPage(principal, page.path) ? page.path : null
+    ))).filter((path): path is string => path !== null))
     return services.search.search(
       query.q ?? '',
       {
@@ -32,7 +36,7 @@ export const createSearchRoutes = ({ requireSearchRead, canReadPage }: SearchRou
       (path) => {
         const page = publicationByPath.get(path)
         const published = page && page.status !== 'draft' && (page.publishAt === null || page.publishAt <= Date.now())
-        return canReadPage(principal, path) && Boolean(published || can(principal, 'page:update', { path }))
+        return readablePaths.has(path) && Boolean(published || can(principal, 'page:update', { path }))
       },
     )
   }, {

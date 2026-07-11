@@ -51,7 +51,7 @@ describe('createDb', () => {
       expect(created.ok).toBe(true)
       if (!created.ok) return
 
-      const principal = services.authz.principalForUser(created.value)
+      const principal = await services.authz.principalForUser(created.value)
       const page = services.pages.create({
         path: 'docs/libsql',
         title: 'libSQL runtime',
