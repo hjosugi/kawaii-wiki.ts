@@ -23,6 +23,7 @@
     "db:migrate": "bun --filter '@kawaii-wiki/server' db:migrate",
     "db:reindex-search": "bun --filter '@kawaii-wiki/server' db:reindex-search",
     "db:seed": "bun --filter '@kawaii-wiki/server' db:seed",
+    "docs:install": "bun --filter '@kawaii-wiki/server' docs:install",
     "db:reset": "bun --filter '@kawaii-wiki/server' db:reset",
     "typecheck": "bun --filter '*' typecheck",
     "test": "bun test packages apps/server && bun --filter '@kawaii-wiki/web' test",
