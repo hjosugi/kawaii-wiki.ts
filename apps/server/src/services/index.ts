@@ -172,7 +172,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     renderMarkdown: (content) => rendererForSettings().renderMarkdown(content),
     defaultLocale: () => settings.public().defaultLocale,
   })
-  const authProviders = createAuthProviderService(db, auth, authz, createOidcAuthProviders(db, auth), {
+  const authProviders = createAuthProviderService(repositories.authAccounts, repositories.users, auth, authz, createOidcAuthProviders(db, auth), {
     registration: () => settings.public().registration,
   })
   return {
@@ -186,7 +186,10 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     settings,
     authz,
     authProviders,
-    oidc: createOidcService(db, auth, authz),
+    oidc: createOidcService(db, auth, authz, {
+      authAccounts: repositories.authAccounts,
+      users: repositories.users,
+    }),
     passkeys: createPasskeyService(db, auth),
     shares: createPageShareService(db),
     templates: createPageTemplateService(repositories.pageTemplates),
@@ -196,7 +199,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
       resolver: options.webhookResolver,
     }),
     mail,
-    recovery: createAuthRecoveryService(db, auth, mail),
+    recovery: createAuthRecoveryService(repositories.authRecovery, auth, mail),
     apiKeys: createApiKeyService(db, authz),
     totp: createTotpService(db, auth.siteName),
     notifications: createNotificationService(db),

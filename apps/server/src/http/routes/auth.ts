@@ -323,7 +323,7 @@ export const createAuthRoutes = ({
 	      )
 	      .post(
 	        '/api/auth/email/verify',
-	        ({ body, services }) => unwrap(services.recovery.verifyEmail(body.token)),
+	        async ({ body, services }) => unwrap(await services.recovery.verifyEmail(body.token)),
 	        { body: t.Object({ token: t.String({ minLength: 20 }) }) },
 	      )
 	      .post('/api/auth/email/verification', async ({ principal, services, request, server }) => {

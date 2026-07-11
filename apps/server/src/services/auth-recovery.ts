@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from 'node:crypto'
-import { eq, lte } from 'drizzle-orm'
 import {
   type AppError,
   type Result,
@@ -8,9 +7,9 @@ import {
   unauthorized,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { emailVerifications, passwordResets, users, type User } from '../db/schema.ts'
 import type { AuthEnv } from '../env.ts'
+import type { AuthRecoveryRepository } from '../repositories/auth-recovery.ts'
+import type { UserRecord } from '../repositories/users.ts'
 import { hashPassword } from './auth.ts'
 import type { MailService } from './mail.ts'
 import { isUserActive } from './users.ts'
@@ -24,8 +23,8 @@ export interface AuthRecoveryService {
   mailConfigured(): boolean
   requestPasswordReset(email: string): Promise<Result<{ ok: true }, AppError>>
   resetPassword(token: string, newPassword: string): Promise<Result<{ userId: string }, AppError>>
-  sendEmailVerification(user: User): Promise<Result<{ sent: boolean }, AppError>>
-  verifyEmail(token: string): Result<{ userId: string }, AppError>
+  sendEmailVerification(user: UserRecord): Promise<Result<{ sent: boolean }, AppError>>
+  verifyEmail(token: string): Promise<Result<{ userId: string }, AppError>>
 }
 
 const randomToken = (): string => randomBytes(32).toString('base64url')
@@ -39,32 +38,22 @@ const validatePassword = (password: string): AppError | null =>
   password.length >= 6 ? null : validationError('Password must be at least 6 characters', 'password')
 
 export const createAuthRecoveryService = (
-  db: DB,
+  repository: AuthRecoveryRepository,
   auth: AuthEnv,
   mail: MailService,
   now: () => number = () => Date.now(),
 ): AuthRecoveryService => {
-  const cleanup = (): void => {
-    const cutoff = now()
-    db.delete(passwordResets).where(lte(passwordResets.expiresAt, cutoff)).run()
-    db.delete(emailVerifications).where(lte(emailVerifications.expiresAt, cutoff)).run()
-  }
+  const cleanup = async (): Promise<void> => repository.cleanupExpired(now())
 
-  const userByEmail = (email: string): User | undefined =>
-    db.select().from(users).where(eq(users.email, email.trim().toLowerCase())).get()
-
-  const sendReset = async (user: User): Promise<void> => {
+  const sendReset = async (user: UserRecord): Promise<void> => {
     const createdAt = now()
     const token = randomToken()
-    db.delete(passwordResets).where(eq(passwordResets.userId, user.id)).run()
-    db.insert(passwordResets)
-      .values({
-        token: hashToken(token),
-        userId: user.id,
-        expiresAt: createdAt + PASSWORD_RESET_TTL_MS,
-        createdAt,
-      })
-      .run()
+    await repository.replacePasswordReset({
+      token: hashToken(token),
+      userId: user.id,
+      expiresAt: createdAt + PASSWORD_RESET_TTL_MS,
+      createdAt,
+    })
     await mail.send(mail.resetPasswordMessage({
       email: user.email,
       siteName: auth.siteName,
@@ -79,8 +68,8 @@ export const createAuthRecoveryService = (
     },
 
     async requestPasswordReset(email) {
-      cleanup()
-      const user = userByEmail(email)
+      await cleanup()
+      const user = await repository.findUserByEmail(email.trim().toLowerCase())
       if (!mail.configured() || !isUserActive(user)) return ok({ ok: true })
       try {
         await sendReset(user)
@@ -91,40 +80,35 @@ export const createAuthRecoveryService = (
     },
 
     async resetPassword(token, newPassword) {
-      cleanup()
+      await cleanup()
       const invalid = validatePassword(newPassword)
       if (invalid) return err(invalid)
 
-      const row = db.select().from(passwordResets).where(eq(passwordResets.token, hashToken(token))).get()
-      if (!row || row.expiresAt <= now()) return err(unauthorized('Password reset link is invalid or expired'))
-      const user = db.select().from(users).where(eq(users.id, row.userId)).get()
-      if (!isUserActive(user)) return err(unauthorized('Password reset link is invalid or expired'))
-
       const passwordHash = await hashPassword(newPassword)
       const tokenInvalidBefore = now()
-      db.update(users)
-        .set({ passwordHash, tokenInvalidBefore, emailVerifiedAt: user.emailVerifiedAt ?? tokenInvalidBefore })
-        .where(eq(users.id, user.id))
-        .run()
-      db.delete(passwordResets).where(eq(passwordResets.userId, user.id)).run()
-      return ok({ userId: user.id })
+      const userId = await repository.consumePasswordReset(
+        hashToken(token),
+        tokenInvalidBefore,
+        passwordHash,
+        tokenInvalidBefore,
+      )
+      return userId
+        ? ok({ userId })
+        : err(unauthorized('Password reset link is invalid or expired'))
     },
 
     async sendEmailVerification(user) {
-      cleanup()
+      await cleanup()
       if (!mail.configured() || !isUserActive(user)) return ok({ sent: false })
       const createdAt = now()
       const token = randomToken()
-      db.delete(emailVerifications).where(eq(emailVerifications.userId, user.id)).run()
-      db.insert(emailVerifications)
-        .values({
-          token: hashToken(token),
-          userId: user.id,
-          email: user.email,
-          expiresAt: createdAt + EMAIL_VERIFICATION_TTL_MS,
-          createdAt,
-        })
-        .run()
+      await repository.replaceEmailVerification({
+        token: hashToken(token),
+        userId: user.id,
+        email: user.email,
+        expiresAt: createdAt + EMAIL_VERIFICATION_TTL_MS,
+        createdAt,
+      })
       try {
         const result = await mail.send(mail.verifyEmailMessage({
           email: user.email,
@@ -138,17 +122,12 @@ export const createAuthRecoveryService = (
       }
     },
 
-    verifyEmail(token) {
-      cleanup()
-      const row = db.select().from(emailVerifications).where(eq(emailVerifications.token, hashToken(token))).get()
-      if (!row || row.expiresAt <= now()) return err(unauthorized('Email verification link is invalid or expired'))
-      const user = db.select().from(users).where(eq(users.id, row.userId)).get()
-      if (!isUserActive(user) || user.email !== row.email) {
-        return err(unauthorized('Email verification link is invalid or expired'))
-      }
-      db.update(users).set({ emailVerifiedAt: now() }).where(eq(users.id, user.id)).run()
-      db.delete(emailVerifications).where(eq(emailVerifications.userId, user.id)).run()
-      return ok({ userId: user.id })
+    async verifyEmail(token) {
+      await cleanup()
+      const userId = await repository.consumeEmailVerification(hashToken(token), now())
+      return userId
+        ? ok({ userId })
+        : err(unauthorized('Email verification link is invalid or expired'))
     },
   }
 }

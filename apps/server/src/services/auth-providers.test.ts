@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { AuthEnv } from '../env.ts'
 import { createDb } from '../db/client.ts'
+import { createDatabaseRepositories } from '../db/repositories/index.ts'
 import { authAccounts, users } from '../db/schema.ts'
 import { createAuthProviderService, type AuthProvider } from './auth-providers.ts'
 import { createAuthzService } from './authz.ts'
@@ -44,7 +45,14 @@ describe('auth provider service', () => {
   test('registers protocol providers and links external identities through a generic seam', async () => {
     const db = createDb(':memory:')
     try {
-      const service = createAuthProviderService(db, authEnv(), createAuthzService(db), [fakeSamlProvider()])
+      const repositories = createDatabaseRepositories(db)
+      const service = createAuthProviderService(
+        repositories.authAccounts,
+        repositories.users,
+        authEnv(),
+        createAuthzService(db),
+        [fakeSamlProvider()],
+      )
 
       expect(service.publicProviders()).toEqual([{
         id: 'saml-main',
@@ -87,7 +95,14 @@ describe('auth provider service', () => {
   test('applies shared external registration policy independent of provider protocol', async () => {
     const db = createDb(':memory:')
     try {
-      const service = createAuthProviderService(db, authEnv('off'), createAuthzService(db), [fakeSamlProvider()])
+      const repositories = createDatabaseRepositories(db)
+      const service = createAuthProviderService(
+        repositories.authAccounts,
+        repositories.users,
+        authEnv('off'),
+        createAuthzService(db),
+        [fakeSamlProvider()],
+      )
       const result = await service.callback('saml-main', {})
 
       expect(result.ok).toBe(false)

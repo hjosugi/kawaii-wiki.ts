@@ -4,6 +4,10 @@ import type { PageTemplateRepository } from '../../repositories/page-templates.t
 import { createSqlitePageTemplateRepository } from './page-templates.ts'
 import type { UserRepository } from '../../repositories/users.ts'
 import { createSqliteUserRepository } from './users.ts'
+import type { AuthAccountRepository } from '../../repositories/auth-accounts.ts'
+import type { AuthRecoveryRepository } from '../../repositories/auth-recovery.ts'
+import { createSqliteAuthAccountRepository } from './auth-accounts.ts'
+import { createSqliteAuthRecoveryRepository } from './auth-recovery.ts'
 import { createSqliteUserPreferenceRepository } from './user-preferences.ts'
 
 /**
@@ -16,10 +20,14 @@ export interface DatabaseRepositories {
   readonly userPreferences: UserPreferenceRepository
   readonly pageTemplates: PageTemplateRepository
   readonly users: UserRepository
+  readonly authAccounts: AuthAccountRepository
+  readonly authRecovery: AuthRecoveryRepository
 }
 
 export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
   userPreferences: createSqliteUserPreferenceRepository(db),
   pageTemplates: createSqlitePageTemplateRepository(db),
   users: createSqliteUserRepository(db),
+  authAccounts: createSqliteAuthAccountRepository(db),
+  authRecovery: createSqliteAuthRecoveryRepository(db),
 })

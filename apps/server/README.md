@@ -109,12 +109,14 @@ interfaces. Repository methods return promises even for embedded SQLite so a
 remote or pooled database driver does not require another HTTP/service API
 rewrite.
 
-Users, user preferences, and page templates currently use this boundary and
-run the same repository contract suite against both SQLite and libSQL. User
-lookups are asynchronous through authentication, profile, realtime, and Git
-mirror call chains. Remaining services are being migrated incrementally under
-GitHub issue #363; until that work is complete, PostgreSQL and MySQL are
-intentionally not exposed as selectable production drivers.
+Users, external authentication accounts, password/email recovery tokens, user
+preferences, and page templates currently use this boundary and run the same
+repository contract suite against both SQLite and libSQL. User lookups are
+asynchronous through authentication, profile, realtime, and Git mirror call
+chains; external account creation/linking and recovery token consumption keep
+their multi-table mutations atomic. Remaining services are being migrated
+incrementally under GitHub issue #363; until that work is complete, PostgreSQL
+and MySQL are intentionally not exposed as selectable production drivers.
 
 Passkeys/WebAuthn need a stable HTTPS origin in production:
 
