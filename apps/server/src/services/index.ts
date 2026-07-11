@@ -120,7 +120,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   const branding = options.branding ?? defaultBranding
   const localization = options.localization ?? defaultLocalization
   const searchIndexer = createFtsSearchIndexer(db, { configuredTokenizer: search.ftsTokenizer })
-  const settings = createSettingsService(db, {
+  const settings = createSettingsService(repositories.settings, {
     defaults: {
       ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
       ...(branding.accentColor ? { accentColor: branding.accentColor } : {}),

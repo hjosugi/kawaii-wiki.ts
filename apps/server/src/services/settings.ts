@@ -21,14 +21,14 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { siteSettings } from '../db/schema.ts'
+import type { SettingRecord, SettingsRepository } from '../repositories/settings.ts'
 
 export type { BuiltInNavItem, BuiltInNavKey, NavLink, NavLinkInput, SettingsPatch, SiteSettings }
 
 export interface SettingsService {
+  initialize(): Promise<void>
   public(): SiteSettings
-  update(principal: Principal | null, patch: SettingsPatch): Result<SiteSettings, AppError>
+  update(principal: Principal | null, patch: SettingsPatch): Promise<Result<SiteSettings, AppError>>
 }
 
 export interface SettingsServiceOptions {
@@ -257,21 +257,39 @@ const validatePatch = (
   })
 }
 
-export const createSettingsService = (db: DB, options: SettingsServiceOptions = {}): SettingsService => {
+export const createSettingsService = (repository: SettingsRepository, options: SettingsServiceOptions = {}): SettingsService => {
   const defaults = { ...defaultSiteSettings(), ...options.defaults }
   const allowHeadInjection = options.allowHeadInjection ?? false
-  const read = (): SiteSettings => {
+  let current: SiteSettings = { ...defaults }
+  let initialized = false
+  let initialization: Promise<void> | null = null
+  let writeTail = Promise.resolve()
+  const settingsFromRows = (rows: readonly SettingRecord[]): SiteSettings => {
     const next: SiteSettings = { ...defaults }
-    for (const row of db.select().from(siteSettings).all()) {
+    for (const row of rows) {
       if (isSettingKey(row.key)) Object.assign(next, { [row.key]: parseStoredValue(row.key, row.value) })
     }
     if (!allowHeadInjection) Object.assign(next, { customHeadHtml: '' })
     return next
   }
-
-  const write = (settings: SiteSettings): void => {
+  const initialize = (): Promise<void> => {
+    if (initialized) return Promise.resolve()
+    if (!initialization) {
+      initialization = repository.list()
+        .then((rows) => {
+          current = settingsFromRows(rows)
+          initialized = true
+        })
+        .catch((error) => {
+          initialization = null
+          throw error
+        })
+    }
+    return initialization
+  }
+  const rowsFor = (settings: SiteSettings): SettingRecord[] => {
     const now = Date.now()
-    const rows: Array<{ key: SiteSettingKey; value: string; updatedAt: number }> = [
+    return [
       { key: 'siteTitle', value: settings.siteTitle, updatedAt: now },
       { key: 'accentColor', value: settings.accentColor, updatedAt: now },
       { key: 'theme', value: settings.theme, updatedAt: now },
@@ -302,23 +320,25 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
       { key: 'enableEmoji', value: String(settings.enableEmoji), updatedAt: now },
       { key: 'enableMermaid', value: String(settings.enableMermaid), updatedAt: now },
     ]
-    const stmt = db.$client.prepare(`
-      INSERT INTO site_settings(key, value, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
-    `)
-    for (const row of rows) stmt.run(row.key, row.value, row.updatedAt)
   }
 
   return {
-    public: read,
-    update(principal, patch) {
+    initialize,
+    public: () => current,
+    async update(principal, patch) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const next = validatePatch(read(), patch, allowHeadInjection)
-      if (!next.ok) return next
-      write(next.value)
-      return next
+      const run = async (): Promise<Result<SiteSettings, AppError>> => {
+        await initialize()
+        const next = validatePatch(current, patch, allowHeadInjection)
+        if (!next.ok) return next
+        await repository.upsertAll(rowsFor(next.value))
+        current = next.value
+        return next
+      }
+      const result = writeTail.then(run, run)
+      writeTail = result.then(() => undefined, () => undefined)
+      return await result
     },
   }
 }

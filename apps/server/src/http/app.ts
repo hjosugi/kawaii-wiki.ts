@@ -142,6 +142,7 @@ export const createApp = ({
       maxErrorBytes: env.webhooks.maxErrorBytes,
     },
   })
+  const settingsReady = services.settings.initialize()
   const corsOrigin = env.cors.origins === null ? true : [...env.cors.origins]
   const createAppRateLimiter = (limit: number): RateLimiter =>
     env.realtime.eventBus === 'db'
@@ -561,7 +562,7 @@ export const createApp = ({
     markRequestStarted: (request) => {
       requestStartedAt.set(request, Date.now())
     },
-    waitUntilReady: () => gitReady,
+    waitUntilReady: () => Promise.all([gitReady, settingsReady]).then(() => undefined),
   })
     .use(openapi({
       path: '/api/docs',

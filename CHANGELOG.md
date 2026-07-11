@@ -3,6 +3,25 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.27] - 2026-07-12
+
+### Changed
+
+- Moved site-setting load and atomic batch upsert behind an asynchronous
+  driver-neutral repository.
+- Added a startup readiness barrier that loads persisted settings before HTTP
+  handlers use the synchronous public-settings cache.
+- Serialized setting updates and converted setup, admin, and official-docs
+  call chains to await remote-capable persistence.
+- Removed database and schema imports from the settings service.
+
+### Tests
+
+- Added shared SQLite and libSQL settings contract coverage for initial reads,
+  inserts, updates, timestamps, and preservation of untouched keys.
+- Kept the full HTTP suite green across setup, runtime policy, appearance,
+  Markdown feature, and localization settings.
+
 ## [1.0.26] - 2026-07-12
 
 ### Changed

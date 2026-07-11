@@ -69,7 +69,7 @@ export const createSetupRoutes = ({
         await services.authz.syncRoleGroup(user.id, user.role)
         const principal: Principal = { id: user.id, role: user.role }
 
-        const settings = unwrap(services.settings.update(principal, {
+        const settings = unwrap(await services.settings.update(principal, {
           siteTitle,
           theme: body.theme,
           homePath: 'home',
