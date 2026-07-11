@@ -3,6 +3,24 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.26] - 2026-07-12
+
+### Changed
+
+- Moved asset metadata listing, lookup, usage references, access paths, and
+  trash lifecycle mutations behind an asynchronous driver-neutral repository.
+- Converted asset routes, site export, and search refresh call chains to await
+  remote-capable asset persistence.
+- Removed database, schema, and Drizzle imports from the asset service while
+  retaining permission checks, validation, normalization, and view mapping in
+  the service layer.
+
+### Tests
+
+- Added shared SQLite and libSQL asset contract coverage for ordering, folder
+  filters, active/deleted lookup, metadata mutation, page references, access
+  paths, and deletion.
+
 ## [1.0.25] - 2026-07-12
 
 ### Changed

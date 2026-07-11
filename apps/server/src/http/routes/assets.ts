@@ -114,7 +114,7 @@ export const createAssetRoutes = ({
     if (body.filename === undefined && body.folder === undefined) {
       throw new HttpError(validationError('Filename or folder is required', 'asset'))
     }
-    const asset = unwrap(services.assets.update(id, body, principal))
+    const asset = unwrap(await services.assets.update(id, body, principal))
     if (!asset) throw new HttpError(validationError('Asset not found', 'id'))
     audit(logger, 'asset.rename', {
       userId: principal?.id ?? null,
@@ -132,41 +132,41 @@ export const createAssetRoutes = ({
 
   return (app: BaseApp) =>
     app
-      .get('/api/assets', ({ query, services, principal }) => {
+      .get('/api/assets', async ({ query, services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
-        return pagedAssets(unwrap(services.assets.list(principal, query.folder, query.q)), query.limit, query.offset)
+        return pagedAssets(unwrap(await services.assets.list(principal, query.folder, query.q)), query.limit, query.offset)
       }, { query: t.Object({ folder: t.Optional(t.String()), q: t.Optional(t.String()), limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
-      .get('/api/assets/folders', ({ services, principal }) => {
+      .get('/api/assets/folders', async ({ services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
-        return { folders: unwrap(services.assets.folders(principal)) }
+        return { folders: unwrap(await services.assets.folders(principal)) }
       })
-      .get('/api/assets/trash', ({ query, services, principal }) => {
+      .get('/api/assets/trash', async ({ query, services, principal }) => {
         requireHttpPermission(principal, 'admin:access')
-        return pagedAssets(unwrap(services.assets.trash(principal)), query.limit, query.offset)
+        return pagedAssets(unwrap(await services.assets.trash(principal)), query.limit, query.offset)
       }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
       .get(
         '/api/assets/usage',
-        ({ query, services, principal }) => {
+        async ({ query, services, principal }) => {
           requireHttpPermission(principal, 'asset:read')
-          return { usage: unwrap(services.assets.usage(principal, query.path)) }
+          return { usage: unwrap(await services.assets.usage(principal, query.path)) }
         },
         { query: t.Object({ path: t.Optional(t.String()) }) },
       )
-      .get('/api/assets/orphans', ({ services, principal }) => {
+      .get('/api/assets/orphans', async ({ services, principal }) => {
         requireHttpPermission(principal, 'admin:access')
-        return { assets: unwrap(services.assets.orphans(principal)) }
+        return { assets: unwrap(await services.assets.orphans(principal)) }
       })
       .post(
         '/api/assets/orphans/delete',
         async ({ body, services, principal }) => {
           requireHttpPermission(principal, 'admin:access')
           const requestedIds = new Set(body.ids)
-          const currentOrphans = unwrap(services.assets.orphans(principal))
+          const currentOrphans = unwrap(await services.assets.orphans(principal))
           const currentOrphanIds = new Set(currentOrphans.map((asset) => asset.id))
           const targets = currentOrphans.filter((asset) => requestedIds.has(asset.id))
           const removed: AssetView[] = []
           for (const asset of targets) {
-            const removedAsset = unwrap(services.assets.remove(asset.id, principal))
+            const removedAsset = unwrap(await services.assets.remove(asset.id, principal))
             if (!removedAsset) continue
             removed.push(removedAsset)
             await publishAutomation({
@@ -208,7 +208,7 @@ export const createAssetRoutes = ({
               contentType: 'image/webp',
             })
           }
-          const asset = unwrap(services.assets.record({
+          const asset = unwrap(await services.assets.record({
             id,
             filename: file.name,
             storageName,
@@ -241,7 +241,7 @@ export const createAssetRoutes = ({
         '/api/assets/:id/restore',
         async ({ params, services, principal }) => {
           requireHttpPermission(principal, 'admin:access')
-          const asset = unwrap(services.assets.restore(params.id, principal))
+          const asset = unwrap(await services.assets.restore(params.id, principal))
           if (!asset) throw new HttpError(validationError('Asset not found in trash', 'id'))
           audit(logger, 'asset.restore', {
             userId: principal?.id ?? null,
@@ -261,11 +261,11 @@ export const createAssetRoutes = ({
         '/api/assets/:id/purge',
         async ({ params, services, principal }) => {
           requireHttpPermission(principal, 'admin:access')
-          const asset = unwrap(services.assets.findDeletedById(params.id, principal))
+          const asset = unwrap(await services.assets.findDeletedById(params.id, principal))
           if (!asset) throw new HttpError(validationError('Asset not found in trash', 'id'))
           await assetStorage.delete(asset.storageName)
           if (asset.thumbUrl) await assetStorage.delete(thumbnailStorageName(asset.storageName))
-          const purged = unwrap(services.assets.purge(params.id, principal)) ?? asset
+          const purged = unwrap(await services.assets.purge(params.id, principal)) ?? asset
           audit(logger, 'asset.purge', {
             userId: principal?.id ?? null,
             assetId: purged.id,
@@ -284,9 +284,9 @@ export const createAssetRoutes = ({
         '/api/assets/:id',
         async ({ params, services, principal }) => {
           requireHttpPermission(principal, 'asset:delete')
-          const asset = unwrap(services.assets.findById(params.id, principal))
+          const asset = unwrap(await services.assets.findById(params.id, principal))
           if (!asset) throw new HttpError(validationError('Asset not found', 'id'))
-          const removed = unwrap(services.assets.remove(params.id, principal)) ?? asset
+          const removed = unwrap(await services.assets.remove(params.id, principal)) ?? asset
           audit(logger, 'asset.delete', {
             userId: principal?.id ?? null,
             assetId: removed.id,
@@ -327,7 +327,7 @@ export const createAssetRoutes = ({
         if (privateWiki() && !principal) throw new HttpError(unauthorized())
         const storageName = safeAssetRequestPath(params['*'])
         if (!storageName) return new Response('Not found', { status: 404 })
-        const accessPaths = services.assets.accessPaths(storageName)
+        const accessPaths = await services.assets.accessPaths(storageName)
         if (accessPaths.length > 0 && !(await Promise.all(accessPaths.map((path) => canReadPage(principal, path)))).some(Boolean)) {
           return new Response('Not found', { status: 404 })
         }

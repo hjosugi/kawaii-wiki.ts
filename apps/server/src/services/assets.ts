@@ -2,7 +2,6 @@
  * Asset service — records uploaded-file metadata. The bytes live behind the
  * configured asset storage boundary; this just tracks them.
  */
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from 'drizzle-orm'
 import { fileTypeFromBlob } from 'file-type'
 import {
   type Action,
@@ -16,8 +15,7 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { assets, pageAssetRefs, pages, type Asset } from '../db/schema.ts'
+import type { AssetRecord, AssetRepository } from '../repositories/assets.ts'
 import type { SearchIndexer } from './search.ts'
 import { assetStorageNamesFromContent } from './asset-references.ts'
 
@@ -197,20 +195,20 @@ export interface AssetUsageView {
 }
 
 export interface AssetService {
-  record(input: RecordAssetInput, principal: Principal | null): Result<AssetView, AppError>
-  list(principal: Principal | null, folder?: string | null, query?: string | null): Result<AssetView[], AppError>
-  folders(principal: Principal | null): Result<string[], AppError>
-  trash(principal: Principal | null): Result<AssetView[], AppError>
-  usage(principal: Principal | null, path?: string): Result<AssetUsageView[], AppError>
-  orphans(principal: Principal | null): Result<AssetView[], AppError>
-  findById(id: string, principal: Principal | null): Result<AssetView | null, AppError>
-  findDeletedById(id: string, principal: Principal | null): Result<AssetView | null, AppError>
-  accessPaths(storageName: string): string[]
-  update(id: string, input: UpdateAssetInput, principal: Principal | null): Result<AssetView | null, AppError>
-  rename(id: string, filename: string, principal: Principal | null): Result<AssetView | null, AppError>
-  remove(id: string, principal: Principal | null): Result<AssetView | null, AppError>
-  restore(id: string, principal: Principal | null): Result<AssetView | null, AppError>
-  purge(id: string, principal: Principal | null): Result<AssetView | null, AppError>
+  record(input: RecordAssetInput, principal: Principal | null): Promise<Result<AssetView, AppError>>
+  list(principal: Principal | null, folder?: string | null, query?: string | null): Promise<Result<AssetView[], AppError>>
+  folders(principal: Principal | null): Promise<Result<string[], AppError>>
+  trash(principal: Principal | null): Promise<Result<AssetView[], AppError>>
+  usage(principal: Principal | null, path?: string): Promise<Result<AssetUsageView[], AppError>>
+  orphans(principal: Principal | null): Promise<Result<AssetView[], AppError>>
+  findById(id: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  findDeletedById(id: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  accessPaths(storageName: string): Promise<string[]>
+  update(id: string, input: UpdateAssetInput, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  rename(id: string, filename: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  remove(id: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  restore(id: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
+  purge(id: string, principal: Principal | null): Promise<Result<AssetView | null, AppError>>
 }
 
 export interface AssetServiceOptions {
@@ -234,55 +232,40 @@ export const thumbnailStorageName = (storageName: string): string => {
   return `${storageName.replace(/\.[^.]+$/, '')}.thumb.webp`
 }
 
-const toView = (asset: Asset, urlForStorageName: (storageName: string) => string): AssetView => ({
+const toView = (asset: AssetRecord, urlForStorageName: (storageName: string) => string): AssetView => ({
   ...asset,
   url: urlForStorageName(asset.storageName),
   thumbUrl: isImageAssetMime(asset.mime) ? `${defaultAssetUrl(asset.storageName)}?size=thumb` : null,
 })
 
-export const createAssetService = (db: DB, options: AssetServiceOptions = {}): AssetService => {
+export const createAssetService = (repository: AssetRepository, options: AssetServiceOptions = {}): AssetService => {
   const urlForStorageName = options.urlForStorageName ?? defaultAssetUrl
   const searchIndexer = options.searchIndexer
   const requireAssetPermission = (principal: Principal | null, action: Action, path?: string): Result<true, AppError> =>
     requirePermission(principal, action, path ? { path } : {})
-  const matchesAssetQuery = (asset: Asset, query?: string | null): boolean => {
+  const matchesAssetQuery = (asset: AssetRecord, query?: string | null): boolean => {
     const needle = query?.trim().toLowerCase()
     if (!needle) return true
     return `${asset.filename} ${asset.folder} ${asset.mime} ${asset.storageName}`.toLowerCase().includes(needle)
   }
-  const activeRecords = (folder?: string | null, query?: string | null): Asset[] => {
+  const activeRecords = async (folder?: string | null, query?: string | null): Promise<AssetRecord[]> => {
     const normalizedFolder = folder === undefined ? undefined : normalizeAssetFolder(folder)
-    const conditions = [isNull(assets.deletedAt)]
-    if (normalizedFolder !== undefined) conditions.push(eq(assets.folder, normalizedFolder))
-    return db.select().from(assets).where(and(...conditions)).orderBy(desc(assets.createdAt)).all()
-      .filter((asset) => matchesAssetQuery(asset, query))
+    return (await repository.listActive(normalizedFolder)).filter((asset) => matchesAssetQuery(asset, query))
   }
-  const deletedRecords = (): Asset[] =>
-    db.select().from(assets).where(isNotNull(assets.deletedAt)).orderBy(desc(assets.deletedAt)).all()
-  const findActive = (id: string): Asset | undefined =>
-    db.select().from(assets).where(and(eq(assets.id, id), isNull(assets.deletedAt))).get()
-  const findDeleted = (id: string): Asset | undefined =>
-    db.select().from(assets).where(and(eq(assets.id, id), isNotNull(assets.deletedAt))).get()
-  const usageFor = (principal: Principal | null, path?: string): AssetUsageView[] => {
+  const deletedRecords = () => repository.listDeleted()
+  const findActive = (id: string) => repository.findActive(id)
+  const findDeleted = (id: string) => repository.findDeleted(id)
+  const usageFor = async (principal: Principal | null, path?: string): Promise<AssetUsageView[]> => {
     const targetPath = path ? normalizePath(path) : null
-    const visiblePages = db
-      .select({
-        id: pages.id,
-        path: pages.path,
-        title: pages.title,
-      })
-      .from(pages)
-      .where(eq(pages.lifecycle, 'active'))
-      .orderBy(asc(pages.path))
-      .all()
+    const visiblePages = (await repository.listActivePages())
       .filter((page) => (!targetPath || page.path === targetPath) && can(principal, 'page:read', { path: page.path }))
 
     const pageById = new Map(visiblePages.map((page) => [page.id, page]))
     const references = visiblePages.length
-      ? db.select().from(pageAssetRefs).where(inArray(pageAssetRefs.pageId, visiblePages.map((page) => page.id))).all()
+      ? await repository.listReferences(visiblePages.map((page) => page.id))
       : []
 
-    return activeRecords().map((asset) => {
+    return (await activeRecords()).map((asset) => {
       const view = toView(asset, urlForStorageName)
       return {
         asset: view,
@@ -295,30 +278,20 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
       }
     })
   }
-  const affectedPageIds = (asset: Asset): string[] => {
-    return db.select({ id: pageAssetRefs.pageId }).from(pageAssetRefs)
-      .where(eq(pageAssetRefs.assetId, asset.id)).all().map((page) => page.id)
-  }
-  const attachExistingPages = (asset: Asset): void => {
-    const matchingPages = db.select({ id: pages.id, content: pages.content }).from(pages)
-      .where(eq(pages.lifecycle, 'active')).all()
+  const attachExistingPages = async (asset: AssetRecord): Promise<void> => {
+    const matchingPages = (await repository.listActivePages())
       .filter((page) => assetStorageNamesFromContent(page.content).includes(asset.storageName))
-    if (matchingPages.length) {
-      db.insert(pageAssetRefs)
-        .values(matchingPages.map((page) => ({ pageId: page.id, assetId: asset.id })))
-        .onConflictDoNothing()
-        .run()
-    }
+    await repository.insertReferences(matchingPages.map((page) => page.id), asset.id)
   }
-  const refreshPagesForAsset = (...records: Asset[]): void => {
-    const ids = new Set(records.flatMap((asset) => affectedPageIds(asset)))
+  const refreshPagesForAsset = async (...records: AssetRecord[]): Promise<void> => {
+    const ids = new Set((await Promise.all(records.map((asset) => repository.listAffectedPageIds(asset.id)))).flat())
     for (const id of ids) searchIndexer?.indexPageById(id)
   }
   return {
-    record(input, principal) {
+    async record(input, principal) {
       const allowed = requireAssetPermission(principal, 'asset:write')
       if (!allowed.ok) return allowed
-      const asset: Asset = {
+      const asset: AssetRecord = {
         id: input.id ?? crypto.randomUUID(),
         filename: input.filename,
         storageName: input.storageName,
@@ -329,27 +302,27 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
         createdAt: Date.now(),
         deletedAt: null,
       }
-      db.insert(assets).values(asset).run()
-      attachExistingPages(asset)
-      refreshPagesForAsset(asset)
+      await repository.insert(asset)
+      await attachExistingPages(asset)
+      await refreshPagesForAsset(asset)
       return ok(toView(asset, urlForStorageName))
     },
-    list(principal, folder, query) {
+    async list(principal, folder, query) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
-      return ok(activeRecords(folder, query).map((asset) => toView(asset, urlForStorageName)))
+      return ok((await activeRecords(folder, query)).map((asset) => toView(asset, urlForStorageName)))
     },
-    folders(principal) {
+    async folders(principal) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
-      return ok([...new Set(activeRecords().map((asset) => asset.folder).filter(Boolean))].sort())
+      return ok([...new Set((await activeRecords()).map((asset) => asset.folder).filter(Boolean))].sort())
     },
-    trash(principal) {
+    async trash(principal) {
       const allowed = requireAssetPermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      return ok(deletedRecords().map((asset) => toView(asset, urlForStorageName)))
+      return ok((await deletedRecords()).map((asset) => toView(asset, urlForStorageName)))
     },
-    usage(principal, path) {
+    async usage(principal, path) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
       const targetPath = path ? normalizePath(path) : null
@@ -358,41 +331,34 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
         if (!pageAllowed.ok) return pageAllowed
       }
 
-      return ok(usageFor(principal, path))
+      return ok(await usageFor(principal, path))
     },
-    orphans(principal) {
+    async orphans(principal) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
-      return ok(usageFor(principal).filter((entry) => entry.pages.length === 0).map((entry) => entry.asset))
+      return ok((await usageFor(principal)).filter((entry) => entry.pages.length === 0).map((entry) => entry.asset))
     },
-    findById(id, principal) {
+    async findById(id, principal) {
       const allowed = requireAssetPermission(principal, 'asset:read')
       if (!allowed.ok) return allowed
-      const asset = findActive(id)
+      const asset = await findActive(id)
       return ok(asset ? toView(asset, urlForStorageName) : null)
     },
-    findDeletedById(id, principal) {
+    async findDeletedById(id, principal) {
       const allowed = requireAssetPermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const asset = findDeleted(id)
+      const asset = await findDeleted(id)
       return ok(asset ? toView(asset, urlForStorageName) : null)
     },
-    accessPaths(storageName) {
-      return db
-        .select({ path: pages.path })
-        .from(assets)
-        .innerJoin(pageAssetRefs, eq(pageAssetRefs.assetId, assets.id))
-        .innerJoin(pages, eq(pages.id, pageAssetRefs.pageId))
-        .where(and(eq(assets.storageName, storageName), eq(pages.lifecycle, 'active')))
-        .all()
-        .map((row) => row.path)
+    async accessPaths(storageName) {
+      return await repository.listAccessPaths(storageName)
     },
-    update(id, input, principal) {
+    async update(id, input, principal) {
       const allowed = requireAssetPermission(principal, 'asset:write')
       if (!allowed.ok) return allowed
-      const asset = findActive(id)
+      const asset = await findActive(id)
       if (!asset) return ok(null)
-      const patch: Partial<Pick<Asset, 'filename' | 'folder'>> = {}
+      const patch: { filename?: string; folder?: string } = {}
       if (input.filename !== undefined) {
         const clean = input.filename.trim()
         if (!clean) return err(validationError('Filename is required', 'filename'))
@@ -402,40 +368,40 @@ export const createAssetService = (db: DB, options: AssetServiceOptions = {}): A
         patch.folder = normalizeAssetFolder(input.folder)
       }
       if (Object.keys(patch).length === 0) return ok(toView(asset, urlForStorageName))
-      db.update(assets).set(patch).where(eq(assets.id, id)).run()
+      await repository.update(id, patch)
       const updated = { ...asset, ...patch }
-      refreshPagesForAsset(asset, updated)
+      await refreshPagesForAsset(asset, updated)
       return ok(toView(updated, urlForStorageName))
     },
-    rename(id, filename, principal) {
-      return this.update(id, { filename }, principal)
+    async rename(id, filename, principal) {
+      return await this.update(id, { filename }, principal)
     },
-    remove(id, principal) {
+    async remove(id, principal) {
       const allowed = requireAssetPermission(principal, 'asset:delete')
       if (!allowed.ok) return allowed
-      const asset = findActive(id)
+      const asset = await findActive(id)
       if (!asset) return ok(null)
       const deletedAt = Date.now()
-      db.update(assets).set({ deletedAt }).where(eq(assets.id, id)).run()
-      refreshPagesForAsset(asset)
+      await repository.update(id, { deletedAt })
+      await refreshPagesForAsset(asset)
       return ok(toView({ ...asset, deletedAt }, urlForStorageName))
     },
-    restore(id, principal) {
+    async restore(id, principal) {
       const allowed = requireAssetPermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const asset = findDeleted(id)
+      const asset = await findDeleted(id)
       if (!asset) return ok(null)
-      db.update(assets).set({ deletedAt: null }).where(eq(assets.id, id)).run()
-      refreshPagesForAsset({ ...asset, deletedAt: null })
+      await repository.update(id, { deletedAt: null })
+      await refreshPagesForAsset({ ...asset, deletedAt: null })
       return ok(toView({ ...asset, deletedAt: null }, urlForStorageName))
     },
-    purge(id, principal) {
+    async purge(id, principal) {
       const allowed = requireAssetPermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
-      const asset = findDeleted(id)
+      const asset = await findDeleted(id)
       if (!asset) return ok(null)
-      db.delete(assets).where(eq(assets.id, id)).run()
-      refreshPagesForAsset({ ...asset, deletedAt: null })
+      await repository.delete(id)
+      await refreshPagesForAsset({ ...asset, deletedAt: null })
       return ok(toView(asset, urlForStorageName))
     },
   }

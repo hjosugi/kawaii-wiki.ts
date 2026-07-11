@@ -389,7 +389,7 @@ describe('page + search slice (in-memory db)', () => {
 
     const comment = await comments.create('docs/context', 'The durable decisionterm lives in a comment.', admin)
     expect(comment.ok).toBe(true)
-    const asset = assets.record({
+    const asset = await assets.record({
       id: 'asset-a',
       filename: 'diagram.png',
       storageName: 'assets/a/diagram.png',
@@ -404,7 +404,7 @@ describe('page + search slice (in-memory db)', () => {
     expect(commentHit).toMatchObject({ path: 'docs/context', kind: 'comment', anchor: 'comments' })
     const assetHit = search.search('diagram').hits[0]
     expect(assetHit).toMatchObject({ path: 'docs/context', kind: 'asset', anchor: 'attachments' })
-    const listed = assets.list(admin, undefined, 'diagram')
+    const listed = await assets.list(admin, undefined, 'diagram')
     expect(listed.ok).toBe(true)
     if (listed.ok) expect(listed.value[0]?.filename).toBe('diagram.png')
   })
@@ -729,16 +729,16 @@ describe('page + search slice (in-memory db)', () => {
     const db = createDb(':memory:')
     const { assets, analytics } = createServices(db)
 
-    expect(assets.record({
+    expect((await assets.record({
       id: 'asset-1',
       filename: 'secret.pdf',
       storageName: 'asset-1-secret.pdf',
       mime: 'application/pdf',
       size: 100,
       authorId: admin.id,
-    }, viewer).ok).toBe(false)
+    }, viewer)).ok).toBe(false)
 
-    const recorded = assets.record({
+    const recorded = await assets.record({
       id: 'asset-1',
       filename: 'secret.pdf',
       storageName: 'asset-1-secret.pdf',
@@ -747,18 +747,18 @@ describe('page + search slice (in-memory db)', () => {
       authorId: admin.id,
     }, admin)
     expect(recorded.ok).toBe(true)
-    expect(assets.list(null).ok).toBe(true)
-    expect(assets.remove('asset-1', viewer).ok).toBe(false)
-    const removed = assets.remove('asset-1', admin)
+    expect((await assets.list(null)).ok).toBe(true)
+    expect((await assets.remove('asset-1', viewer)).ok).toBe(false)
+    const removed = await assets.remove('asset-1', admin)
     expect(removed.ok).toBe(true)
-    expect(assets.list(admin)).toMatchObject({ ok: true, value: [] })
-    const trashed = assets.trash(admin)
+    expect(await assets.list(admin)).toMatchObject({ ok: true, value: [] })
+    const trashed = await assets.trash(admin)
     expect(trashed.ok).toBe(true)
     if (trashed.ok) expect(trashed.value).toContainEqual(expect.objectContaining({ id: 'asset-1', deletedAt: expect.any(Number) }))
-    expect(assets.restore('asset-1', viewer).ok).toBe(false)
-    expect(assets.restore('asset-1', admin).ok).toBe(true)
-    expect(assets.remove('asset-1', admin).ok).toBe(true)
-    expect(assets.purge('asset-1', admin).ok).toBe(true)
+    expect((await assets.restore('asset-1', viewer)).ok).toBe(false)
+    expect((await assets.restore('asset-1', admin)).ok).toBe(true)
+    expect((await assets.remove('asset-1', admin)).ok).toBe(true)
+    expect((await assets.purge('asset-1', admin)).ok).toBe(true)
 
     analytics.recordPageView('docs/private', admin)
     expect((await analytics.summary(viewer)).ok).toBe(false)
