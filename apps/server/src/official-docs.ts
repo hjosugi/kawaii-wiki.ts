@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type { PageInput, PageStatus } from '@kawaii-wiki/core'
 
-export const OFFICIAL_DOCS_VERSION = '1.0.6'
+export const OFFICIAL_DOCS_VERSION = '1.0.7'
 
 export interface OfficialDocumentationPage extends PageInput {
   readonly path: string
