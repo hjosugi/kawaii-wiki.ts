@@ -1,3 +1,6 @@
+<!-- i18n: language-switcher -->
+[English](README.en.md) | [日本語](README.md)
+
 # kawaii-wiki.ts Core
 
 サーバーとWebアプリで共有する、純粋TypeScriptのドメインパッケージです。
