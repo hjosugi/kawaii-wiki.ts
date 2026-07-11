@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
 import {
@@ -156,7 +157,7 @@ async function applyChanges(): Promise<void> {
     })
     advance(edited)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     processing.value = false
   }

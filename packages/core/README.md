@@ -1,4 +1,4 @@
-# ts-wiki Core
+# kawaii-wiki.ts Core
 
 Pure TypeScript domain package shared by the server and web app.
 
@@ -17,7 +17,7 @@ From the repository root:
 
 ```bash
 bun test packages/core
-bun --filter '@ts-wiki/core' typecheck
+bun --filter '@kawaii-wiki/core' typecheck
 ```
 
 ## Files To Read First

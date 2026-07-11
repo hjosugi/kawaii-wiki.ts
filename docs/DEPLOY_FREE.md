@@ -24,15 +24,15 @@ JWT_SECRET=replace-with-a-long-random-secret
 DATABASE_DRIVER=libsql
 LIBSQL_URL=libsql://your-database.turso.io
 LIBSQL_AUTH_TOKEN=your-turso-token
-# Optional. Defaults to DATA_DIR/ts-wiki-libsql-replica.db.
-LIBSQL_REPLICA_PATH=/tmp/ts-wiki-libsql-replica.db
+# Optional. Defaults to DATA_DIR/kawaii-wiki.ts-libsql-replica.db.
+LIBSQL_REPLICA_PATH=/tmp/kawaii-wiki.ts-libsql-replica.db
 
 ASSET_STORAGE=r2
 ASSET_PUBLIC_BASE_URL=https://cdn.example.com/assets
 R2_ACCOUNT_ID=your-cloudflare-account-id
 R2_ACCESS_KEY_ID=your-r2-access-key
 R2_SECRET_ACCESS_KEY=your-r2-secret-key
-R2_BUCKET=ts-wiki-assets
+R2_BUCKET=kawaii-wiki.ts-assets
 ```
 
 The replica file may be ephemeral on Render Free; the remote Turso database is
@@ -45,7 +45,7 @@ Use this to test the libSQL path without Turso credentials:
 
 ```env
 DATABASE_DRIVER=libsql
-LIBSQL_URL=file:./data/ts-wiki-libsql.db
+LIBSQL_URL=file:./data/kawaii-wiki.ts-libsql.db
 ```
 
 The same migrations, FTS5 search, page writes, comments, permissions,
@@ -62,7 +62,7 @@ ASSET_PUBLIC_BASE_URL=https://cdn.example.com/assets
 R2_ACCOUNT_ID=your-cloudflare-account-id
 R2_ACCESS_KEY_ID=your-r2-access-key
 R2_SECRET_ACCESS_KEY=your-r2-secret-key
-R2_BUCKET=ts-wiki-assets
+R2_BUCKET=kawaii-wiki.ts-assets
 ```
 
 Use `R2_ENDPOINT` instead of `R2_ACCOUNT_ID` when a custom S3-compatible
@@ -70,14 +70,14 @@ endpoint is needed.
 
 ## Operational Notes
 
-- Run `bun --filter '@ts-wiki/server' db:migrate` before first boot or let the
+- Run `bun --filter '@kawaii-wiki/server' db:migrate` before first boot or let the
   server run migrations on startup.
-- Run `bun --filter '@ts-wiki/server' db:seed` once to create the first admin.
-- Keep `TS_WIKI_PUBLIC_ORIGIN` set to the HTTPS URL users open; passkeys and
+- Run `bun --filter '@kawaii-wiki/server' db:seed` once to create the first admin.
+- Keep `KAWAII_WIKI_PUBLIC_ORIGIN` set to the HTTPS URL users open; passkeys and
   OIDC redirects depend on it.
 - Keep `PASSKEY_RP_ID` unset unless your public origin hostname differs from the
   WebAuthn relying-party ID you want.
-- For multi-instance realtime, keep `TS_WIKI_EVENT_BUS=db`; page-change events
+- For multi-instance realtime, keep `KAWAII_WIKI_EVENT_BUS=db`; page-change events
   are stored in the shared database.
 
 ## Remaining Production Proof

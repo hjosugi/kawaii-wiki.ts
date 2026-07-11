@@ -1,4 +1,4 @@
-import type { PageInput, PageStatus } from '@ts-wiki/core'
+import type { PageInput, PageStatus } from '@kawaii-wiki/core'
 
 export interface SamplePageInput extends PageInput {
   readonly path: string
@@ -153,7 +153,7 @@ title: ヒント
   },
 ] as const satisfies readonly SamplePageInput[]
 
-export const sampleSeedPages = (siteTitle = 'ts-wiki'): readonly SamplePageInput[] => [
+export const sampleSeedPages = (siteTitle = 'kawaii-wiki.ts'): readonly SamplePageInput[] => [
   {
     path: 'home',
     title: `Welcome to ${siteTitle}`,

@@ -4,7 +4,8 @@
  * all the way into the Vue app, with no codegen step.
  *
  * NOTE: the actual DDL (including the FTS5 virtual table, which Drizzle can't
- * express) lives in ./migrate.ts and is kept in sync with these definitions.
+ * express) lives in ./migrate.ts. Every migration finishes by comparing these
+ * column/index declarations with SQLite and fails loudly on drift.
  */
 import { sqliteTable, text, integer, index, primaryKey } from 'drizzle-orm/sqlite-core'
 
@@ -213,6 +214,7 @@ export const pages = sqliteTable(
     labels: text('labels').notNull().default('[]'),
     ownerId: text('owner_id'),
     reviewAt: integer('review_at'),
+    publishAt: integer('publish_at'),
     navOrder: integer('nav_order'),
     pinned: integer('pinned', { mode: 'boolean' }).notNull().default(false),
     spaceKey: text('space_key').notNull().default('main'),
@@ -253,6 +255,37 @@ export const pageComments = sqliteTable(
     updatedAt: integer('updated_at').notNull(),
   },
   (t) => [index('comments_page_idx').on(t.pageId), index('comments_path_idx').on(t.path)],
+)
+
+export const pageWatchers = sqliteTable(
+  'page_watchers',
+  {
+    userId: text('user_id').notNull(),
+    path: text('path').notNull(),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.path] }),
+    index('page_watchers_path_idx').on(t.path),
+  ],
+)
+
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: text('id').primaryKey(),
+    userId: text('user_id').notNull(),
+    kind: text('kind').notNull(),
+    path: text('path'),
+    message: text('message').notNull(),
+    payload: text('payload').notNull().default('{}'),
+    readAt: integer('read_at'),
+    createdAt: integer('created_at').notNull(),
+  },
+  (t) => [
+    index('notifications_user_idx').on(t.userId, t.createdAt),
+    index('notifications_unread_idx').on(t.userId, t.readAt),
+  ],
 )
 
 export const pageAnalytics = sqliteTable('page_analytics', {

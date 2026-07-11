@@ -10,7 +10,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { pageComments, pages, users, type PageComment } from '../db/schema.ts'
 import type { SearchIndexer } from './search.ts'

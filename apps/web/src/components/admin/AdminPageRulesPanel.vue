@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type PageRuleView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
@@ -19,7 +20,7 @@ async function load(): Promise<void> {
   try {
     pageRules.value = await Api.adminPageRules()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -39,7 +40,7 @@ async function createPageRule(): Promise<void> {
     pageRules.value = [...pageRules.value, rule]
     pattern.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -49,7 +50,7 @@ async function deletePageRule(rule: PageRuleView): Promise<void> {
     await Api.adminDeletePageRule(rule.id)
     pageRules.value = pageRules.value.filter((item) => item.id !== rule.id)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

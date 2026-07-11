@@ -13,7 +13,7 @@ import {
   requirePermission,
   validationError,
   type Result,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { pageTemplates, type PageTemplate } from '../db/schema.ts'
 

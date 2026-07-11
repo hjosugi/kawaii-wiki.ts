@@ -22,7 +22,7 @@ import {
   pageFilePath,
   filePathToPagePath,
   type PageFileData,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 
 export interface GitConfig {
   readonly enabled: boolean
@@ -36,6 +36,7 @@ export interface GitConfig {
   readonly authorEmail: string
   /** Where the last-imported commit marker is stored (outside the repo). */
   readonly markerFile: string
+  readonly onError?: (event: { operation: string; message: string; occurredAt: number }) => void
 }
 
 export interface PageForGit {
@@ -72,6 +73,9 @@ export interface GitStatus {
   readonly remoteUrl: string | null
   readonly head: string | null
   readonly clean: boolean
+  readonly lastSuccessAt: number | null
+  readonly lastErrorAt: number | null
+  readonly lastError: string | null
 }
 
 export interface GitStorage {
@@ -88,6 +92,19 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
   const contentDir = join(config.dir, 'content')
   const remoteUrl = config.remoteUrl ?? null
   const remoteName = config.remote ?? (remoteUrl ? 'origin' : null)
+  let lastSuccessAt: number | null = null
+  let lastErrorAt: number | null = null
+  let lastError: string | null = null
+  const failure = (operation: string, message: string): void => {
+    lastErrorAt = Date.now()
+    lastError = message || `${operation} failed`
+    config.onError?.({ operation, message: lastError, occurredAt: lastErrorAt })
+  }
+  const success = (): void => {
+    lastSuccessAt = Date.now()
+    lastErrorAt = null
+    lastError = null
+  }
 
   // Serialize all git work through one chain (no interleaved commits).
   let chain: Promise<unknown> = Promise.resolve()
@@ -112,7 +129,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
     const existing = await git('remote', 'get-url', remoteName)
     if (existing.exitCode === 0) return
     const added = await git('remote', 'add', remoteName, remoteUrl)
-    if (added.exitCode !== 0) console.warn(`[git] remote add failed: ${added.stderr.toString().trim()}`)
+    if (added.exitCode !== 0) failure('remote.add', added.stderr.toString().trim())
   }
 
   const readMarker = (): string | null => {
@@ -134,10 +151,11 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
     const authorArgs = author ? [`--author=${author.name} <${author.email}>`] : []
     const r = await git('commit', '-m', message, ...authorArgs)
     if (r.exitCode !== 0) {
-      console.warn(`[git] commit failed: ${r.stderr.toString().trim()}`)
+      failure('commit', r.stderr.toString().trim())
       return
     }
     writeMarker(await headSha()) // our own commit must not be re-imported
+    success()
   }
 
   const readFile = (repoRelFile: string): PageFileData | null => {
@@ -163,7 +181,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         if (!existsSync(join(config.dir, '.git')) && remoteUrl) {
           const r = await $`git clone --origin ${remoteName ?? 'origin'} ${remoteUrl} ${config.dir}`.quiet().nothrow()
           cloned = r.exitCode === 0
-          if (!cloned) console.warn(`[git] clone failed, starting fresh: ${r.stderr.toString().trim()}`)
+          if (!cloned) failure('clone', r.stderr.toString().trim())
         }
         if (!existsSync(join(config.dir, '.git'))) {
           await git('init', '-b', config.branch)
@@ -180,6 +198,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         // all existing remote content into the DB. Otherwise pin to HEAD so we
         // never re-import our own initial commit; a restart keeps any set marker.
         if (!cloned && readMarker() === null) writeMarker(await headSha())
+        success()
       }),
 
     savePage: (page, author = null) =>
@@ -280,8 +299,10 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         if (remoteName && head) {
           const r = await git('push', remoteName, `HEAD:${config.branch}`)
           pushed = r.exitCode === 0
-          if (!pushed) console.warn(`[git] push failed: ${r.stderr.toString().trim()}`)
+          if (!pushed) failure('push', r.stderr.toString().trim())
         }
+
+        if (!remoteName || pushed) success()
 
         return { enabled: true, pulled, pushed, upserted, deleted }
       }),
@@ -297,6 +318,9 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
             remoteUrl,
             head: null,
             clean: true,
+            lastSuccessAt,
+            lastErrorAt,
+            lastError,
           }
         }
         const head = await headSha()
@@ -309,6 +333,9 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
           remoteUrl,
           head,
           clean: st.text().trim() === '',
+          lastSuccessAt,
+          lastErrorAt,
+          lastError,
         }
       }),
   }

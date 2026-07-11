@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AutomationRuleView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
@@ -38,7 +39,7 @@ async function load(): Promise<void> {
   try {
     rules.value = await Api.adminAutomationRules()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -101,7 +102,7 @@ async function createRule(): Promise<void> {
     rules.value = [...rules.value, rule]
     resetForm()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -111,7 +112,7 @@ async function deleteRule(rule: AutomationRuleView): Promise<void> {
     await Api.adminDeleteAutomationRule(rule.id)
     rules.value = rules.value.filter((item) => item.id !== rule.id)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

@@ -1,4 +1,4 @@
-# ts-wiki — Handoff / 引き継ぎ資料
+# kawaii-wiki.ts — Handoff / 引き継ぎ資料
 
 A practical guide for whoever picks this up next (human or AI). The user-facing overview is in
 [../README.md](../README.md); this document is the **developer handoff**: current status, why
@@ -17,7 +17,7 @@ things are the way they are, what bit us, and exactly where to plug in the next 
 | Area | Status | Notes |
 |---|---|---|
 | Monorepo + Bun workspaces | ✅ | `packages/*`, `apps/*`; root scripts orchestrate via `bun --filter` |
-| `@ts-wiki/core` (pure domain) | ✅ | Result, errors, slug, permissions, markdown+TOC/link extraction, renderer plugin seam, validation, shared public settings/auth-provider contracts |
+| `@kawaii-wiki/core` (pure domain) | ✅ | Result, errors, slug, permissions, markdown+TOC/link extraction, renderer plugin seam, validation, shared public settings/auth-provider contracts |
 | DB schema + FTS5 migration | ✅ | SQLite default plus libSQL/Turso embedded-replica support |
 | Pages service (CRUD) | ✅ | transactional: render + revision + FTS index together |
 | Search service (FTS5/BM25) | ✅ | weighted columns, snippets, prefix queries |
@@ -60,7 +60,7 @@ These three were explicitly chosen with the user up front:
 
 Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 
-- **Dependencies point inward.** `@ts-wiki/core` has no I/O and no globals. `apps/web` and
+- **Dependencies point inward.** `@kawaii-wiki/core` has no I/O and no globals. `apps/web` and
   `apps/server` depend on core; never on each other except the server's *type* (Eden).
 - **Pure core, effects at the edges.** Rendering/slug/validation/permissions are pure functions.
 - **`Result<T, E>` over throwing.** Services return results; `apps/server/src/http/errors.ts`
@@ -77,7 +77,7 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 
 > Follow these so the codebase stays coherent.
 
-- **New domain logic that is pure → put it in `@ts-wiki/core`** and unit-test it. If it touches the
+- **New domain logic that is pure → put it in `@kawaii-wiki/core`** and unit-test it. If it touches the
   DB or network, it's a *service*, not core.
 - **Services are factories:** `createXService(db) => { ...methods }`. Return `Result<T, AppError>`
   for expected failures (validation/permission/conflict/not-found). Don't throw for those.
@@ -91,7 +91,7 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 - **Page path is a query param** (`/api/page?path=...`), not a route segment, because wiki paths
   contain slashes. The Eden client mirrors this.
 - **The web client centralises API shapes** in `apps/web/src/lib/api.ts`; shared contracts such as
-  `PublicSettings` and `PublicAuthProvider` come from `@ts-wiki/core`. Keep new methods in that
+  `PublicSettings` and `PublicAuthProvider` come from `@kawaii-wiki/core`. Keep new methods in that
   file; components/stores never call `treaty` directly.
 
 ---
@@ -105,7 +105,7 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
    call via `call<T>()`. The *request* (path/query/body) is still fully type-checked — that's the
    safety that matters.
 3. **`bun test` from the root picks up unrelated tests.** The root `test` script is scoped to
-   `bun test packages apps/server && bun --filter '@ts-wiki/web' test`; keep web SFC tests on
+   `bun test packages apps/server && bun --filter '@kawaii-wiki/web' test`; keep web SFC tests on
    Vitest and don't change the root script back to bare `bun test`.
 4. **Auto-descriptions must be re-derived on update.** Carrying the old auto-summary forward left
    stale words in the search index. `pages.update` passes `description: patch.description`
@@ -116,24 +116,24 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 6. **Slugs use an allow-list** (`[^\p{L}\p{N}]+ → -`), not a block-list, so Japanese/Unicode
    survive and arbitrary punctuation is handled uniformly. Don't "simplify" it back to ASCII.
 7. **FTS5 tokenizer & CJK.** Default `unicode61` doesn't segment Japanese. For CJK-heavy content,
-   set `TS_WIKI_FTS_TOKENIZER=trigram` before first migration. For an existing DB,
-   back it up and run `TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
+   set `KAWAII_WIKI_FTS_TOKENIZER=trigram` before first migration. For an existing DB,
+   back it up and run `KAWAII_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
 8. **No drizzle-kit.** The DDL (incl. the FTS5 virtual table, which drizzle-kit can't express) is
    hand-written in `migrate.ts` and must be kept in sync with `schema.ts`. Adopting drizzle-kit
    later is fine, but FTS5 will still need a manual migration step.
-9. **Backups are SQLite-first.** Use `.backup` for `data/ts-wiki.sqlite` and copy `data/assets/`.
+9. **Backups are SQLite-first.** Use `.backup` for `data/kawaii-wiki.ts.sqlite` and copy `data/assets/`.
    Git mirroring is a content mirror, not a full system backup.
 10. **Structured logs are stdout JSON plus optional DB audit rows.** Request logs cover
    method/path/status/duration/IP/user; audit logs cover auth, page/admin mutations, asset uploads,
-   Git sync, and collab autosave. `TS_WIKI_AUDIT_DB=false` keeps stdout-only mode.
+   Git sync, and collab autosave. `KAWAII_WIKI_AUDIT_DB=false` keeps stdout-only mode.
 11. **Realtime auth split.** SSE and Yjs collab require tokens. Presence is cosmetic in public
    mode, but private wiki mode requires a valid token before opening the socket.
 12. **Custom head HTML is gated twice.** The server suppresses stored
-   `customHeadHtml` unless `TS_WIKI_ALLOW_HEAD_INJECTION=true`; the web app then
+   `customHeadHtml` unless `KAWAII_WIKI_ALLOW_HEAD_INJECTION=true`; the web app then
    recreates trusted `<script>` tags so analytics snippets actually execute.
    Treat this as admin-trusted code, not user content.
 13. **Site date settings feed both renderers.** Admin settings and
-   `TS_WIKI_DEFAULT_LOCALE` / `TS_WIKI_TIMEZONE` / `TS_WIKI_DATE_FORMAT` affect
+   `KAWAII_WIKI_DEFAULT_LOCALE` / `KAWAII_WIKI_TIMEZONE` / `KAWAII_WIKI_DATE_FORMAT` affect
    server render-on-save and browser preview; keep `markdownEnhance.ts`,
    `i18n.ts`, and `createServices()` in sync when adding new display defaults.
 
@@ -183,7 +183,7 @@ Each item notes **where to plug in**.
 - [x] **Editor ergonomics** — toolbar buttons cover heading/bold/link/code/table/event/assets,
       with paste-image affordances, `.ics` import, unsaved-change warnings, and save status in
       `MarkdownEditor.vue` / `PageEdit.vue`.
-- [x] **Calendar import/export UX** — `.ics` parsing lives in `@ts-wiki/core`; the editor can
+- [x] **Calendar import/export UX** — `.ics` parsing lives in `@kawaii-wiki/core`; the editor can
       import `.ics` events into `event` fences and rendered event cards export downloadable `.ics`.
 - [x] **Quick switcher / command palette** — `CommandPalette.vue` supports keyboard-first search,
       page jumps, new-page creation, and common navigation actions.
@@ -202,7 +202,7 @@ Each item notes **where to plug in**.
       private wiki mode, required email/2FA, session lifetime, upload limit)
       seed from env and can later be managed from Admin → Site policy. Multiple
       OIDC providers can be supplied via
-      `TS_WIKI_OIDC_PROVIDERS` JSON or numbered `OIDC_1_*` prefixes; site
+      `KAWAII_WIKI_OIDC_PROVIDERS` JSON or numbered `OIDC_1_*` prefixes; site
       locale/timezone/date-format defaults seed page locale and rendered dates;
       webhook retry attempts/backoff/body/error limits are env-configurable.
 - [x] **Automation expansion** — rules now use trigger/conditions/actions with
@@ -272,7 +272,7 @@ apps/server/src/
   env.ts           typed config (loadEnv)
   db/
     schema.ts      Drizzle tables + inferred types
-    migrate.ts     DDL incl. FTS5 (+ `bun src/db/migrate.ts`); tokenizer comes from TS_WIKI_FTS_TOKENIZER
+    migrate.ts     DDL incl. FTS5 (+ `bun src/db/migrate.ts`); tokenizer comes from KAWAII_WIKI_FTS_TOKENIZER
     client.ts      createDb() — SQLite/libSQL + drizzle, exposes $client for raw FTS
     seed.ts        admin + sample pages   (bun run db:seed)
     reset.ts       delete db files        (bun run db:reset)

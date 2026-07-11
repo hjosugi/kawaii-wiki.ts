@@ -7,6 +7,8 @@
  * PageService updates inside the same transaction as the page write — explicit
  * effects, no hidden triggers.
  */
+import { getTableConfig } from 'drizzle-orm/sqlite-core'
+import * as drizzleSchema from './schema.ts'
 interface MigratableStatement {
   all(...params: unknown[]): unknown[]
 }
@@ -41,6 +43,37 @@ const hasColumn = (sqlite: MigratableDatabase, table: string, column: string): b
 const addColumn = (sqlite: MigratableDatabase, table: string, column: string, definition: string): void => {
   if (!hasColumn(sqlite, table, column)) {
     sqlite.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`)
+  }
+}
+
+const assertSchemaMatchesDatabase = (sqlite: MigratableDatabase): void => {
+  type ConfigTable = Parameters<typeof getTableConfig>[0]
+  for (const candidate of Object.values(drizzleSchema)) {
+    let config: ReturnType<typeof getTableConfig>
+    try {
+      config = getTableConfig(candidate as ConfigTable)
+    } catch {
+      continue
+    }
+    if (!config.name || !config.columns.length) continue
+    const existingColumns = new Set(
+      sqlite.prepare(`PRAGMA table_info("${config.name}")`).all()
+        .map((row) => (row as { name?: string }).name)
+        .filter((name): name is string => Boolean(name)),
+    )
+    const missingColumns = config.columns.map((column) => column.name).filter((name) => !existingColumns.has(name))
+    if (missingColumns.length) {
+      throw new Error(`Database schema drift: ${config.name} is missing columns ${missingColumns.join(', ')}`)
+    }
+    const existingIndexes = new Set(
+      sqlite.prepare(`PRAGMA index_list("${config.name}")`).all()
+        .map((row) => (row as { name?: string }).name)
+        .filter((name): name is string => Boolean(name)),
+    )
+    const missingIndexes = config.indexes.map((index) => index.config.name).filter((name) => !existingIndexes.has(name))
+    if (missingIndexes.length) {
+      throw new Error(`Database index drift: ${config.name} is missing indexes ${missingIndexes.join(', ')}`)
+    }
   }
 }
 
@@ -342,6 +375,27 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
     CREATE INDEX IF NOT EXISTS comments_page_idx ON page_comments(page_id);
     CREATE INDEX IF NOT EXISTS comments_path_idx ON page_comments(path);
 
+    CREATE TABLE IF NOT EXISTS page_watchers (
+      user_id   TEXT NOT NULL,
+      path      TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, path)
+    );
+    CREATE INDEX IF NOT EXISTS page_watchers_path_idx ON page_watchers(path);
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      kind       TEXT NOT NULL,
+      path       TEXT,
+      message    TEXT NOT NULL,
+      payload    TEXT NOT NULL DEFAULT '{}',
+      read_at    INTEGER,
+      created_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS notifications_user_idx ON notifications(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS notifications_unread_idx ON notifications(user_id, read_at);
+
     CREATE TABLE IF NOT EXISTS page_analytics (
       path           TEXT PRIMARY KEY,
       views          INTEGER NOT NULL DEFAULT 0,
@@ -526,6 +580,7 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
   addColumn(sqlite, 'pages', 'cover_position', "TEXT NOT NULL DEFAULT 'center'")
   addColumn(sqlite, 'pages', 'owner_id', 'TEXT')
   addColumn(sqlite, 'pages', 'review_at', 'INTEGER')
+  addColumn(sqlite, 'pages', 'publish_at', 'INTEGER')
   addColumn(sqlite, 'pages', 'nav_order', 'INTEGER')
   addColumn(sqlite, 'pages', 'pinned', 'INTEGER NOT NULL DEFAULT 0')
   addColumn(sqlite, 'pages', 'space_key', "TEXT NOT NULL DEFAULT 'main'")
@@ -561,6 +616,7 @@ export const runMigrations = (sqlite: MigratableDatabase, options: MigrationOpti
   sqlite.exec('CREATE INDEX IF NOT EXISTS automation_rules_order_idx ON automation_rules(enabled, priority, created_at);')
   migrateLegacyAutomationRules(sqlite)
   sqlite.exec('UPDATE users SET email_verified_at = created_at WHERE email_verified_at IS NULL;')
+  assertSchemaMatchesDatabase(sqlite)
 }
 
 /** Run migrations standalone: `bun src/db/migrate.ts`. */

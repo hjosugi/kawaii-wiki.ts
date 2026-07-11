@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from './db/client.ts'
 import { createServices } from './services/index.ts'
 

@@ -2,6 +2,9 @@ import { onBeforeUnmount, ref } from 'vue'
 
 const query = '(prefers-reduced-motion: reduce)'
 
+export const prefersReducedMotion = (): boolean =>
+  typeof window !== 'undefined' && Boolean(window.matchMedia?.(query).matches)
+
 export const useReducedMotion = () => {
   const reducedMotion = ref(false)
 

@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm'
-import { err, notFound, ok } from '@ts-wiki/core'
+import { err, notFound, ok, requirePermission } from '@kawaii-wiki/core'
 import type { DB } from '../../db/client.ts'
 import { webhookSubscriptions, type WebhookSubscription } from '../../db/schema.ts'
 import type {
@@ -14,7 +14,6 @@ import {
   cleanTargetUrl,
   eventMatches,
   parseEventTypes,
-  requireManage,
 } from './shared.ts'
 
 const toSubscriptionView = (row: WebhookSubscription): WebhookSubscriptionView => ({
@@ -62,13 +61,13 @@ export const createWebhookSubscriptions = (
     },
 
     list(principal) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       return ok(db.select().from(webhookSubscriptions).orderBy(asc(webhookSubscriptions.createdAt)).all().map(toSubscriptionView))
     },
 
     create(principal, input: CreateWebhookSubscriptionInput) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       const targetUrl = cleanTargetUrl(input.targetUrl, allowPrivateTargets)
       if (!targetUrl.ok) return targetUrl
@@ -93,7 +92,7 @@ export const createWebhookSubscriptions = (
     },
 
     update(principal, id, input: UpdateWebhookSubscriptionInput) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       const current = findById(id)
       if (!current) return err(notFound('Webhook subscription not found'))
@@ -126,11 +125,12 @@ export const createWebhookSubscriptions = (
       if (input.enabled !== undefined) changes.enabled = input.enabled
 
       db.update(webhookSubscriptions).set(changes).where(eq(webhookSubscriptions.id, id)).run()
-      return ok(toSubscriptionView(findById(id)!))
+      const updated = findById(id)
+      return updated ? ok(toSubscriptionView(updated)) : err(notFound('Webhook subscription not found after update'))
     },
 
     delete(principal, id) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       db.delete(webhookSubscriptions).where(eq(webhookSubscriptions.id, id)).run()
       return ok({ id })

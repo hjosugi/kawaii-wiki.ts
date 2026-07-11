@@ -1,9 +1,11 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AdminPageView, type Page } from '@/lib/api'
 import { usePages } from '@/stores/pages'
 import { useI18n } from '@/lib/i18n'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const PAGE_SIZE = 25
 const STATUS_OPTIONS: Array<Page['status']> = ['draft', 'in-review', 'verified', 'outdated']
@@ -19,19 +21,13 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const pagesStore = usePages()
 const { formatDateTime } = useI18n()
+const dialogs = useDialogs()
 
 const pageNumber = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const canPrev = computed(() => offset.value > 0)
 const canNext = computed(() => offset.value + PAGE_SIZE < total.value)
 
-const labelsFor = (page: AdminPageView): string[] => {
-  try {
-    const parsed = JSON.parse(page.labels) as unknown
-    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : []
-  } catch {
-    return []
-  }
-}
+const labelsFor = (page: AdminPageView): string[] => page.labels
 
 async function load(reset = false): Promise<void> {
   if (reset) offset.value = 0
@@ -50,31 +46,31 @@ async function load(reset = false): Promise<void> {
     total.value = result.total
     offset.value = result.offset
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
 }
 
 async function archivePage(page: AdminPageView): Promise<void> {
-  if (!confirm(`Archive "/${page.path}"?`)) return
+  if (!await dialogs.confirm({ message: `Archive "/${page.path}"?` })) return
   error.value = null
   try {
     await Api.archivePage(page.path)
     await Promise.all([load(), pagesStore.refresh()])
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function deletePage(page: AdminPageView): Promise<void> {
-  if (!confirm(`Move "/${page.path}" to trash?`)) return
+  if (!await dialogs.confirm({ message: `Move "/${page.path}" to trash?`, danger: true })) return
   error.value = null
   try {
     await Api.deletePage(page.path)
     await Promise.all([load(), pagesStore.refresh()])
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

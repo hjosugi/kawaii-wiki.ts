@@ -1,13 +1,16 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { startRegistration, type PublicKeyCredentialCreationOptionsJSON } from '@simplewebauthn/browser'
 import { Api, type PasskeyView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const passkeys = ref<PasskeyView[]>([])
 const loading = ref(false)
 const error = ref<string | null>(null)
 const busy = ref(false)
+const dialogs = useDialogs()
 
 async function load(): Promise<void> {
   loading.value = true
@@ -15,7 +18,7 @@ async function load(): Promise<void> {
   try {
     passkeys.value = await Api.passkeys()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -25,26 +28,26 @@ async function registerPasskey(): Promise<void> {
   busy.value = true
   error.value = null
   try {
-    const name = prompt('Passkey name', 'This device')?.trim() || undefined
+    const name = (await dialogs.prompt({ message: 'Name this passkey.', inputLabel: 'Passkey name', defaultValue: 'This device' }))?.trim() || undefined
     const options = await Api.passkeyRegistrationOptions()
     const response = await startRegistration({ optionsJSON: options as PublicKeyCredentialCreationOptionsJSON })
     passkeys.value = [...passkeys.value, await Api.passkeyVerifyRegistration(response, name)]
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
 }
 
 async function deletePasskey(passkey: PasskeyView): Promise<void> {
-  if (!confirm(`Delete passkey "${passkey.name}"?`)) return
+  if (!await dialogs.confirm({ message: `Delete passkey "${passkey.name}"?`, danger: true })) return
   busy.value = true
   error.value = null
   try {
     await Api.passkeyDelete(passkey.id)
     passkeys.value = passkeys.value.filter((item) => item.id !== passkey.id)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }

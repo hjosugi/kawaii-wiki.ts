@@ -1,8 +1,10 @@
 import { ref } from 'vue'
+import { readMigratedStorage, writeStorage } from '@/lib/storage'
 
 export type ThemeMode = 'light' | 'dark' | 'system'
 
-const STORAGE_KEY = 'ts-wiki:theme'
+const STORAGE_KEY = 'kawaii-wiki.ts:theme'
+const LEGACY_STORAGE_KEY = 'ts-wiki:theme'
 const mode = ref<ThemeMode>('system')
 let started = false
 
@@ -23,7 +25,7 @@ const applyMode = (): void => {
 
 const readStored = (): ThemeMode | null => {
   try {
-    const value = localStorage.getItem(STORAGE_KEY)
+    const value = readMigratedStorage(STORAGE_KEY, [LEGACY_STORAGE_KEY])
     return value === 'light' || value === 'dark' || value === 'system' ? value : null
   } catch {
     return null
@@ -34,7 +36,7 @@ const setMode = (next: ThemeMode, persist: boolean): void => {
   mode.value = next
   if (persist) {
     try {
-      localStorage.setItem(STORAGE_KEY, next)
+      writeStorage(STORAGE_KEY, next)
     } catch {
       /* storage unavailable — session-only is fine */
     }

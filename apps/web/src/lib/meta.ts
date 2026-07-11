@@ -1,6 +1,6 @@
 import type { Page } from './api'
 
-const fallbackSiteName = 'ts-wiki'
+const fallbackSiteName = 'kawaii-wiki.ts'
 
 const absoluteUrl = (value: string): string => {
   try {

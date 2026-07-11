@@ -10,7 +10,7 @@ import {
   ok,
   requirePermission,
   toPlainText,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { assets, pageComments, pages } from '../db/schema.ts'
 import { runMigrations, type FtsTokenizer } from '../db/migrate.ts'

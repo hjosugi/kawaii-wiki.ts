@@ -1,8 +1,10 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AssetUsagePage, type AssetView } from '@/lib/api'
 import { displayAssetFolder } from '@/lib/assets'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const assets = ref<AssetView[]>([])
 const folders = ref<string[]>([])
@@ -14,6 +16,7 @@ const selectedOrphanIds = ref<string[]>([])
 const loading = ref(false)
 const cleaning = ref(false)
 const error = ref<string | null>(null)
+const dialogs = useDialogs()
 
 const formatBytes = (value: number): string =>
   value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(value / 1024)} KB`
@@ -34,14 +37,14 @@ async function load(): Promise<void> {
     orphanAssetIds.value = nextOrphans.map((asset) => asset.id)
     selectedOrphanIds.value = selectedOrphanIds.value.filter((id) => orphanAssetIds.value.includes(id))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
 }
 
 async function deleteAsset(asset: AssetView): Promise<void> {
-  if (!confirm(`Delete asset "${asset.filename}"?`)) return
+  if (!await dialogs.confirm({ message: `Delete asset "${asset.filename}"?`, danger: true })) return
   error.value = null
   try {
     await Api.deleteAsset(asset.id)
@@ -52,7 +55,7 @@ async function deleteAsset(asset: AssetView): Promise<void> {
     orphanAssetIds.value = orphanAssetIds.value.filter((id) => id !== asset.id)
     selectedOrphanIds.value = selectedOrphanIds.value.filter((id) => id !== asset.id)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -64,7 +67,7 @@ async function renameAsset(asset: AssetView, filename: string): Promise<void> {
     const renamed = await Api.renameAsset(asset.id, filename)
     assets.value = assets.value.map((item) => (item.id === renamed.id ? renamed : item))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -76,7 +79,7 @@ async function updateAssetFolder(asset: AssetView, folder: string): Promise<void
     await Api.updateAsset(asset.id, { folder })
     await load()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -104,7 +107,7 @@ function clearSelection(): void {
 async function deleteSelectedOrphans(): Promise<void> {
   const ids = [...selectedOrphanIds.value]
   if (!ids.length) return
-  if (!confirm(`Move ${ids.length} orphaned asset${ids.length === 1 ? '' : 's'} to trash?`)) return
+  if (!await dialogs.confirm({ message: `Move ${ids.length} orphaned asset${ids.length === 1 ? '' : 's'} to trash?`, danger: true })) return
   cleaning.value = true
   error.value = null
   try {
@@ -115,7 +118,7 @@ async function deleteSelectedOrphans(): Promise<void> {
       error.value = `${result.skipped} selected asset${result.skipped === 1 ? '' : 's'} skipped because it is now used.`
     }
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     cleaning.value = false
   }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
 import { createServices } from '../services/index.ts'
 import { createEventBus, type WikiEvent } from '../realtime/bus.ts'

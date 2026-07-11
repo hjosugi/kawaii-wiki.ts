@@ -13,6 +13,7 @@
 import { asc, gt, lte, sql } from 'drizzle-orm'
 import type { DB } from '../db/client.ts'
 import { wikiEvents } from '../db/schema.ts'
+import { unrefTimer } from '../utils/timers.ts'
 
 export interface WikiEvent {
   readonly type: 'page:changed'
@@ -146,9 +147,9 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
   pruneBestEffort()
 
   const timer = setInterval(poll, pollIntervalMs)
-  ;(timer as unknown as { unref?: () => void }).unref?.()
+  unrefTimer(timer)
   const pruneTimer = setInterval(pruneBestEffort, pruneIntervalMs)
-  ;(pruneTimer as unknown as { unref?: () => void }).unref?.()
+  unrefTimer(pruneTimer)
 
   return {
     emit(event) {

@@ -1,6 +1,6 @@
-# ts-wiki Web
+# kawaii-wiki.ts Web
 
-Vue 3 + Vite front end for the ts-wiki hands-on project.
+Vue 3 + Vite front end for the kawaii-wiki.ts hands-on project.
 
 ## What This Teaches
 
@@ -13,7 +13,7 @@ Vue 3 + Vite front end for the ts-wiki hands-on project.
 - configurable home/header navigation from public settings
 - lazy Markdown enhancements for KaTeX CSS, Mermaid diagrams, and content tabs
 - built-in plus persisted page templates for new-page starters
-- keeping UI code thin while domain rules stay in `@ts-wiki/core`
+- keeping UI code thin while domain rules stay in `@kawaii-wiki/core`
 
 ## Run
 
@@ -34,10 +34,10 @@ admin@example.com / password
 ## Useful Commands
 
 ```bash
-bun --filter '@ts-wiki/web' dev
-bun --filter '@ts-wiki/web' build
-bun --filter '@ts-wiki/web' preview
-bun --filter '@ts-wiki/web' typecheck
+bun --filter '@kawaii-wiki/web' dev
+bun --filter '@kawaii-wiki/web' build
+bun --filter '@kawaii-wiki/web' preview
+bun --filter '@kawaii-wiki/web' typecheck
 ```
 
 ## Files To Read First

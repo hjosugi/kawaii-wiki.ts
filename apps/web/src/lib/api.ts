@@ -11,7 +11,18 @@
  */
 import { treaty } from '@elysiajs/eden'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/browser'
-import type { App } from '@ts-wiki/server/app'
+import type { App } from '@kawaii-wiki/server/app'
+import type {
+  Page as ServerPage,
+  PageSummary as ServerPageSummary,
+  SearchResponse as ServerSearchResponse,
+  PageGraph as ServerPageGraph,
+  PageBacklink as ServerPageBacklink,
+  AssetView as ServerAssetView,
+  CommentView as ServerCommentView,
+  AdminUserView as ServerAdminUserView,
+  WebhookDeliveryView as ServerWebhookDeliveryView,
+} from '@kawaii-wiki/server/contracts'
 import type {
   Action,
   BuiltInNavItem,
@@ -23,7 +34,7 @@ import type {
   Role,
   SettingsPatch,
   SiteSettings,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import { API_BASE_URL } from './url'
 import { friendlyErrorMessage } from './friendlyErrors'
 
@@ -35,7 +46,7 @@ export type {
   PublicSettings,
   SettingsPatch,
   SiteSettings,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 
 const memoryStorage = new Map<string, string>()
 const browserStorage = typeof window === 'undefined' ? undefined : window.localStorage
@@ -91,11 +102,65 @@ const errorOf = (error: unknown): ApiClientError => {
   return new ApiClientError(friendlyErrorMessage({ kind, status, message: rawMessage, field }), kind, status, rawMessage, field)
 }
 
-/** Await an Eden call, throw on error, and return the (asserted) success body. */
-const call = async <T>(promise: Promise<{ data: unknown; error: unknown }>): Promise<T> => {
+type ResponseGuard<T> = (value: unknown) => value is T
+
+/** Await an Eden call, throw on error, and optionally validate its success body. */
+const call = async <T>(
+  promise: Promise<{ data: unknown; error: unknown }>,
+  guard?: ResponseGuard<T>,
+): Promise<T> => {
   const res = await promise
   if (res.error) throw errorOf(res.error)
+  if (guard && !guard(res.data)) {
+    throw new ApiClientError(
+      friendlyErrorMessage({ kind: 'internal', message: 'The server returned an unexpected response.' }),
+      'invalid_response',
+      502,
+      'The server returned an unexpected response.',
+    )
+  }
   return res.data as T
+}
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  Boolean(value && typeof value === 'object' && !Array.isArray(value))
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string')
+
+const parseStringArray = (value: unknown): string[] => {
+  if (isStringArray(value)) return value
+  if (typeof value !== 'string') return []
+  try {
+    const parsed = JSON.parse(value) as unknown
+    return isStringArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+export interface TocItem {
+  id: string
+  text: string
+  level: number
+}
+
+const parseToc = (value: unknown): TocItem[] => {
+  if (typeof value === 'string') {
+    try {
+      return parseToc(JSON.parse(value) as unknown)
+    } catch {
+      return []
+    }
+  }
+  return Array.isArray(value)
+    ? value.filter((item): item is TocItem =>
+        isRecord(item)
+        && typeof item.id === 'string'
+        && typeof item.text === 'string'
+        && typeof item.level === 'number',
+      )
+    : []
 }
 
 // ── Domain types (the shapes the server returns) ─────────────────────────────
@@ -148,14 +213,15 @@ export interface Page {
   coverPosition: string
   content: string
   renderedHtml: string
-  toc: string
+  toc: TocItem[]
   contentType: string
   lifecycle: 'active' | 'archived' | 'deleted'
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
-  labels: string
+  labels: string[]
   ownerId: string | null
   authorId: string | null
   reviewAt: number | null
+  publishAt: number | null
   navOrder: number | null
   pinned: boolean
   spaceKey: string
@@ -176,10 +242,11 @@ export interface PageSummary {
   coverPosition: string
   lifecycle: 'active' | 'archived' | 'deleted'
   status: 'draft' | 'in-review' | 'verified' | 'outdated'
-  labels: string
+  labels: string[]
   ownerId: string | null
   authorId: string | null
   reviewAt: number | null
+  publishAt: number | null
   navOrder: number | null
   pinned: boolean
   spaceKey: string
@@ -439,7 +506,7 @@ export interface AdminPageView {
   path: string
   title: string
   status: Page['status']
-  labels: string
+  labels: string[]
   ownerId: string | null
   authorId: string | null
   authorName: string | null
@@ -565,6 +632,31 @@ export interface RealtimeTicket {
   ticket: string
   expiresAt: number
 }
+export interface GitStatus {
+  enabled: boolean
+  dir: string
+  branch: string
+  remote: string | null
+  remoteUrl: string | null
+  head: string | null
+  clean: boolean
+  lastSuccessAt: number | null
+  lastErrorAt: number | null
+  lastError: string | null
+}
+export interface NotificationView {
+  id: string
+  kind: string
+  path: string | null
+  message: string
+  payload: Record<string, unknown>
+  readAt: number | null
+  createdAt: number
+}
+export interface NotificationList {
+  notifications: NotificationView[]
+  unread: number
+}
 export interface SetupStatus {
   needsSetup: boolean
 }
@@ -596,9 +688,87 @@ export interface TwoFactorSetupRequiredResult {
   user: PublicUser
 }
 
+type RawPage = Omit<Page, 'labels' | 'toc'> & { labels: string | string[]; toc: string | TocItem[] }
+type RawPageSummary = Omit<PageSummary, 'labels'> & { labels: string | string[] }
+type RawAdminPageView = Omit<AdminPageView, 'labels'> & { labels: string | string[] }
+
+const isRawPage = (value: unknown): value is RawPage =>
+  isRecord(value)
+  && typeof value.id === 'string'
+  && typeof value.path === 'string'
+  && typeof value.title === 'string'
+  && typeof value.content === 'string'
+  && typeof value.renderedHtml === 'string'
+  && (typeof value.labels === 'string' || isStringArray(value.labels))
+  && (typeof value.toc === 'string' || Array.isArray(value.toc))
+
+const pageOf = (page: RawPage): Page => ({
+  ...page,
+  labels: parseStringArray(page.labels),
+  toc: parseToc(page.toc),
+})
+
+const pageSummaryOf = (page: RawPageSummary): PageSummary => ({
+  ...page,
+  labels: parseStringArray(page.labels),
+})
+
+const adminPageOf = (page: RawAdminPageView): AdminPageView => ({
+  ...page,
+  labels: parseStringArray(page.labels),
+})
+
+const isPublicSettings = (value: unknown): value is PublicSettings =>
+  isRecord(value)
+  && typeof value.siteTitle === 'string'
+  && typeof value.accentColor === 'string'
+  && typeof value.homePath === 'string'
+  && Array.isArray(value.navItems)
+  && Array.isArray(value.navLinks)
+
+const isSearchResponse = (value: unknown): value is SearchResponse =>
+  isRecord(value)
+  && typeof value.query === 'string'
+  && Array.isArray(value.hits)
+  && typeof value.total === 'number'
+  && typeof value.limit === 'number'
+  && typeof value.offset === 'number'
+
+const isPageEnvelope = (value: unknown): value is { page: RawPage } =>
+  isRecord(value) && isRawPage(value.page)
+
+const isPageLookupEnvelope = (value: unknown): value is { page: RawPage; redirectedFrom: string[] } =>
+  isRecord(value) && isRawPage(value.page) && isStringArray(value.redirectedFrom)
+
+type ContractMatches<Client, Server> = Client extends Server ? true : false
+type AssertContract<T extends true> = T
+type ServerShapedPage = Omit<Page, 'labels' | 'toc'> & { labels: string; toc: string }
+type ServerShapedPageSummary = Omit<PageSummary, 'labels'> & { labels: string }
+type _PageContract = AssertContract<ContractMatches<ServerShapedPage, ServerPage>>
+type _PageSummaryContract = AssertContract<ContractMatches<ServerShapedPageSummary, ServerPageSummary>>
+type _SearchContract = AssertContract<ContractMatches<SearchResponse, ServerSearchResponse>>
+type _GraphContract = AssertContract<ContractMatches<PageGraph, ServerPageGraph>>
+type _BacklinkContract = AssertContract<ContractMatches<PageBacklink, ServerPageBacklink>>
+type _AssetContract = AssertContract<ContractMatches<AssetView, ServerAssetView>>
+type _CommentContract = AssertContract<ContractMatches<PageComment, ServerCommentView>>
+type _AdminUserContract = AssertContract<ContractMatches<AdminUserView, ServerAdminUserView>>
+type _WebhookDeliveryContract = AssertContract<ContractMatches<WebhookDeliveryView, ServerWebhookDeliveryView>>
+type ApiContracts = [
+  _PageContract,
+  _PageSummaryContract,
+  _SearchContract,
+  _GraphContract,
+  _BacklinkContract,
+  _AssetContract,
+  _CommentContract,
+  _AdminUserContract,
+  _WebhookDeliveryContract,
+]
+void (0 as unknown as ApiContracts)
+
 export const Api = {
   health: () => call<{ ok: true; name: string; version: string }>(client().api.health.get()),
-  publicSettings: () => call<PublicSettings>(client().api.settings.public.get()),
+  publicSettings: () => call<PublicSettings>(client().api.settings.public.get(), isPublicSettings),
   unfurl: (url: string) =>
     call<{ preview: LinkPreviewView }>(client().api.unfurl.get({ query: { url } })).then((d) => d.preview),
   youtubeLatest: (channelId: string, limit?: number) =>
@@ -606,8 +776,16 @@ export const Api = {
       client().api.youtube.latest.get({ query: { channelId, ...(limit ? { limit } : {}) } }),
     ).then((d) => d.channel),
   setupStatus: () => call<SetupStatus>(client().api.setup.status.get()),
-  completeSetup: (body: SetupInput) => call<SetupResult>(client().api.setup.complete.post(body)),
+  completeSetup: (body: SetupInput) =>
+    call<Omit<SetupResult, 'home'> & { home: RawPage }>(client().api.setup.complete.post(body))
+      .then((result) => ({ ...result, home: pageOf(result.home) })),
   realtimeTicket: () => call<RealtimeTicket>(client().api.realtime.ticket.post()),
+  gitStatus: () => call<GitStatus>(client().api.git.status.get()),
+  gitSync: () => call<{ enabled: boolean; pulled: boolean; pushed: boolean; upserted: string[]; deleted: string[] }>(client().api.git.sync.post()),
+  notifications: (limit = 50) => call<NotificationList>(client().api.notifications.get({ query: { limit } })),
+  markNotificationsRead: (id?: string) => call<{ readAt: number }>(client().api.notifications.read.post({ id })),
+  pageWatch: (path: string) => call<{ path: string; watching: boolean }>(client().api.page.watch.get({ query: { path } })),
+  setPageWatch: (path: string, watching: boolean) => call<{ path: string; watching: boolean }>(client().api.page.watch.post({ path, watching })),
 
   // Auth
   register: (body: { email: string; name: string; password: string }) =>
@@ -663,14 +841,16 @@ export const Api = {
     call<AuthResult & { passkey: PasskeyView }>(client().api.auth.passkeys.login.verify.post({ response })),
 
   // Pages
-  listPages: () => call<{ pages: PageSummary[] }>(client().api.pages.get()).then((d) => d.pages),
-  trashPages: () => call<{ pages: PageSummary[] }>(client().api.pages.trash.get()).then((d) => d.pages),
+  listPages: () => call<{ pages: RawPageSummary[] }>(client().api.pages.get({ query: { limit: 1_000 } })).then((d) => d.pages.map(pageSummaryOf)),
+  trashPages: () => call<{ pages: RawPageSummary[] }>(client().api.pages.trash.get({ query: { limit: 1_000 } })).then((d) => d.pages.map(pageSummaryOf)),
   getPageResult: (path: string) =>
-    call<PageLookup>(client().api.page.get({ query: { path } })),
+    call<{ page: RawPage; redirectedFrom: string[] }>(client().api.page.get({ query: { path } }), isPageLookupEnvelope)
+      .then((result): PageLookup => ({ ...result, page: pageOf(result.page) })),
   getPage: (path: string) =>
     Api.getPageResult(path).then((d) => d.page),
   sharedPage: (token: string) =>
-    call<SharedPage>(client().api.shared({ token }).get()),
+    call<Omit<SharedPage, 'page'> & { page: RawPage }>(client().api.shared({ token }).get())
+      .then((result) => ({ ...result, page: pageOf(result.page) })),
   currentPageShare: (path: string) =>
     call<{ share: PageShareView | null }>(client().api.page.share.get({ query: { path } })).then((d) => d.share),
   createPageShare: (path: string, expiresAt?: number | null) =>
@@ -689,11 +869,14 @@ export const Api = {
     status?: Page['status']
     ownerId?: string | null
     reviewAt?: number | null
+    publishAt?: number | null
     locale?: string | null
     navOrder?: number | null
     pinned?: boolean
   }) =>
-    call<{ page: Page }>(client().api.pages.post(body)).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.pages.post(body), isPageEnvelope).then((d) => pageOf(d.page)),
+  copyPage: (fromPath: string, newPath: string, keepStatus = false) =>
+    call<{ page: RawPage }>(client().api.page.copy.post({ fromPath, newPath, keepStatus }), isPageEnvelope).then((d) => pageOf(d.page)),
   updatePage: (path: string, body: {
     title?: string
     content?: string
@@ -705,26 +888,27 @@ export const Api = {
     status?: Page['status']
     ownerId?: string | null
     reviewAt?: number | null
+    publishAt?: number | null
     locale?: string | null
     navOrder?: number | null
     pinned?: boolean
     expectedUpdatedAt?: number | null
   }) =>
-    call<{ page: Page }>(client().api.page.put(body, { query: { path } })).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.page.put(body, { query: { path } }), isPageEnvelope).then((d) => pageOf(d.page)),
   restoreRevision: (path: string, revisionId: string) =>
-    call<{ page: Page }>(client().api.page['restore-revision'].post({ path, revisionId })).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.page['restore-revision'].post({ path, revisionId }), isPageEnvelope).then((d) => pageOf(d.page)),
   archivePage: (path: string) =>
-    call<{ page: Page }>(client().api.page.archive.post({ path })).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.page.archive.post({ path }), isPageEnvelope).then((d) => pageOf(d.page)),
   restorePage: (path: string) =>
-    call<{ page: Page }>(client().api.page.restore.post({ path })).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.page.restore.post({ path }), isPageEnvelope).then((d) => pageOf(d.page)),
   purgePage: (path: string) =>
     call<{ path: string }>(client().api.page.purge.delete(null, { query: { path } })),
   movePage: (oldPath: string, newPath: string) =>
-    call<{ page: Page }>(client().api.page.move.post({ oldPath, newPath })).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.page.move.post({ oldPath, newPath }), isPageEnvelope).then((d) => pageOf(d.page)),
   deletePage: (path: string) =>
     call<{ path: string }>(client().api.page.delete(null, { query: { path } })),
   graph: () => call<PageGraph>(client().api.graph.get()),
-  spaces: () => call<{ spaces: PageSpace[] }>(client().api.spaces.get()).then((d) => d.spaces),
+  spaces: () => call<{ spaces: PageSpace[] }>(client().api.spaces.get({ query: { limit: 1_000 } })).then((d) => d.spaces),
   events: () =>
     call<{ events: ExtractedCalendarEvent[] }>(client().api.events.index.get()).then((d) => d.events),
   labels: () => call<{ labels: LabelCount[] }>(client().api.labels.get()).then((d) => d.labels),
@@ -735,9 +919,9 @@ export const Api = {
       (d) => d.changes,
     ),
   popularPages: (days?: number, limit?: number) =>
-    call<{ pages: PopularPage[] }>(
+    call<{ pages: Array<Omit<PopularPage, 'labels'> & { labels: string | string[] }> }>(
       client().api.pages.popular.get({ query: { ...(days ? { days } : {}), ...(limit ? { limit } : {}) } }),
-    ).then((d) => d.pages),
+    ).then((d) => d.pages.map((page) => ({ ...page, labels: parseStringArray(page.labels) }))),
   pageInsights: (path: string) =>
     call<PageInsight>(client().api.page.insights.get({ query: { path } })),
   redirects: () =>
@@ -803,6 +987,7 @@ export const Api = {
       status: Page['status']
       ownerId: string | null
       reviewAt: number | null
+      publishAt: number | null
       navOrder: number | null
       pinned: boolean
       spaceKey: string
@@ -811,7 +996,23 @@ export const Api = {
       updatedAt: number
     }>
     assets: AssetView[]
-  }>(client().api.export.site.get()),
+  }>(client().api.export.site.get({ query: { format: 'json' } })),
+  exportSiteZip: async () => {
+    const response = await fetch(new URL('/api/export/site?format=zip', API_BASE_URL), {
+      headers: authToken ? { authorization: `Bearer ${authToken}` } : {},
+    })
+    if (!response.ok) throw new ApiClientError('Could not export the site.', 'export_failed', response.status)
+    return response.blob()
+  },
+  importSite: (manifest: {
+    pages: Array<{
+      path: string; title: string; description?: string; icon?: string; coverUrl?: string; coverPosition?: string
+      content: string; labels: string; status?: Page['status']; locale?: string; navOrder?: number | null; pinned?: boolean
+    }>
+  }, conflictPolicy: 'upsert' | 'skip' = 'upsert') =>
+    call<{ results: Array<{ path: string; ok: boolean; error?: string }> }>(client().api.import.site.post({ pages: manifest.pages, conflictPolicy })),
+  importBulk: (files: File[]) =>
+    call<{ results: Array<{ file: string; path: string; ok: boolean; error?: string }> }>(client().api.import.bulk.post({ files })),
   importMarkdown: (body: {
     path: string
     title?: string
@@ -826,15 +1027,15 @@ export const Api = {
     navOrder?: number | null
     pinned?: boolean
   }) =>
-    call<{ page: Page }>(client().api.import.markdown.post(body)).then((d) => d.page),
+    call<{ page: RawPage }>(client().api.import.markdown.post(body), isPageEnvelope).then((d) => pageOf(d.page)),
   uploadAsset: (file: File, folder?: string) => {
     return call<AssetUpload>(client().api.assets.post({ file, folder }))
   },
   listAssets: (folder?: string, q?: string) =>
-    call<{ assets: AssetView[] }>(client().api.assets.get({ query: { ...(folder ? { folder } : {}), ...(q ? { q } : {}) } })).then((d) => d.assets),
+    call<{ assets: AssetView[] }>(client().api.assets.get({ query: { ...(folder ? { folder } : {}), ...(q ? { q } : {}), limit: 1_000 } })).then((d) => d.assets),
   assetFolders: () =>
     call<{ folders: string[] }>(client().api.assets.folders.get()).then((d) => d.folders),
-  trashAssets: () => call<{ assets: AssetView[] }>(client().api.assets.trash.get()).then((d) => d.assets),
+  trashAssets: () => call<{ assets: AssetView[] }>(client().api.assets.trash.get({ query: { limit: 1_000 } })).then((d) => d.assets),
   assetUsage: (path?: string) =>
     call<{ usage: AssetUsage[] }>(client().api.assets.usage.get({ query: path ? { path } : {} })).then(
       (d) => d.usage,
@@ -885,6 +1086,7 @@ export const Api = {
           ...(options.filters ?? {}),
         },
       }),
+      isSearchResponse,
     ),
 
   // Admin
@@ -906,7 +1108,8 @@ export const Api = {
     spaceKey?: string
     authorId?: string
   } = {}) =>
-    call<AdminPageList>(client().api.admin.pages.get({ query })),
+    call<Omit<AdminPageList, 'pages'> & { pages: RawAdminPageView[] }>(client().api.admin.pages.get({ query }))
+      .then((result): AdminPageList => ({ ...result, pages: result.pages.map(adminPageOf) })),
   adminAudit: (query: {
     limit?: number
     offset?: number
@@ -918,7 +1121,7 @@ export const Api = {
     call<AdminAuditList>(client().api.admin.audit.get({ query })),
   adminAnalytics: () => call<AnalyticsSummary>(client().api.admin.analytics.get()),
   adminUsers: () =>
-    call<{ users: AdminUserView[] }>(client().api.admin.users.get()).then((d) => d.users),
+    call<{ users: AdminUserView[] }>(client().api.admin.users.get({ query: { limit: 1_000 } })).then((d) => d.users),
   adminGroups: () =>
     call<{ groups: AuthzGroupView[] }>(client().api.admin.groups.get()).then((d) => d.groups),
   adminCreateGroup: (body: { key: string; name: string; description?: string }) =>

@@ -1,15 +1,18 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, watch } from 'vue'
 import { Api, type AssetView } from '@/lib/api'
 import { displayAssetFolder } from '@/lib/assets'
 import ModalDialog from '@/components/ModalDialog.vue'
 import Skeleton from '@/components/Skeleton.vue'
+import { useI18n } from '@/lib/i18n'
 
 const props = defineProps<{ open: boolean; folder?: string }>()
 const emit = defineEmits<{
   close: []
   insert: [markdown: string]
 }>()
+const { t } = useI18n()
 
 const assets = ref<AssetView[]>([])
 const folders = ref<string[]>([])
@@ -34,7 +37,7 @@ async function load(): Promise<void> {
     assets.value = nextAssets
     folders.value = nextFolders
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -50,7 +53,7 @@ async function uploadFiles(files: FileList | null): Promise<void> {
     }
     await load()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     uploading.value = false
     if (uploadInput.value) uploadInput.value.value = ''
@@ -65,7 +68,7 @@ async function renameAsset(asset: AssetView, filename: string): Promise<void> {
     const renamed = await Api.renameAsset(asset.id, filename)
     assets.value = assets.value.map((item) => (item.id === renamed.id ? renamed : item))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -90,14 +93,14 @@ watch(() => props.folder, (folder) => {
 <template>
   <ModalDialog
     :open="open"
-    title="Assets"
+    :title="t('assets')"
     container-class="items-center justify-center p-4"
     panel-class="w-full max-w-4xl max-h-[84vh] overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-800 dark:bg-gray-950"
     @close="emit('close')"
   >
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 px-4 py-3 dark:border-gray-800">
         <div class="min-w-0">
-          <h2 class="font-semibold">Assets</h2>
+          <h2 class="font-semibold">{{ t('assets') }}</h2>
           <div class="text-xs text-gray-500">{{ displayAssetFolder(folderFilter) }}</div>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -105,15 +108,15 @@ watch(() => props.folder, (folder) => {
             v-model.trim="folderFilter"
             class="input h-9 w-48 text-sm"
             list="asset-picker-folders"
-            placeholder="Folder"
-            aria-label="Asset folder"
+            :placeholder="t('folder')"
+            :aria-label="t('assetFolder')"
             @change="load"
           />
           <input
             v-model.trim="query"
             class="input h-9 w-48 text-sm"
-            placeholder="Search files"
-            aria-label="Search files"
+            :placeholder="t('searchFiles')"
+            :aria-label="t('searchFiles')"
             @input="load"
           />
           <datalist id="asset-picker-folders">
@@ -123,7 +126,7 @@ watch(() => props.folder, (folder) => {
           <button class="btn-ghost" type="button" :disabled="uploading" @click="uploadInput?.click()">
             {{ uploading ? 'Uploading...' : 'Upload' }}
           </button>
-          <button class="btn-ghost" type="button" @click="emit('close')">Close</button>
+          <button class="btn-ghost" type="button" @click="emit('close')">{{ t('close') }}</button>
         </div>
         <input
           ref="uploadInput"
@@ -139,7 +142,7 @@ watch(() => props.folder, (folder) => {
       <div class="max-h-[calc(84vh-4.5rem)] overflow-auto p-4">
         <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
         <Skeleton v-else-if="loading" label="Loading assets" :lines="4" />
-        <p v-else-if="!assets.length" class="text-gray-500">No uploaded assets in this folder.</p>
+        <p v-else-if="!assets.length" class="text-gray-500">{{ t('noAssetsInFolder') }}</p>
         <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <div
             v-for="asset in assets"
@@ -159,7 +162,7 @@ watch(() => props.folder, (folder) => {
             />
             <div class="mt-1 truncate text-xs text-gray-500">{{ displayAssetFolder(asset.folder) }}</div>
             <div class="mt-1 truncate font-mono text-xs text-gray-500">{{ asset.url }}</div>
-            <button class="btn-ghost mt-2 w-full" type="button" @click="insert(asset)">Insert</button>
+            <button class="btn-ghost mt-2 w-full" type="button" @click="insert(asset)">{{ t('insert') }}</button>
           </div>
         </div>
       </div>

@@ -11,7 +11,7 @@ import {
   type Principal,
   type PublicSettings,
   unauthorized,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { Env } from '../env.ts'
 import type { DB } from '../db/client.ts'
 import { createServices, type MailSender } from '../services/index.ts'
@@ -43,6 +43,7 @@ import {
 import { createBaseApp, type JwtVerifier } from './base.ts'
 import { pageSnapshot } from './representations.ts'
 import type { PageChangedAction, PageWriteEffectsInput } from './page-write.ts'
+import { unrefTimer } from '../utils/timers.ts'
 import { createAdminRoutes } from './routes/admin.ts'
 import { createAssetRoutes } from './routes/assets.ts'
 import { createAuthRoutes } from './routes/auth.ts'
@@ -50,6 +51,7 @@ import { createExportImportRoutes } from './routes/export-import.ts'
 import { createGitRoutes } from './routes/git.ts'
 import { createPageRoutes } from './routes/pages.ts'
 import { createPreferenceRoutes } from './routes/preferences.ts'
+import { createNotificationRoutes } from './routes/notifications.ts'
 import { createRealtimeRoutes } from './routes/realtime.ts'
 import { createSearchRoutes } from './routes/search.ts'
 import { createSetupRoutes } from './routes/setup.ts'
@@ -373,12 +375,19 @@ export const createApp = ({
       })
     })
   }, 60_000)
-  ;(webhookRetryTimer as unknown as { unref?: () => void }).unref?.()
+  unrefTimer(webhookRetryTimer)
 
   const bus = createRealtimeBus(db, env.realtime)
   const presenceRuntime = createPresenceRuntime()
 
-  const gitConfig: GitConfig = { ...env.git, markerFile: join(env.dataDir, 'git-sync.json') }
+  const gitConfig: GitConfig = {
+    ...env.git,
+    markerFile: join(env.dataDir, 'git-sync.json'),
+    onError: (event) => {
+      logger.warn({ type: 'git', action: event.operation, error: event.message })
+      audit(logger, 'git.sync.error', { userId: null, ...event })
+    },
+  }
   const git = createGitStorage(gitConfig)
   if (git.enabled) {
     void git.init().catch((error) => logger.warn({ type: 'git', action: 'init_failed', error }))
@@ -409,9 +418,19 @@ export const createApp = ({
     if (!targetPath) return
     feedCache.clear()
     emitPageChanged(action, targetPath, from)
-    if (mirror === 'save' && page) void git.savePage(page, gitAuthor(principal?.id))
-    else if (mirror === 'delete') void git.deletePage(targetPath, gitAuthor(principal?.id))
-    else if (mirror === 'move' && page && from) void git.movePage(from, page, gitAuthor(principal?.id))
+    services.notifications.pageChanged(action, targetPath, from, principal?.id ?? null)
+    const mirrorWrite = mirror === 'save' && page
+      ? git.savePage(page, gitAuthor(principal?.id))
+      : mirror === 'delete'
+        ? git.deletePage(targetPath, gitAuthor(principal?.id))
+        : mirror === 'move' && page && from
+          ? git.movePage(from, page, gitAuthor(principal?.id))
+          : null
+    if (mirrorWrite) void mirrorWrite.catch((error) => {
+      const message = error instanceof Error ? error.message : String(error)
+      logger.warn({ type: 'git', action: 'mirror_failed', path: targetPath, error: message })
+      audit(logger, 'git.sync.error', { userId: principal?.id ?? null, path: targetPath, operation: mirror, message })
+    })
     audit(logger, auditAction, { userId: principal?.id ?? null, path: targetPath, ...auditData })
     if (automation) await publishAutomation(automation)
   }
@@ -501,7 +520,6 @@ export const createApp = ({
       publishAutomation,
     }))
     .use(createAuthRoutes({
-      db,
       env,
       authPolicy,
       logger,
@@ -518,10 +536,12 @@ export const createApp = ({
       publishAutomation,
     }))
     .use(createPreferenceRoutes())
+    .use(createNotificationRoutes())
     .use(createTemplateRoutes({ logger }))
     .use(createExportImportRoutes({
       requirePageRead,
       pageWriteEffects,
+      assetStorage,
     }))
     .use(createSearchRoutes({ requireSearchRead }))
     .use(createRealtimeRoutes({

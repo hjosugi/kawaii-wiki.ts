@@ -8,7 +8,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { linkPreviews, type LinkPreviewRow } from '../db/schema.ts'
 import type { WebhookFetcher, WebhookHostnameResolver } from './webhooks.ts'
@@ -303,7 +303,7 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
           signal: controller.signal,
           headers: {
             accept: 'text/html,application/xhtml+xml,application/xml,text/xml,application/json;q=0.9,*/*;q=0.1',
-            'user-agent': 'ts-wiki-link-preview/1',
+            'user-agent': 'kawaii-wiki.ts-link-preview/1',
           },
         })
       } catch (error) {

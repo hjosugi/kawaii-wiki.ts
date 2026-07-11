@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type AdminStats, type AdminUserView } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const auth = useAuth()
+const dialogs = useDialogs()
 const users = ref<AdminUserView[]>([])
 const stats = ref<AdminStats | null>(null)
 const loading = ref(false)
@@ -20,7 +23,7 @@ async function load(): Promise<void> {
     users.value = nextUsers
     stats.value = nextStats
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -37,7 +40,7 @@ async function changeRole(user: AdminUserView, role: RoleName): Promise<void> {
     stats.value = await Api.adminStats()
   } catch (e) {
     user.role = previous
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -47,30 +50,35 @@ async function removeUserFromGroup(user: AdminUserView, groupKey: string): Promi
     await Api.adminRemoveUserFromGroup(user.id, groupKey)
     users.value = await Api.adminUsers()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function resetPassword(user: AdminUserView): Promise<void> {
-  const password = prompt(`New password for ${user.email}`)
+  const password = await dialogs.prompt({
+    title: 'Reset password',
+    message: `New password for ${user.email}`,
+    inputLabel: 'New password',
+    required: true,
+  })
   if (!password) return
   error.value = null
   try {
     const updated = await Api.adminSetPassword(user.id, password)
     Object.assign(user, updated)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function deactivateUser(user: AdminUserView): Promise<void> {
-  if (user.disabledAt || !confirm(`Deactivate ${user.email}?`)) return
+  if (user.disabledAt || !await dialogs.confirm({ message: `Deactivate ${user.email}?`, danger: true })) return
   error.value = null
   try {
     const updated = await Api.adminDeactivateUser(user.id)
     Object.assign(user, updated)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

@@ -1,29 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
 import { Api, type LabelCount } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useAsyncData } from '@/composables/useAsyncData'
 
-const labels = ref<LabelCount[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const { data: labels, loading, error, reload: load } = useAsyncData<LabelCount[]>(Api.labels, { initial: [] })
 
 // Scale the chip size with usage so popular tags stand out (0.85rem–1.4rem).
 const maxCount = () => labels.value.reduce((max, l) => Math.max(max, l.count), 1)
 const sizeRem = (count: number): string => (0.85 + (count / maxCount()) * 0.55).toFixed(2) + 'rem'
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    labels.value = await Api.labels()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
 </script>
 
 <template>

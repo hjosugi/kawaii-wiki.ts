@@ -14,7 +14,7 @@ import {
   unauthorized,
   validationError,
   normalizePath,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { users, type User } from '../db/schema.ts'
 import { hashPassword, verifyPassword } from './auth.ts'

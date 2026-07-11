@@ -1,4 +1,4 @@
-import type { AppError, PageStatus, Principal, Result } from '@ts-wiki/core'
+import type { AppError, PageStatus, Principal, Result } from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import type { AutomationRule, WebhookDelivery } from '../db/schema.ts'
 import { createAutomationRules } from './webhooks/automation.ts'

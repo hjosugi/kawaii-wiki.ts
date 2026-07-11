@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { Api, type UserProfileResponse } from '@/lib/api'
@@ -24,7 +25,7 @@ async function load(): Promise<void> {
   try {
     profile.value = await Api.userProfile(userId.value)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }

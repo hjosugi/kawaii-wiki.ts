@@ -3,7 +3,7 @@
  * built here from a single `DB` dependency and passed down explicitly.
  */
 import type { DB } from '../db/client.ts'
-import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
+import { createRenderer, type MarkdownRenderer } from '@kawaii-wiki/core'
 import type { AssetUploadEnv, AuthEnv, BrandingEnv, LocalizationEnv, MailEnv, SearchEnv, WebhookEnv } from '../env.ts'
 import type { StructuredLogger } from '../observability/logging.ts'
 import { createPageService, type PageService } from './pages.ts'
@@ -25,6 +25,8 @@ import { createLinkPreviewService, type LinkPreviewService } from './link-previe
 import { createMailService, type MailSender, type MailService } from './mail.ts'
 import { createAuthRecoveryService, type AuthRecoveryService } from './auth-recovery.ts'
 import { createApiKeyService, type ApiKeyService } from './api-keys.ts'
+import { createTotpService, type TotpService } from './totp.ts'
+import { createNotificationService, type NotificationService } from './notifications.ts'
 import {
   createWebhookService,
   type WebhookFetcher,
@@ -69,10 +71,12 @@ export interface Services {
   readonly recovery: AuthRecoveryService
   readonly apiKeys: ApiKeyService
   readonly webhooks: WebhookService
+  readonly totp: TotpService
+  readonly notifications: NotificationService
 }
 
 const defaultAuth: AuthEnv = {
-  siteName: 'ts-wiki',
+  siteName: 'kawaii-wiki.ts',
   publicOrigin: 'http://localhost:4000',
   passkeyRpId: 'localhost',
   tokenTtlSeconds: 30 * 24 * 60 * 60,
@@ -85,7 +89,7 @@ const defaultAuth: AuthEnv = {
 
 const defaultMail: MailEnv = {
   smtpUrl: null,
-  from: 'ts-wiki <no-reply@localhost>',
+  from: 'kawaii-wiki.ts <no-reply@localhost>',
   timeoutMs: 10_000,
 }
 
@@ -192,6 +196,8 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     mail,
     recovery: createAuthRecoveryService(db, auth, mail),
     apiKeys: createApiKeyService(db, authz),
+    totp: createTotpService(db, auth.siteName),
+    notifications: createNotificationService(db),
     webhooks: createWebhookService(db, {
       fetcher: options.webhookFetcher,
       resolver: options.webhookResolver,
@@ -202,4 +208,4 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   }
 }
 
-export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, AuthProviderService, OidcService, PasskeyService, PageShareService, PageTemplateService, UserPreferenceService, LinkPreviewService, MailService, MailSender, AuthRecoveryService, ApiKeyService, WebhookService, WebhookFetcher, WebhookHostnameResolver }
+export type { PageService, SearchService, UserService, AssetService, AdminService, CommentService, AnalyticsService, SettingsService, AuthzService, AuthProviderService, OidcService, PasskeyService, PageShareService, PageTemplateService, UserPreferenceService, LinkPreviewService, MailService, MailSender, AuthRecoveryService, ApiKeyService, TotpService, NotificationService, WebhookService, WebhookFetcher, WebhookHostnameResolver }

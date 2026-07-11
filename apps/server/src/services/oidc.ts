@@ -4,13 +4,12 @@ import {
   type AppError,
   type PublicAuthProvider,
   type Result,
-  type Role,
   err,
   forbidden,
   ok,
   unauthorized,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { AuthEnv, OidcProviderEnv } from '../env.ts'
 import type { DB } from '../db/client.ts'
 import { oauthStates } from '../db/schema.ts'
@@ -250,7 +249,7 @@ export const createOidcAuthProviders = (
         name: claims.value.name,
         emailVerified: true,
         allowRegistration: provider.allowRegistration,
-        defaultRole: provider.defaultRole as Role,
+        defaultRole: provider.defaultRole,
       })
     },
   }))

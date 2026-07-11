@@ -1,21 +1,21 @@
-# ts-wiki — Design & Architecture
+# kawaii-wiki.ts — Design & Architecture
 
 The big picture and the *why*. For setup and a one-minute overview see the
 [README](../README.md); for implementation status and roadmap see [HANDOFF.md](HANDOFF.md).
 
 ## Why it's different from Wiki.js
 
-ts-wiki is inspired by [Wiki.js](https://js.wiki) — and is a deliberate reaction to it. Wiki.js v3
+kawaii-wiki.ts is inspired by [Wiki.js](https://js.wiki) — and is a deliberate reaction to it. Wiki.js v3
 ("vega") has been in development since 2021 with no beta as of 2025, while v2 sits in feature
-freeze. ts-wiki keeps the good ideas (rich Markdown rendering, weighted full-text search, an
+freeze. kawaii-wiki.ts keeps the good ideas (rich Markdown rendering, weighted full-text search, an
 embeddable "blocks" concept) and throws out the things that made v3 hard to finish: a global
 mutable `WIKI` god-object, 1,000-line models, fire-and-forget rendering, non-transactional
 writes, and a large rich-editor front-end bundle.
 
-| | Wiki.js v3 (vega) | ts-wiki |
+| | Wiki.js v3 (vega) | kawaii-wiki.ts |
 |---|---|---|
 | Shared state | global mutable `WIKI` singleton, reached into everywhere | explicit dependency injection; pure core, effects at the edges |
-| Domain logic | mixed into 1,000-line Objection models | pure functions in `@ts-wiki/core`, returning `Result<T, E>` |
+| Domain logic | mixed into 1,000-line Objection models | pure functions in `@kawaii-wiki/core`, returning `Result<T, E>` |
 | Save → render | render is a fire-and-forget job; pages flash blank, index lags | render + revision + search index in **one transaction** |
 | API | Apollo GraphQL (schema + resolvers + codegen) | Elysia typed routes = the contract; **Eden Treaty**, no codegen |
 | Search | every backend (PG, Algolia, Elastic, …) | one backend done well: SQLite **FTS5**, BM25, weighted columns |
@@ -29,9 +29,9 @@ nothing about HTTP or the database; the web app and server both depend on the co
 each other (except the server's *type*, which the client imports for free).
 
 ```
-ts-wiki/
+kawaii-wiki.ts/
 ├── packages/
-│   └── core/              @ts-wiki/core — pure, isomorphic, no I/O
+│   └── core/              @kawaii-wiki/core — pure, isomorphic, no I/O
 │       └── src/
 │           ├── result.ts      Result<T, E> — exception-free errors
 │           ├── errors.ts      AppError union → HTTP status mapping
@@ -41,13 +41,13 @@ ts-wiki/
 │           ├── frontmatter.ts Markdown file frontmatter parse/serialize helpers
 │           └── page.ts        pure input validation
 ├── apps/
-│   ├── server/            @ts-wiki/server — Bun + Elysia
+│   ├── server/            @kawaii-wiki/server — Bun + Elysia
 │   │   └── src/
 │   │       ├── db/            Drizzle schema, FTS5 migration, seed/reset
 │   │       ├── services/      pages · search · users · assets  (DI factories)
 │   │       ├── http/          Elysia app (exports the `App` type) + error mapping
 │   │       └── index.ts       env → db → app → listen
-│   └── web/               @ts-wiki/web — Vue 3 + Vite + UnoCSS + Pinia
+│   └── web/               @kawaii-wiki/web — Vue 3 + Vite + UnoCSS + Pinia
 │       └── src/
 │           ├── lib/api.ts     Eden Treaty client (typed from the server's App)
 │           ├── lib/           branding · i18n · markdownEnhance · pageTemplates · realtime
@@ -62,7 +62,7 @@ ts-wiki/
 
 ### Functional-programming choices
 
-- **Pure core, effects at the edges.** `@ts-wiki/core` is free of I/O and globals. Rendering,
+- **Pure core, effects at the edges.** `@kawaii-wiki/core` is free of I/O and globals. Rendering,
   slugs, validation, and permissions are pure functions you can test in microseconds.
 - **`Result<T, E>` over exceptions.** Services return typed results; the HTTP layer is the one
   place that turns an error into a status code (`unwrap` → `onError`).
@@ -88,9 +88,9 @@ Comments and referenced asset filenames are indexed into the owning page result.
 
 > **CJK / Japanese search note.** The default FTS5 tokenizer is `unicode61`, which ranks prose
 > (English/European) well but doesn't segment Japanese. For CJK-heavy content set
-> `TS_WIKI_FTS_TOKENIZER=trigram` before first migration. Existing databases need the
+> `KAWAII_WIKI_FTS_TOKENIZER=trigram` before first migration. Existing databases need the
 > FTS virtual table rebuilt: back up SQLite, then run
-> `TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
+> `KAWAII_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
 > Lightweight typo tolerance remains a future external-engine concern: SQLite FTS5 trigram helps
 > CJK/substring matching, but portable spell-correction is deferred behind `SearchIndexer`.
 
@@ -101,7 +101,7 @@ appearance settings onto CSS variables (`--c-bg`, `--c-surface`, `--c-text`,
 `--c-border`, `--c-accent`, `--radius`) so primary controls, rendered blocks,
 and code blocks can update without recompiling. Custom head HTML is deliberately
 separate from custom CSS and only leaves the server when
-`TS_WIKI_ALLOW_HEAD_INJECTION=true`.
+`KAWAII_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 **Markdown rendering** is still pure and isomorphic, but now has an extension
 seam. `createRenderer({ features, plugins, fences })` creates isolated
@@ -142,7 +142,7 @@ checked build output instead of repeating older "`~43 KB gzip`" claims.
 
 ## Multi-instance mode
 
-The server defaults to a DB-backed realtime event bus (`TS_WIKI_EVENT_BUS=db`). Page-change events are
+The server defaults to a DB-backed realtime event bus (`KAWAII_WIKI_EVENT_BUS=db`). Page-change events are
 written to the shared SQLite database and every server process polls that log, so SSE subscribers on
 one instance are notified when another instance creates, edits, moves, or deletes a page.
 
@@ -150,11 +150,11 @@ To run multiple API instances, point them at the same `DATABASE_PATH`, keep `JWT
 and give each process its own `PORT`:
 
 ```bash
-DATABASE_PATH=./data/ts-wiki.sqlite JWT_SECRET=dev PORT=4000 TS_WIKI_INSTANCE_ID=ts-wiki-1 bun run dev:server
-DATABASE_PATH=./data/ts-wiki.sqlite JWT_SECRET=dev PORT=4001 TS_WIKI_INSTANCE_ID=ts-wiki-2 bun run dev:server
+DATABASE_PATH=./data/kawaii-wiki.ts.sqlite JWT_SECRET=dev PORT=4000 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-1 bun run dev:server
+DATABASE_PATH=./data/kawaii-wiki.ts.sqlite JWT_SECRET=dev PORT=4001 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-2 bun run dev:server
 ```
 
-For single-process tests or very small local runs, `TS_WIKI_EVENT_BUS=memory` restores the old
+For single-process tests or very small local runs, `KAWAII_WIKI_EVENT_BUS=memory` restores the old
 in-process-only event bus.
 
 ## Realtime, Presence, And Collaboration
@@ -180,14 +180,14 @@ Every HTTP request and write-side action emits structured JSON logs. Request log
 record method, path, status, duration, IP, and user id when available. Audit logs
 record auth, page, admin, asset, Git sync, and collab autosave actions; by
 default those audit events are also retained in `audit_log` for Admin -> Audit,
-with `TS_WIKI_AUDIT_DB=false` available for stdout-only deployments.
+with `KAWAII_WIKI_AUDIT_DB=false` available for stdout-only deployments.
 
 ## Backup Strategy
 
 SQLite is the canonical store. Back it up online with:
 
 ```bash
-sqlite3 data/ts-wiki.sqlite ".backup 'backups/ts-wiki-$(date +%F).sqlite'"
+sqlite3 data/kawaii-wiki.ts.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
 rsync -a data/assets/ backups/assets/
 ```
 

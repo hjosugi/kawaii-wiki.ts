@@ -1,4 +1,4 @@
-import { normalizeLabels, parseJsonStringArray } from '@ts-wiki/core'
+import { normalizeLabels, parseJsonStringArray } from '@kawaii-wiki/core'
 import type { Page } from '../db/schema.ts'
 
 export const parsePageLabels = (value: string): string[] => normalizeLabels(parseJsonStringArray(value))

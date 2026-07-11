@@ -1,27 +1,17 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { ref } from 'vue'
 import { Api, type PageRedirectView } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
+import { useAsyncData } from '@/composables/useAsyncData'
 
-const redirects = ref<PageRedirectView[]>([])
+const { data: redirects, loading, error, reload: load } = useAsyncData<PageRedirectView[]>(Api.redirects, { initial: [] })
 const fromPath = ref('')
 const toPath = ref('')
-const loading = ref(false)
-const error = ref<string | null>(null)
 const { formatDateTime } = useI18n()
-
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    redirects.value = await Api.redirects()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
+const dialogs = useDialogs()
 
 async function createRedirect(): Promise<void> {
   error.value = null
@@ -32,22 +22,21 @@ async function createRedirect(): Promise<void> {
     fromPath.value = ''
     toPath.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function deleteRedirect(redirect: PageRedirectView): Promise<void> {
-  if (!confirm(`Delete redirect "/${redirect.fromPath}"?`)) return
+  if (!await dialogs.confirm({ message: `Delete redirect "/${redirect.fromPath}"?`, danger: true })) return
   error.value = null
   try {
     await Api.deleteRedirect(redirect.fromPath)
     redirects.value = redirects.value.filter((item) => item.fromPath !== redirect.fromPath)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

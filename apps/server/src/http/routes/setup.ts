@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm'
 import { t } from 'elysia'
-import { forbidden, type Principal, validationError } from '@ts-wiki/core'
+import { forbidden, type Principal, validationError } from '@kawaii-wiki/core'
 import { users, type User } from '../../db/schema.ts'
 import type { DB } from '../../db/client.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'

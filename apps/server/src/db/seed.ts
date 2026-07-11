@@ -4,14 +4,15 @@
  *
  *   bun run db:seed
  */
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { loadEnv } from '../env.ts'
 import { createDb } from './client.ts'
 import { createServices } from '../services/index.ts'
 import { sampleSeedPages } from '../sample-content.ts'
 
 const ADMIN_EMAIL = 'admin@example.com'
-export const SEED_ADMIN_PASSWORD_ENV = 'TS_WIKI_SEED_ADMIN_PASSWORD'
+export const SEED_ADMIN_PASSWORD_ENV = 'KAWAII_WIKI_SEED_ADMIN_PASSWORD'
+export const LEGACY_SEED_ADMIN_PASSWORD_ENV = 'TS_WIKI_SEED_ADMIN_PASSWORD'
 
 type EnvSource = Record<string, string | undefined>
 
@@ -31,7 +32,7 @@ export const resolveSeedAdminPassword = (
   source: EnvSource = process.env,
   generatePassword: () => string = generateSeedAdminPassword,
 ): SeedAdminPassword => {
-  const configured = source[SEED_ADMIN_PASSWORD_ENV]?.trim()
+  const configured = source[SEED_ADMIN_PASSWORD_ENV]?.trim() ?? source[LEGACY_SEED_ADMIN_PASSWORD_ENV]?.trim()
   if (configured) return { password: configured, source: 'env' }
   return { password: generatePassword(), source: 'generated' }
 }

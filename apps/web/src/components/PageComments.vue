@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, watch } from 'vue'
 import { Api, type PageComment } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
@@ -6,6 +7,7 @@ import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import { useI18n } from '@/lib/i18n'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const props = defineProps<{ path: string }>()
 
@@ -17,6 +19,7 @@ const saving = ref(false)
 const error = ref<string | null>(null)
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 const { formatDateTime, t } = useI18n()
+const dialogs = useDialogs()
 
 // Comments render through the same safe (raw-HTML-disabled) Markdown pipeline as
 // pages, so links/code/emphasis work without any XSS surface.
@@ -31,7 +34,7 @@ async function load(): Promise<void> {
   try {
     comments.value = await Api.comments(props.path)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -46,7 +49,7 @@ async function submit(): Promise<void> {
     comments.value = [...comments.value, comment]
     draft.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }
@@ -58,18 +61,18 @@ async function resolve(comment: PageComment): Promise<void> {
     const updated = await Api.resolveComment(comment.id)
     comments.value = comments.value.map((item) => (item.id === updated.id ? updated : item))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function remove(comment: PageComment): Promise<void> {
-  if (!confirm(t('deleteCommentConfirm'))) return
+  if (!await dialogs.confirm({ message: t('deleteCommentConfirm'), danger: true, confirmLabel: t('delete') })) return
   error.value = null
   try {
     await Api.deleteComment(comment.id)
     comments.value = comments.value.filter((item) => item.id !== comment.id)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -122,7 +125,7 @@ watch(() => props.path, load, { immediate: true })
       <p v-if="!comments.length" class="text-sm text-gray-500">{{ t('noCommentsYet') }}</p>
     </div>
 
-    <form v-if="auth.isAuthed" class="mt-4 space-y-2" @submit.prevent="submit">
+    <form v-if="auth.isAuthed" class="comments-form mt-4 space-y-2" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="input min-h-24"

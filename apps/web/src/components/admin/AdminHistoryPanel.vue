@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type AdminHistoryStats, type PurgeHistoryResult } from '@/lib/api'
+import { useDialogs } from '@/composables/useDialogs'
 
 const stats = ref<AdminHistoryStats | null>(null)
 const lastPurge = ref<PurgeHistoryResult | null>(null)
@@ -9,6 +11,7 @@ const keepLatest = ref(5)
 const loading = ref(false)
 const purging = ref(false)
 const error = ref<string | null>(null)
+const dialogs = useDialogs()
 
 const formatBytes = (value: number): string =>
   value >= 1024 * 1024 ? `${(value / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.ceil(value / 1024))} KB`
@@ -19,14 +22,14 @@ async function load(): Promise<void> {
   try {
     stats.value = await Api.adminHistoryStats()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
 }
 
 async function purge(): Promise<void> {
-  if (!confirm(`Purge revisions older than ${olderThanDays.value} days while keeping ${keepLatest.value} per page?`)) return
+  if (!await dialogs.confirm({ message: `Purge revisions older than ${olderThanDays.value} days while keeping ${keepLatest.value} per page?`, danger: true })) return
   purging.value = true
   error.value = null
   try {
@@ -39,7 +42,7 @@ async function purge(): Promise<void> {
       historyBytes: lastPurge.value.historyBytes,
     }
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     purging.value = false
   }

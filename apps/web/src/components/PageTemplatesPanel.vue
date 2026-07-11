@@ -1,9 +1,12 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type Page, type PageTemplate } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const emit = defineEmits<{ changed: [] }>()
+const dialogs = useDialogs()
 
 const templates = ref<PageTemplate[]>([])
 const loading = ref(false)
@@ -53,7 +56,7 @@ async function load(): Promise<void> {
   try {
     templates.value = await Api.templates()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -97,14 +100,14 @@ async function save(): Promise<void> {
     await load()
     emit('changed')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }
 }
 
 async function remove(template: PageTemplate): Promise<void> {
-  if (!confirm(`Delete template "${template.name}"?`)) return
+  if (!await dialogs.confirm({ message: `Delete template "${template.name}"?`, danger: true, confirmLabel: 'Delete' })) return
   saving.value = true
   error.value = null
   try {
@@ -113,7 +116,7 @@ async function remove(template: PageTemplate): Promise<void> {
     await load()
     emit('changed')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }

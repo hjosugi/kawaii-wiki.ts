@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test'
 import * as Y from 'yjs'
 import * as syncProtocol from 'y-protocols/sync'
 import * as encoding from 'lib0/encoding'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { createCollabHub, type CollabConn } from './collab.ts'
 
 const noopConn = (): CollabConn => ({ send: () => {} })

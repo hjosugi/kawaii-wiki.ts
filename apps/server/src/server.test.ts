@@ -1,5 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from './db/client.ts'
 import { pageRedirects } from './db/schema.ts'
 import { createServices } from './services/index.ts'
@@ -82,6 +82,31 @@ describe('page + search slice (in-memory db)', () => {
     const second = pages.create({ path: 'dup', title: 'B', content: 'b' }, admin)
     expect(second.ok).toBe(false)
     if (!second.ok) expect(second.error.kind).toBe('conflict')
+  })
+
+  test('copies a page as a new draft without carrying publication dates', () => {
+    const { pages } = createServices(createDb(':memory:'))
+    const source = pages.create({
+      path: 'docs/source-copy',
+      title: 'Source',
+      content: '# Source',
+      labels: ['guide'],
+      status: 'verified',
+      publishAt: Date.now() + 60_000,
+    }, admin)
+    if (!source.ok) throw new Error('source seed failed')
+
+    const copied = pages.copy(source.value.path, 'docs/copied', admin)
+    expect(copied.ok).toBe(true)
+    if (!copied.ok) throw new Error('copy failed')
+    expect(copied.value).toMatchObject({
+      path: 'docs/copied',
+      title: 'Source (copy)',
+      content: '# Source',
+      status: 'draft',
+      publishAt: null,
+    })
+    expect(JSON.parse(copied.value.labels)).toEqual(['guide'])
   })
 
   test('create reports a distinct conflict when trash holds the path', () => {

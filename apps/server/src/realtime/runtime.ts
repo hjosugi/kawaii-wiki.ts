@@ -1,4 +1,4 @@
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import type { RealtimeEnv } from '../env.ts'
 import { createDbEventBus, createEventBus, type EventBus } from './bus.ts'

@@ -1,5 +1,5 @@
 import { t } from 'elysia'
-import type { Principal, PublicSettings } from '@ts-wiki/core'
+import type { Principal, PublicSettings } from '@kawaii-wiki/core'
 import type { Env } from '../../env.ts'
 import type { Services } from '../../services/index.ts'
 import type { PageSummary, RecentChange } from '../../services/pages.ts'
@@ -154,7 +154,7 @@ export const createSystemRoutes = ({
     })
 
   return app
-    .get('/api/health', () => ({ ok: true as const, name: 'ts-wiki', version: '0.4.22' }))
+    .get('/api/health', () => ({ ok: true as const, name: 'kawaii-wiki.ts', version: '0.4.22' }))
     .get('/api/settings/public', () => publicSettings())
     .get(
       '/api/unfurl',

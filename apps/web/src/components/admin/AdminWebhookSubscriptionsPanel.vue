@@ -1,71 +1,60 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { ref } from 'vue'
 import { Api, type WebhookSubscriptionView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
+import { useCrudResource } from '@/composables/useCrudResource'
 
-const webhooks = ref<WebhookSubscriptionView[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const { items: webhooks, loading, error, reload } = useCrudResource<WebhookSubscriptionView>(Api.adminWebhooks)
 const name = ref('')
 const url = ref('')
 const secret = ref('')
 const eventTypes = ref('page.created,page.updated,page.deleted,comment.created,asset.created,user.created')
+const dialogs = useDialogs()
 
 const parseEventTypes = (): string[] => eventTypes.value.split(',').map((eventType) => eventType.trim()).filter(Boolean)
-
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    webhooks.value = await Api.adminWebhooks()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
 
 async function createWebhook(): Promise<void> {
   error.value = null
   try {
-    const webhook = await Api.adminCreateWebhook({
+    await Api.adminCreateWebhook({
       name: name.value || undefined,
       targetUrl: url.value,
       secret: secret.value,
       eventTypes: parseEventTypes(),
       enabled: true,
     })
-    webhooks.value = [...webhooks.value, webhook]
+    await reload()
     name.value = ''
     url.value = ''
     secret.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function toggleWebhook(webhook: WebhookSubscriptionView): Promise<void> {
   error.value = null
   try {
-    const updated = await Api.adminUpdateWebhook(webhook.id, { enabled: !webhook.enabled })
-    webhooks.value = webhooks.value.map((item) => (item.id === updated.id ? updated : item))
+    await Api.adminUpdateWebhook(webhook.id, { enabled: !webhook.enabled })
+    await reload()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function deleteWebhook(webhook: WebhookSubscriptionView): Promise<void> {
-  if (!confirm(`Delete webhook "${webhook.name}"?`)) return
+  if (!await dialogs.confirm({ message: `Delete webhook "${webhook.name}"?`, danger: true })) return
   error.value = null
   try {
     await Api.adminDeleteWebhook(webhook.id)
-    webhooks.value = webhooks.value.filter((item) => item.id !== webhook.id)
+    await reload()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

@@ -17,7 +17,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import {
   groupMemberships,
@@ -153,6 +153,8 @@ const toPolicyRule = (row: PageRuleRow) =>
     : null
 
 export const createAuthzService = (db: DB): AuthzService => {
+  let defaultsReady = false
+  let cachedPolicy: PermissionPolicy | null = null
   const findGroup = (key: string): Group | undefined =>
     db.select().from(groups).where(eq(groups.key, cleanKey(key))).get()
 
@@ -193,9 +195,11 @@ export const createAuthzService = (db: DB): AuthzService => {
   }
 
   const policy = (): PermissionPolicy => {
+    if (cachedPolicy) return cachedPolicy
     const grants = db.select().from(permissionGrants).all().map(toGrant).filter((grant): grant is PermissionGrant => Boolean(grant))
     const rules = db.select().from(pageRules).all().map(toPolicyRule).filter((rule): rule is NonNullable<ReturnType<typeof toPolicyRule>> => Boolean(rule))
-    return { grants, pageRules: rules }
+    cachedPolicy = { grants, pageRules: rules }
+    return cachedPolicy
   }
 
   const toGroupView = (group: Group): AuthzGroupView => ({
@@ -211,11 +215,9 @@ export const createAuthzService = (db: DB): AuthzService => {
       .get()?.c ?? 0,
   })
 
-  const requireAdmin = (principal: Principal | null): Result<true, AppError> =>
-    requirePermission(principal, 'admin:access')
-
   return {
     ensureDefaults() {
+      if (defaultsReady) return
       const now = Date.now()
       for (const group of DEFAULT_GROUPS) {
         if (!findGroup(group.key)) {
@@ -229,6 +231,8 @@ export const createAuthzService = (db: DB): AuthzService => {
           for (const action of actions) insertDefaultGrant('group', groupKey, action)
         }
       }
+      defaultsReady = true
+      cachedPolicy = null
     },
 
     principalForUser(user) {
@@ -285,14 +289,14 @@ export const createAuthzService = (db: DB): AuthzService => {
     },
 
     listGroups(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       this.ensureDefaults()
       return ok(db.select().from(groups).orderBy(asc(groups.key)).all().map(toGroupView))
     },
 
     createGroup(principal, input) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const key = cleanKey(input.key)
       if (!key) return err(validationError('Group key is required', 'key'))
@@ -309,7 +313,7 @@ export const createAuthzService = (db: DB): AuthzService => {
     },
 
     addUserToGroup(principal, userId, groupKey) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       this.ensureDefaults()
       const group = findGroup(groupKey)
@@ -328,7 +332,7 @@ export const createAuthzService = (db: DB): AuthzService => {
     },
 
     removeUserFromGroup(principal, userId, groupKey) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const group = findGroup(groupKey)
       if (!group) return err(validationError('Group not found', 'groupKey'))
@@ -339,13 +343,13 @@ export const createAuthzService = (db: DB): AuthzService => {
     },
 
     listPageRules(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       return ok(db.select().from(pageRules).orderBy(asc(pageRules.createdAt)).all())
     },
 
     createPageRule(principal, input) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       if (!ACTIONS.has(input.action)) return err(validationError('Unknown action', 'action'))
       if (!EFFECTS.has(input.effect)) return err(validationError('Unknown effect', 'effect'))
@@ -364,13 +368,15 @@ export const createAuthzService = (db: DB): AuthzService => {
         createdAt: Date.now(),
       }
       db.insert(pageRules).values(rule).run()
+      cachedPolicy = null
       return ok(rule)
     },
 
     deletePageRule(principal, id) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       db.delete(pageRules).where(eq(pageRules.id, id)).run()
+      cachedPolicy = null
       return ok({ id })
     },
   }

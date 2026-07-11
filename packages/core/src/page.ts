@@ -24,6 +24,7 @@ export interface PageInput {
   readonly status?: PageStatus
   readonly ownerId?: string | null
   readonly reviewAt?: number | null
+  readonly publishAt?: number | null
   readonly locale?: string | null
   readonly navOrder?: number | null
   readonly pinned?: boolean
@@ -43,6 +44,7 @@ export interface ValidPageInput {
   readonly status: PageStatus
   readonly ownerId: string | null
   readonly reviewAt: number | null
+  readonly publishAt: number | null
   readonly locale: string
   readonly navOrder: number | null
   readonly pinned: boolean
@@ -105,6 +107,7 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
   if (!isPageStatus(status)) return err(validationError('Unknown page status', 'status'))
   const ownerId = input.ownerId?.trim() || null
   const reviewAt = typeof input.reviewAt === 'number' && Number.isFinite(input.reviewAt) ? input.reviewAt : null
+  const publishAt = typeof input.publishAt === 'number' && Number.isFinite(input.publishAt) ? input.publishAt : null
   const locale = normalizeLocale(input.locale)
   const navOrder = typeof input.navOrder === 'number' && Number.isFinite(input.navOrder)
     ? Math.max(-MAX_NAV_ORDER, Math.min(MAX_NAV_ORDER, Math.trunc(input.navOrder)))
@@ -123,6 +126,7 @@ export const validatePageInput = (input: PageInput): Result<ValidPageInput, AppE
     status,
     ownerId,
     reviewAt,
+    publishAt,
     locale,
     navOrder,
     pinned: input.pinned === true,

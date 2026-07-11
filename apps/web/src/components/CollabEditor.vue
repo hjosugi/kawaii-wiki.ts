@@ -3,22 +3,22 @@ import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
 import { yCollab } from 'y-codemirror.next'
-import { basicSetup } from 'codemirror'
 import { EditorState } from '@codemirror/state'
-import { markdown } from '@codemirror/lang-markdown'
-import { autocompletion, type Completion, type CompletionContext } from '@codemirror/autocomplete'
-import { oneDark } from '@codemirror/theme-one-dark'
+import { type Completion, type CompletionContext } from '@codemirror/autocomplete'
 import { EditorView } from '@codemirror/view'
 import { Api, getToken } from '@/lib/api'
 import { WS_BASE_URL } from '@/lib/url'
-import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
-import { clipboardHttpUrl, linkPreviewToEmbedFence, markdownLinkForUrl } from '@/lib/linkPreview'
+import { clipboardHttpUrl } from '@/lib/linkPreview'
 import { useAuth } from '@/stores/auth'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import { useI18n, type MessageKey } from '@/lib/i18n'
+import { embedSnippet, eventSnippet, infoboxSnippet, linksSnippet, streamSnippet, twitchSnippet, youtubeSnippet } from '@/lib/editorSnippets'
+import EditorToolbar from '@/components/EditorToolbar.vue'
 import AssetPicker from '@/components/AssetPicker.vue'
 import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
+import { useImageUpload } from '@/composables/useImageUpload'
+import { markdownEditorExtensions, useCodeMirrorCommands } from '@/composables/useCodeMirrorEditor'
 
 const props = defineProps<{ room: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
@@ -27,17 +27,29 @@ const host = ref<HTMLElement | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
 const text = ref('')
 const synced = ref(false)
-const uploading = ref(false)
-const uploadError = ref<string | null>(null)
-const pendingImageFiles = ref<File[]>([])
 const showAssets = ref(false)
 const mode = ref<'write' | 'preview'>('write')
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 const preview = computed(() => markdownRenderer.value.renderMarkdown(text.value).html)
 const auth = useAuth()
 const { t } = useI18n()
+const {
+  uploading,
+  uploadError,
+  pendingImageFiles,
+  cancelImageUpload,
+  uploadPreparedImages,
+  onImageInput,
+  handleImagePaste,
+  handleImageDrop,
+} = useImageUpload({
+  folder: () => props.assetFolder,
+  insert: (asset, alt) => insertSnippet(`![${alt}](${asset.url})\n`),
+})
 
 let view: EditorView | null = null
+const { replaceSelection, insertSnippet, insertPendingLinkPreview, surround, insertLinePrefix } =
+  useCodeMirrorCommands(() => view)
 let provider: WebsocketProvider | null = null
 let ydoc: Y.Doc | null = null
 let disposed = false
@@ -49,68 +61,6 @@ function userColor(seed: string): string {
   return `hsl(${h}, 70%, 55%)`
 }
 
-const pad = (value: number): string => String(value).padStart(2, '0')
-
-const eventSnippet = (): string => {
-  const start = new Date(Date.now() + 60 * 60 * 1000)
-  start.setMinutes(0, 0, 0)
-  const end = new Date(start.getTime() + 30 * 60 * 1000)
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  const format = (date: Date): string =>
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-  return `\`\`\`event
-title: Event title
-start: ${format(start)}
-end: ${format(end)}
-timezone: ${zone}
-location:
-url:
-description:
-\`\`\`
-`
-}
-
-const infoboxSnippet = (): string => `\`\`\`infobox
-title: Name
-image:
-caption:
-Field: value
-
-Details go here.
-\`\`\`
-`
-
-const linksSnippet = (): string => `\`\`\`links
-[YouTube](https://youtube.com/@handle)
-[X](https://x.com/handle)
-[Shop](https://booth.pm/)
-\`\`\`
-`
-
-const embedSnippet = (): string => `\`\`\`embed
-url: https://example.com
-title:
-description:
-\`\`\`
-`
-
-const youtubeSnippet = (): string => `\`\`\`youtube
-url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-title:
-\`\`\`
-`
-
-const twitchSnippet = (): string => `\`\`\`twitch
-channel: twitch
-title:
-\`\`\`
-`
-
-const streamSnippet = (): string => {
-  const base = eventSnippet().replace('title: Event title', 'title: Stream title')
-  return base.replace('url:\n', 'url:\nplatform: YouTube\nchannelUrl: https://youtube.com/@handle\n')
-}
-
 interface EditorAction {
   id: string
   group: 'text' | 'insert' | 'media'
@@ -119,67 +69,6 @@ interface EditorAction {
   detail: string
   keywords: string[]
   run: () => void
-}
-
-function replaceSelection(insert: string): void {
-  if (!view) return
-  const selection = view.state.selection.main
-  view.dispatch({
-    changes: { from: selection.from, to: selection.to, insert },
-    selection: { anchor: selection.from + insert.length },
-    scrollIntoView: true,
-  })
-  view.focus()
-}
-
-function insertSnippet(snippet: string): void {
-  if (!view) return
-  const selection = view.state.selection.main
-  const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
-  replaceSelection(prefix + snippet)
-}
-
-function insertPendingLinkPreview(url: string): void {
-  if (!view) return
-  const selection = view.state.selection.main
-  const prefix = selection.from > 0 && !view.state.sliceDoc(selection.from - 1, selection.from).match(/\n/) ? '\n\n' : ''
-  const fallback = `${prefix}${markdownLinkForUrl(url)}`
-  const start = selection.from
-  const end = start + fallback.length
-  replaceSelection(fallback)
-  void Api.unfurl(url)
-    .then((preview) => {
-      if (!view) return
-      if (view.state.sliceDoc(start, end) !== fallback) return
-      const insert = `${prefix}${linkPreviewToEmbedFence(preview)}`
-      view.dispatch({
-        changes: { from: start, to: end, insert },
-        selection: { anchor: start + insert.length },
-        scrollIntoView: true,
-      })
-      view.focus()
-    })
-    .catch(() => undefined)
-}
-
-function surround(prefix: string, suffix: string, fallback: string): void {
-  if (!view) return
-  const selection = view.state.selection.main
-  const selected = view.state.sliceDoc(selection.from, selection.to) || fallback
-  replaceSelection(`${prefix}${selected}${suffix}`)
-}
-
-function insertLinePrefix(prefix: string, fallback: string): void {
-  if (!view) return
-  const selection = view.state.selection.main
-  const line = view.state.doc.lineAt(selection.from)
-  const textValue = view.state.sliceDoc(line.from, line.to) || fallback
-  view.dispatch({
-    changes: { from: line.from, to: line.to, insert: `${prefix}${textValue.replace(/^#+\s*/, '')}` },
-    selection: { anchor: line.from + prefix.length + textValue.length },
-    scrollIntoView: true,
-  })
-  view.focus()
 }
 
 function chooseImage(): void {
@@ -203,9 +92,6 @@ const editorActions = computed<EditorAction[]>(() => [
   { id: 'image', group: 'media', label: 'toolbarImage', icon: 'Img', detail: 'Upload and insert an image', keywords: ['image', 'upload', '画像'], run: chooseImage },
   { id: 'assets', group: 'media', label: 'toolbarAssets', icon: 'Lib', detail: 'Browse uploaded assets', keywords: ['asset', 'file', '添付'], run: () => { showAssets.value = true } },
 ])
-
-const actionsByGroup = (group: EditorAction['group']): EditorAction[] =>
-  editorActions.value.filter((action) => action.group === group)
 
 const slashCompletions = (context: CompletionContext) => {
   const line = context.state.doc.lineAt(context.pos)
@@ -233,40 +119,6 @@ const slashCompletions = (context: CompletionContext) => {
       },
     }))
   return { from, options, validFor: /^\/[\p{L}\p{N}_-]*$/u }
-}
-
-async function uploadImages(files: File[]): Promise<void> {
-  if (!files.length) return
-  uploadError.value = null
-  uploading.value = true
-  try {
-    for (const file of files) {
-      const asset = await Api.uploadAsset(file, props.assetFolder)
-      const alt = asset.filename.replace(/\.[^.]+$/, '') || 'image'
-      insertSnippet(`![${alt}](${asset.url})\n`)
-    }
-  } catch (e) {
-    uploadError.value = (e as Error).message
-  } finally {
-    uploading.value = false
-  }
-}
-
-function prepareImageUpload(files: File[]): void {
-  if (!files.length || uploading.value) return
-  uploadError.value = null
-  pendingImageFiles.value = [...files]
-}
-
-async function uploadPreparedImages(files: File[]): Promise<void> {
-  pendingImageFiles.value = []
-  await uploadImages(files)
-}
-
-async function onImageInput(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  prepareImageUpload(imageFiles(input.files))
-  input.value = ''
 }
 
 function insertAsset(markdown: string): void {
@@ -306,36 +158,19 @@ onMounted(async () => {
     parent: host.value!,
     state: EditorState.create({
       doc: ytext.toString(),
-      extensions: [
-        basicSetup,
-        markdown(),
-        autocompletion({ override: [slashCompletions] }),
-        oneDark,
-        EditorView.lineWrapping,
-        EditorView.domEventHandlers({
-          drop(event) {
-            const files = imageFiles(event.dataTransfer?.files)
-            if (!files.length) return false
-            event.preventDefault()
-            prepareImageUpload(files)
-            return true
-          },
-          paste(event) {
-            const files = clipboardImageFiles(event.clipboardData)
-            if (files.length) {
-              event.preventDefault()
-              prepareImageUpload(files)
-              return true
-            }
+      extensions: markdownEditorExtensions({
+        completion: slashCompletions,
+        drop: handleImageDrop,
+        paste(event) {
+            if (handleImagePaste(event)) return true
             const url = clipboardHttpUrl(event.clipboardData)
             if (!url) return false
             event.preventDefault()
             insertPendingLinkPreview(url)
             return true
-          },
-        }),
-        yCollab(ytext, provider.awareness),
-      ],
+        },
+        extra: [yCollab(ytext, provider.awareness)],
+      }),
     }),
   })
   pushUp()
@@ -356,28 +191,9 @@ onBeforeUnmount(() => {
         <span class="w-2 h-2 rounded-full" :class="synced ? 'bg-green-500' : 'bg-gray-400'"></span>
         {{ synced ? 'Live - collaborative editing' : 'connecting...' }}
       </div>
-      <div class="editor-toolbar" :aria-label="t('toolbarInsert')">
-        <div v-for="group in (['text', 'insert', 'media'] as const)" :key="group" class="editor-toolbar-group">
-          <span class="editor-toolbar-label">
-            {{ group === 'text' ? t('toolbarText') : group === 'media' ? t('toolbarMedia') : t('toolbarInsert') }}
-          </span>
-          <button
-            v-for="action in actionsByGroup(group)"
-            :key="action.id"
-            class="btn-ghost editor-tool"
-            type="button"
-            :data-tooltip="action.detail"
-            :title="t(action.label)"
-            :aria-label="t(action.label)"
-            :disabled="(uploading || pendingImageFiles.length > 0) && action.id === 'image'"
-            @click="action.run"
-          >
-            <span class="editor-tool-icon" aria-hidden="true">{{ action.icon }}</span>
-            <span>{{ uploading && action.id === 'image' ? 'Uploading...' : t(action.label) }}</span>
-          </button>
-        </div>
+      <EditorToolbar :actions="editorActions" :busy-id="uploading ? 'image' : undefined" :disabled-ids="pendingImageFiles.length ? ['image'] : []">
         <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
-      </div>
+      </EditorToolbar>
     </div>
     <p class="mb-2 text-xs text-[var(--c-text-muted)]">{{ t('insertMenuHint') }}</p>
     <p v-if="uploadError" class="text-sm text-red-600 mb-2">{{ uploadError }}</p>
@@ -418,7 +234,7 @@ onBeforeUnmount(() => {
     <ImageUploadDialog
       :open="pendingImageFiles.length > 0"
       :files="pendingImageFiles"
-      @cancel="pendingImageFiles = []"
+      @cancel="cancelImageUpload"
       @complete="uploadPreparedImages"
     />
   </div>

@@ -1,6 +1,6 @@
 /**
  * Page service — the core write path. Every mutation:
- *   1. checks permission (pure `can()` from @ts-wiki/core),
+ *   1. checks permission (pure `can()` from @kawaii-wiki/core),
  *   2. validates & normalises input (pure `validatePageInput`),
  *   3. renders Markdown → HTML + TOC (pure `renderMarkdown`),
  *   4. persists page + revision + FTS index in ONE transaction.
@@ -38,7 +38,7 @@ import {
   type PageFileData,
   type ExtractedCalendarEvent,
   contentWithTocFrontmatter,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import {
   pageAnalytics,
@@ -65,6 +65,7 @@ export interface PageSummary {
   readonly ownerId: string | null
   readonly authorId: string | null
   readonly reviewAt: number | null
+  readonly publishAt: number | null
   readonly navOrder: number | null
   readonly pinned: boolean
   readonly spaceKey: string
@@ -172,6 +173,7 @@ export interface UpdatePagePatch {
   readonly status?: PageStatus
   readonly ownerId?: string | null
   readonly reviewAt?: number | null
+  readonly publishAt?: number | null
   readonly locale?: string | null
   readonly navOrder?: number | null
   readonly pinned?: boolean
@@ -215,6 +217,7 @@ export interface PageService {
   getByPath(path: string): Result<Page, AppError>
   resolveByPath(path: string): Result<ResolvedPage, AppError>
   create(input: PageInput, principal: Principal | null): Result<Page, AppError>
+  copy(fromPath: string, newPath: string, principal: Principal | null, keepStatus?: boolean): Result<Page, AppError>
   update(path: string, patch: UpdatePagePatch, principal: Principal | null): Result<Page, AppError>
   upsertFromFile(
     path: string,
@@ -313,11 +316,46 @@ export const createPageService = (
   const defaultLocale = options.defaultLocale ?? (() => 'und')
   const reindex = (id: string): void => searchIndexer.indexPageById(id)
 
+  interface DerivedPageData {
+    readonly path: string
+    readonly title: string
+    readonly links: ReturnType<typeof extractPageLinks>
+    readonly events: ExtractedCalendarEvent[]
+  }
+  let derivedCache: { signature: string; pages: DerivedPageData[] } | null = null
+  const derivedPages = (): DerivedPageData[] => {
+    const stamp = db
+      .select({
+        count: sql<number>`count(*)`,
+        latest: sql<number>`coalesce(max(${pages.updatedAt}), 0)`,
+        total: sql<number>`coalesce(sum(${pages.updatedAt}), 0)`,
+      })
+      .from(pages)
+      .where(eq(pages.lifecycle, 'active'))
+      .get()
+    const signature = `${stamp?.count ?? 0}:${stamp?.latest ?? 0}:${stamp?.total ?? 0}`
+    if (derivedCache?.signature === signature) return derivedCache.pages
+    const indexed = db
+      .select({ path: pages.path, title: pages.title, content: pages.content })
+      .from(pages)
+      .where(eq(pages.lifecycle, 'active'))
+      .orderBy(asc(pages.path))
+      .all()
+      .map((page) => ({
+        path: page.path,
+        title: page.title,
+        links: extractPageLinks(page.content),
+        events: extractCalendarEvents(page.content, page.path),
+      }))
+    derivedCache = { signature, pages: indexed }
+    return indexed
+  }
+
   const findByPath = (path: string): Page | undefined =>
     db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
 
-  const findById = (id: string): Page =>
-    db.select().from(pages).where(eq(pages.id, id)).get()!
+  const findById = (id: string): Page | undefined =>
+    db.select().from(pages).where(eq(pages.id, id)).get()
 
   const findRedirect = (path: string): string | null =>
     db.select().from(pageRedirects).where(eq(pageRedirects.fromPath, normalizePath(path))).get()?.toPath ?? null
@@ -369,13 +407,14 @@ export const createPageService = (
       status: PageStatus
       ownerId: string | null
       reviewAt: number | null
+      publishAt: number | null
       locale: string
       navOrder: number | null
       pinned: boolean
     },
     principal: Principal | null,
     revisionAction: 'updated' | null,
-  ): Page => {
+  ): Page | undefined => {
     const { html, toc } = renderPageMarkdown(next.content)
     const now = Date.now()
 
@@ -400,6 +439,7 @@ export const createPageService = (
           status: next.status,
           ownerId: next.ownerId,
           reviewAt: next.reviewAt,
+          publishAt: next.publishAt,
           locale: next.locale,
           navOrder: next.navOrder,
           pinned: next.pinned,
@@ -429,6 +469,7 @@ export const createPageService = (
           ownerId: pages.ownerId,
           authorId: pages.authorId,
           reviewAt: pages.reviewAt,
+          publishAt: pages.publishAt,
           navOrder: pages.navOrder,
           pinned: pages.pinned,
           spaceKey: pages.spaceKey,
@@ -456,6 +497,7 @@ export const createPageService = (
           ownerId: pages.ownerId,
           authorId: pages.authorId,
           reviewAt: pages.reviewAt,
+          publishAt: pages.publishAt,
           navOrder: pages.navOrder,
           pinned: pages.pinned,
           spaceKey: pages.spaceKey,
@@ -483,14 +525,14 @@ export const createPageService = (
     },
 
     graph() {
-      const allPages = db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()
+      const allPages = derivedPages()
       const existing = new Map(allPages.map((page) => [page.path, page]))
       const missing = new Set<string>()
       const edgeKeys = new Set<string>()
       const edges: PageGraphEdge[] = []
 
       for (const page of allPages) {
-        for (const link of extractPageLinks(page.content)) {
+        for (const link of page.links) {
           if (link.path === page.path) continue
           if (!existing.has(link.path)) missing.add(link.path)
           const key = `${page.path}\u0000${link.path}\u0000${link.kind}`
@@ -514,8 +556,8 @@ export const createPageService = (
       const target = normalizePath(path)
       const out: PageBacklink[] = []
       const seen = new Set<string>()
-      for (const page of db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()) {
-        for (const link of extractPageLinks(page.content)) {
+      for (const page of derivedPages()) {
+        for (const link of page.links) {
           if (link.path !== target) continue
           const key = `${page.path}\u0000${link.kind}`
           if (seen.has(key)) continue
@@ -539,12 +581,12 @@ export const createPageService = (
     },
 
     brokenLinks() {
-      const allPages = db.select().from(pages).where(eq(pages.lifecycle, 'active')).orderBy(asc(pages.path)).all()
+      const allPages = derivedPages()
       const existing = new Set(allPages.map((page) => page.path))
       const out: BrokenLink[] = []
       const seen = new Set<string>()
       for (const page of allPages) {
-        for (const link of extractPageLinks(page.content)) {
+        for (const link of page.links) {
           if (link.path === page.path || existing.has(link.path)) continue
           const key = `${page.path}\u0000${link.path}\u0000${link.kind}`
           if (seen.has(key)) continue
@@ -631,16 +673,8 @@ export const createPageService = (
     },
 
     events() {
-      return db
-        .select({
-          path: pages.path,
-          content: pages.content,
-        })
-        .from(pages)
-        .where(eq(pages.lifecycle, 'active'))
-        .orderBy(asc(pages.path))
-        .all()
-        .flatMap((page) => extractCalendarEvents(page.content, page.path))
+      return derivedPages()
+        .flatMap((page) => page.events)
         .sort((a, b) => a.start.localeCompare(b.start) || a.title.localeCompare(b.title))
     },
 
@@ -747,6 +781,7 @@ export const createPageService = (
             status: v.status,
             ownerId: v.ownerId,
             reviewAt: v.reviewAt,
+            publishAt: v.publishAt,
             navOrder: v.navOrder,
             pinned: v.pinned,
             spaceKey: v.path.split('/')[0] || 'main',
@@ -762,8 +797,29 @@ export const createPageService = (
         reindex(id)
         return findById(id)
       })
+      return page ? ok(page) : err(notFound('Page disappeared while it was being created'))
+    },
 
-      return ok(page)
+    copy(fromPath, newPath, principal, keepStatus = false) {
+      const source = findByPath(fromPath)
+      if (!source || source.lifecycle !== 'active') return err(notFound(`No page at "${fromPath}"`))
+      const readable = requirePagePermission(principal, 'page:read', source.path)
+      if (!readable.ok) return readable
+      return this.create({
+        path: newPath,
+        title: `${source.title} (copy)`,
+        content: source.content,
+        description: source.description,
+        icon: source.icon,
+        coverUrl: source.coverUrl,
+        coverPosition: source.coverPosition,
+        labels: parseLabels(source.labels),
+        status: keepStatus && isPageStatus(source.status) ? source.status : 'draft',
+        ownerId: principal?.id ?? source.ownerId,
+        reviewAt: null,
+        publishAt: null,
+        locale: source.locale,
+      }, principal)
     },
 
     update(path, patch, principal) {
@@ -789,6 +845,7 @@ export const createPageService = (
         status: patch.status ?? current.status,
         ownerId: patch.ownerId === undefined ? current.ownerId : patch.ownerId,
         reviewAt: patch.reviewAt === undefined ? current.reviewAt : patch.reviewAt,
+        publishAt: patch.publishAt === undefined ? current.publishAt : patch.publishAt,
         locale: patch.locale ?? current.locale,
         navOrder: patch.navOrder === undefined ? current.navOrder : patch.navOrder,
         pinned: patch.pinned ?? current.pinned,
@@ -797,8 +854,7 @@ export const createPageService = (
       const v = validated.value
 
       const page = writeExistingPage(current, v, principal, 'updated')
-
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being updated`))
     },
 
     upsertFromFile(path, file, options, principal) {
@@ -862,6 +918,7 @@ export const createPageService = (
         status: isPageStatus(current.status) ? current.status : 'draft',
         ownerId: current.ownerId,
         reviewAt: current.reviewAt,
+        publishAt: current.publishAt,
         locale: current.locale,
         navOrder: current.navOrder,
         pinned: current.pinned,
@@ -876,7 +933,7 @@ export const createPageService = (
         principal,
         null,
       )
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being saved`))
     },
 
     restoreRevision(path, revisionId, principal) {
@@ -900,6 +957,7 @@ export const createPageService = (
           status: isPageStatus(current.status) ? current.status : 'draft',
           ownerId: current.ownerId,
           reviewAt: current.reviewAt,
+          publishAt: current.publishAt,
           locale: normalizeLocale(current.locale),
           navOrder: current.navOrder,
           pinned: current.pinned,
@@ -907,7 +965,7 @@ export const createPageService = (
         principal,
         'updated',
       )
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${path}" disappeared while its revision was being restored`))
     },
 
     archive(path, principal) {
@@ -925,7 +983,7 @@ export const createPageService = (
         searchIndexer.removePage(current.id)
         return findById(current.id)
       })
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being archived`))
     },
 
     restore(path, principal) {
@@ -944,7 +1002,7 @@ export const createPageService = (
         reindex(current.id)
         return findById(current.id)
       })
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being restored`))
     },
 
     move(oldPath, newPath, principal) {
@@ -965,6 +1023,7 @@ export const createPageService = (
         status: isPageStatus(current.status) ? current.status : 'draft',
         ownerId: current.ownerId,
         reviewAt: current.reviewAt,
+        publishAt: current.publishAt,
         locale: current.locale,
         navOrder: current.navOrder,
         pinned: current.pinned,
@@ -1015,8 +1074,7 @@ export const createPageService = (
         reindex(current.id)
         return findById(current.id)
       })
-
-      return ok(page)
+      return page ? ok(page) : err(notFound(`Page "${oldPath}" disappeared while it was being moved`))
     },
 
     remove(path, principal) {
@@ -1038,8 +1096,7 @@ export const createPageService = (
         searchIndexer.removePage(current.id)
         return findById(current.id)
       })
-
-      return ok({ path: deleted.path })
+      return deleted ? ok({ path: deleted.path }) : err(notFound(`Page "${path}" disappeared while it was being deleted`))
     },
 
     purge(path, principal) {

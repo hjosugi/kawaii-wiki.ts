@@ -3,7 +3,7 @@ import {
   type Action,
   type PermissionResource,
   type Principal,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import { HttpError } from './errors.ts'
 
 export const requireHttpPermission = (

@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import type { Env } from '../../env.ts'
 import type { Services } from '../../services/index.ts'
 import type { Page } from '../../db/schema.ts'

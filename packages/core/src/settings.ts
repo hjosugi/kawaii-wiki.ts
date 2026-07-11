@@ -150,7 +150,7 @@ export const defaultNavItems = (): BuiltInNavItem[] =>
 export const DEFAULT_NAV_ITEMS: BuiltInNavItem[] = defaultNavItems()
 
 export const defaultSiteSettings = (): SiteSettings => ({
-  siteTitle: 'ts-wiki',
+  siteTitle: 'kawaii-wiki.ts',
   accentColor: '#7c3aed',
   theme: 'system',
   themePreset: 'classic',

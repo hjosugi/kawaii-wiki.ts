@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type PublicSettings } from '@/lib/api'
 import { applyBranding } from '@/lib/branding'
@@ -115,7 +116,7 @@ async function load(): Promise<void> {
     navItemsText.value = formatNavItems(settings.value.navItems)
     footerLinksText.value = formatLinks(settings.value.footerLinks)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -158,7 +159,7 @@ async function saveSettings(): Promise<void> {
     navItemsText.value = formatNavItems(settings.value.navItems)
     footerLinksText.value = formatLinks(settings.value.footerLinks)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }
@@ -180,7 +181,7 @@ async function uploadBrandAsset(kind: 'logo' | 'favicon' | 'background', files: 
       }
     }
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     uploading.value = null
   }
@@ -336,7 +337,7 @@ onMounted(load)
       <label class="block space-y-1 text-sm">
         <span class="font-medium">Custom head HTML</span>
         <textarea v-model="settings.customHeadHtml" class="input min-h-28 font-mono text-sm" placeholder="<script defer data-domain=&quot;wiki.example.com&quot; src=&quot;https://plausible.io/js/script.js&quot;></script>"></textarea>
-        <span class="text-xs text-[var(--c-text-muted)]">Applied only when TS_WIKI_ALLOW_HEAD_INJECTION is enabled on the server.</span>
+        <span class="text-xs text-[var(--c-text-muted)]">Applied only when KAWAII_WIKI_ALLOW_HEAD_INJECTION is enabled on the server.</span>
       </label>
       <fieldset class="space-y-2 rounded-[var(--radius)] border border-[var(--c-border)] p-3 text-sm">
         <legend class="px-1 font-medium">Markdown features</legend>

@@ -1,6 +1,6 @@
 /**
  * Admin service — admin-only operations. Every method gates on
- * `requirePermission(principal, 'admin:access')` (the same pure check from @ts-wiki/core), so the
+ * `requirePermission(principal, 'admin:access')` (the same pure check from @kawaii-wiki/core), so the
  * HTTP layer stays a thin `unwrap(...)`.
  */
 import { and, eq, asc, desc, gte, like, lte, sql, type SQL } from 'drizzle-orm'
@@ -17,9 +17,9 @@ import {
   conflict,
   validationError,
   isPageStatus,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
-import { auditLog, users, pages, pageRevisions } from '../db/schema.ts'
+import { auditLog, groupMemberships, groups, users, pages, pageRevisions } from '../db/schema.ts'
 import type { AuthzService } from './authz.ts'
 import { hashPassword } from './auth.ts'
 
@@ -125,9 +125,6 @@ export interface AdminService {
 const ROLES: readonly Role[] = ['admin', 'editor', 'viewer']
 
 export const createAdminService = (db: DB, authz?: AuthzService): AdminService => {
-  const requireAdmin = (principal: Principal | null): Result<true, AppError> =>
-    requirePermission(principal, 'admin:access')
-
   const countOf = (table: typeof users | typeof pages | typeof pageRevisions): number =>
     db.select({ c: sql<number>`count(*)` }).from(table).get()?.c ?? 0
 
@@ -141,12 +138,12 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
       .get()?.bytes ?? 0,
   })
 
-  const toView = (u: typeof users.$inferSelect): AdminUserView => ({
+  const toView = (u: typeof users.$inferSelect, groupKeys?: readonly string[]): AdminUserView => ({
     id: u.id,
     email: u.email,
     name: u.name,
     role: u.role,
-    groups: authz?.principalForUser(u).groups ?? [],
+    groups: groupKeys ?? authz?.principalForUser(u).groups ?? [],
     disabledAt: u.disabledAt,
     tokenInvalidBefore: u.tokenInvalidBefore,
     createdAt: u.createdAt,
@@ -185,19 +182,19 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
 
   return {
     stats(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       return ok({ users: countOf(users), pages: countOf(pages), revisions: countOf(pageRevisions) })
     },
 
     historyStats(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       return ok(historyStats())
     },
 
     purgeHistory(principal, input) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const olderThanDays = Math.trunc(input.olderThanDays)
       const keepLatest = Math.trunc(input.keepLatest)
@@ -243,7 +240,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     },
 
     listPages(principal, input = {}) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? 25), 1), 100)
       const offset = Math.max(Math.trunc(input.offset ?? 0), 0)
@@ -294,7 +291,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     },
 
     listAudit(principal, input = {}) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const limit = Math.min(Math.max(Math.trunc(input.limit ?? 50), 1), 200)
       const offset = Math.max(Math.trunc(input.offset ?? 0), 0)
@@ -333,14 +330,26 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     },
 
     listUsers(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const rows = db.select().from(users).orderBy(asc(users.createdAt)).all()
-      return ok(rows.map(toView))
+      if (!authz) return ok(rows.map((user) => toView(user, [])))
+      const memberships = db
+        .select({ userId: groupMemberships.userId, key: groups.key })
+        .from(groupMemberships)
+        .innerJoin(groups, eq(groups.id, groupMemberships.groupId))
+        .all()
+      const keysByUser = new Map<string, string[]>()
+      for (const membership of memberships) {
+        const list = keysByUser.get(membership.userId) ?? []
+        if (!list.includes(membership.key)) list.push(membership.key)
+        keysByUser.set(membership.userId, list)
+      }
+      return ok(rows.map((user) => toView(user, [...new Set([user.role === 'admin' ? 'admins' : user.role === 'editor' ? 'editors' : 'viewers', ...(keysByUser.get(user.id) ?? [])])])))
     },
 
     setUserRole(principal, userId, role) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       if (!ROLES.includes(role)) return err(validationError('Unknown role', 'role'))
 
@@ -356,7 +365,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     },
 
     async setUserPassword(principal, userId, password) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       if (password.length < 6) return err(validationError('Password must be at least 6 characters', 'password'))
       const target = db.select().from(users).where(eq(users.id, userId)).get()
@@ -368,7 +377,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     },
 
     deactivateUser(principal, userId) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const target = db.select().from(users).where(eq(users.id, userId)).get()
       if (!target) return err(notFound('User not found'))

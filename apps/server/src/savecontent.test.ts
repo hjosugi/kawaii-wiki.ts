@@ -1,6 +1,6 @@
 import { describe, test, expect } from 'bun:test'
 import { sql } from 'drizzle-orm'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { createDb, type DB } from './db/client.ts'
 import { createServices } from './services/index.ts'
 import { pageRevisions, pages as pageRows } from './db/schema.ts'

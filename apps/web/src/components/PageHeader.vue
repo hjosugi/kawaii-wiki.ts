@@ -1,14 +1,22 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, ref, watch } from 'vue'
 import { Api, type Page, type PageInsight, type PageShareView } from '@/lib/api'
 import WikiBreadcrumbs from '@/components/WikiBreadcrumbs.vue'
 import { useI18n } from '@/lib/i18n'
+import StatusBadge from '@/components/StatusBadge.vue'
+import { useAuth } from '@/stores/auth'
+import { useDialogs } from '@/composables/useDialogs'
+import { useRouter } from 'vue-router'
 
 const props = defineProps<{
   page: Page
   canEdit: boolean
   homePath?: string
 }>()
+const auth = useAuth()
+const dialogs = useDialogs()
+const router = useRouter()
 
 const copied = ref(false)
 const share = ref<PageShareView | null>(null)
@@ -19,6 +27,8 @@ const insightsOpen = ref(false)
 const insightsLoading = ref(false)
 const insightsError = ref<string | null>(null)
 const insights = ref<PageInsight | null>(null)
+const watching = ref(false)
+const watchBusy = ref(false)
 const { formatDate, formatDateTime, t } = useI18n()
 
 const updated = computed(() =>
@@ -36,14 +46,8 @@ const coverStyle = computed(() =>
 const childPath = computed(() => `${props.page.path}/new-page`)
 const markdownExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=markdown`)
 const htmlExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=html`)
-const labels = computed<string[]>(() => {
-  try {
-    const parsed = JSON.parse(props.page.labels) as unknown
-    return Array.isArray(parsed) ? parsed.filter((label): label is string => typeof label === 'string') : []
-  } catch {
-    return []
-  }
-})
+const printExportUrl = computed(() => `/api/export/page?path=${encodeURIComponent(props.page.path)}&format=print`)
+const labels = computed(() => props.page.labels)
 const reviewDate = computed(() =>
   props.page.reviewAt ? formatDate(props.page.reviewAt) : null,
 )
@@ -86,13 +90,42 @@ async function loadShare(): Promise<void> {
   }
 }
 
+async function loadWatch(): Promise<void> {
+  if (!auth.isAuthed) return
+  watching.value = (await Api.pageWatch(props.page.path).catch(() => ({ watching: false }))).watching
+}
+
+async function toggleWatch(): Promise<void> {
+  watchBusy.value = true
+  try {
+    watching.value = (await Api.setPageWatch(props.page.path, !watching.value)).watching
+  } finally {
+    watchBusy.value = false
+  }
+}
+
+async function duplicatePage(): Promise<void> {
+  const suggested = `${props.page.path}-copy`
+  const newPath = await dialogs.prompt({
+    title: 'Duplicate page',
+    message: 'Choose the path for the copied draft.',
+    inputLabel: 'New path',
+    defaultValue: suggested,
+    required: true,
+    confirmLabel: 'Duplicate',
+  })
+  if (!newPath?.trim()) return
+  const copy = await Api.copyPage(props.page.path, newPath.trim())
+  await router.push(`/_edit/${copy.path}`)
+}
+
 async function loadInsights(): Promise<void> {
   insightsLoading.value = true
   insightsError.value = null
   try {
     insights.value = await Api.pageInsights(props.page.path)
   } catch (e) {
-    insightsError.value = (e as Error).message
+    insightsError.value = friendlyError(e)
   } finally {
     insightsLoading.value = false
   }
@@ -127,7 +160,7 @@ async function createShareLink(): Promise<void> {
     shareMessage.value = t('shareReady')
     await copyShareLink()
   } catch (e) {
-    shareError.value = (e as Error).message
+    shareError.value = friendlyError(e)
   } finally {
     shareBusy.value = false
   }
@@ -142,7 +175,7 @@ async function revokeShareLink(): Promise<void> {
     share.value = null
     shareMessage.value = null
   } catch (e) {
-    shareError.value = (e as Error).message
+    shareError.value = friendlyError(e)
   } finally {
     shareBusy.value = false
   }
@@ -155,6 +188,7 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
   insights.value = null
   insightsError.value = null
   void loadShare()
+  void loadWatch()
 }, { immediate: true })
 </script>
 
@@ -179,9 +213,7 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
           <span>{{ t('space', { space: page.spaceKey }) }}</span>
           <span>{{ t('locale') }} {{ page.locale }}</span>
           <span>{{ t('updated', { date: updated }) }}</span>
-          <span class="rounded bg-gray-100 px-2 py-0.5 text-xs font-semibold capitalize text-gray-700 dark:bg-gray-800 dark:text-gray-200">
-            {{ page.status }}
-          </span>
+          <StatusBadge :status="page.status" />
           <span v-if="reviewDate">{{ t('review', { date: reviewDate }) }}</span>
         </div>
         <div v-if="labels.length" class="mt-3 flex flex-wrap gap-1.5">
@@ -200,6 +232,9 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
         <div class="flex flex-wrap justify-end gap-2">
           <button class="btn-ghost" type="button" @click="copyPath">
             {{ copied ? t('copied') : t('copyPath') }}
+          </button>
+          <button v-if="auth.isAuthed" class="btn-ghost" type="button" :disabled="watchBusy" :aria-pressed="watching" @click="toggleWatch">
+            {{ watching ? t('watching') : t('watch') }}
           </button>
           <button
             class="btn-ghost"
@@ -231,11 +266,13 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
           <RouterLink v-if="canEdit" :to="{ name: 'new', query: { path: childPath } }" class="btn-ghost">
             {{ t('newChild') }}
           </RouterLink>
+          <button v-if="canEdit" class="btn-ghost" type="button" @click="duplicatePage">Duplicate</button>
           <RouterLink :to="'/_history/' + page.path" class="btn-ghost">
             {{ t('history') }}
           </RouterLink>
           <a class="btn-ghost" :href="markdownExportUrl">{{ t('markdown') }}</a>
           <a class="btn-ghost" :href="htmlExportUrl">{{ t('html') }}</a>
+          <a class="btn-ghost" :href="printExportUrl" target="_blank" rel="noopener">Print/PDF</a>
           <RouterLink v-if="canEdit" :to="'/_edit/' + page.path" class="btn-primary">
             {{ t('edit') }}
           </RouterLink>

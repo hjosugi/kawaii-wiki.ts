@@ -10,7 +10,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { apiKeys, type ApiKey } from '../db/schema.ts'
 import type { AuthzService } from './authz.ts'
@@ -64,9 +64,6 @@ const toView = (row: ApiKey): ApiKeyView => ({
 })
 
 export const createApiKeyService = (db: DB, authz: AuthzService): ApiKeyService => {
-  const requireAdmin = (principal: Principal | null): Result<true, AppError> =>
-    requirePermission(principal, 'admin:access')
-
   const findById = (id: string): ApiKey | undefined =>
     db.select().from(apiKeys).where(eq(apiKeys.id, id)).get()
 
@@ -83,13 +80,13 @@ export const createApiKeyService = (db: DB, authz: AuthzService): ApiKeyService 
 
   return {
     list(principal) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       return ok(db.select().from(apiKeys).orderBy(asc(apiKeys.createdAt)).all().map(toView))
     },
 
     create(principal, input) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
 
       const name = input.name.trim()
@@ -124,7 +121,7 @@ export const createApiKeyService = (db: DB, authz: AuthzService): ApiKeyService 
     },
 
     revoke(principal, id) {
-      const allowed = requireAdmin(principal)
+      const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       const row = findById(id)
       if (!row) return err(notFound('API key not found'))

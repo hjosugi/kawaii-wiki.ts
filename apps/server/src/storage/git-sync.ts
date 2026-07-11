@@ -1,9 +1,10 @@
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import type { Services } from '../services/index.ts'
 import type { EventBus } from '../realtime/bus.ts'
 import type { GitEnv } from '../env.ts'
 import type { GitStorage, GitSyncHandlers } from './git.ts'
 import type { Page } from '../db/schema.ts'
+import { unrefTimer } from '../utils/timers.ts'
 
 export interface GitSyncPageWrite {
   readonly action: 'created' | 'updated' | 'deleted'
@@ -54,7 +55,7 @@ export const startGitSyncScheduler = (
   const timer = setInterval(() => {
     void git.sync(handlers).catch(onError)
   }, gitEnv.syncIntervalMs)
-  ;(timer as unknown as { unref?: () => void }).unref?.()
+  unrefTimer(timer)
   console.log(`[git] auto-sync every ${gitEnv.syncIntervalMs}ms -> ${gitEnv.remote}`)
 
   return () => clearInterval(timer)

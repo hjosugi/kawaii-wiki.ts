@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref } from 'vue'
 import { Api, type Page } from '@/lib/api'
 import { usePages } from '@/stores/pages'
@@ -11,23 +12,73 @@ const status = ref<Page['status']>('draft')
 const importing = ref(false)
 const loading = ref(false)
 const error = ref<string | null>(null)
+const resultMessage = ref('')
+
+const downloadBlob = (blob: Blob, filename: string): void => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 async function exportSite(): Promise<void> {
   loading.value = true
   error.value = null
   try {
     const backup = await Api.exportSite()
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ts-wiki-backup-${backup.exportedAt.slice(0, 10)}.json`
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' }), `kawaii-wiki.ts-backup-${backup.exportedAt.slice(0, 10)}.json`)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function exportZip(): Promise<void> {
+  loading.value = true
+  error.value = null
+  try {
+    downloadBlob(await Api.exportSiteZip(), `kawaii-wiki.ts-${new Date().toISOString().slice(0, 10)}.zip`)
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+async function importBackup(files: FileList | null): Promise<void> {
+  const file = files?.[0]
+  if (!file) return
+  importing.value = true
+  error.value = null
+  try {
+    const manifest = JSON.parse(await file.text()) as Parameters<typeof Api.importSite>[0]
+    const result = await Api.importSite(manifest)
+    const failed = result.results.filter((item) => !item.ok)
+    resultMessage.value = `Imported ${result.results.length - failed.length}/${result.results.length} pages${failed.length ? `; ${failed.length} failed` : ''}.`
+    await pagesStore.refresh()
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    importing.value = false
+  }
+}
+
+async function importBulk(files: FileList | null): Promise<void> {
+  if (!files?.length) return
+  importing.value = true
+  error.value = null
+  try {
+    const result = await Api.importBulk([...files])
+    const failed = result.results.filter((item) => !item.ok)
+    resultMessage.value = `Imported ${result.results.length - failed.length}/${result.results.length} Markdown files${failed.length ? `; ${failed.length} failed` : ''}.`
+    await pagesStore.refresh()
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    importing.value = false
   }
 }
 
@@ -47,7 +98,7 @@ async function importMarkdown(): Promise<void> {
     status.value = 'draft'
     await pagesStore.refresh()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     importing.value = false
   }
@@ -58,10 +109,15 @@ async function importMarkdown(): Promise<void> {
   <section>
     <h2 class="text-lg font-semibold mb-3">Backup and Import</h2>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
+    <p v-else-if="resultMessage" class="mb-3 text-sm text-emerald-700 dark:text-emerald-300">{{ resultMessage }}</p>
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
       <section class="card p-4">
         <h3 class="font-semibold mb-3">Site export</h3>
-        <button class="btn-primary" type="button" :disabled="loading" @click="exportSite">Download JSON</button>
+        <div class="flex flex-wrap gap-2">
+          <button class="btn-primary" type="button" :disabled="loading" @click="exportSite">Download JSON</button>
+          <button class="btn-ghost" type="button" :disabled="loading" @click="exportZip">Download Markdown ZIP</button>
+        </div>
+        <label class="mt-4 grid gap-1 text-sm"><span>Restore JSON backup</span><input type="file" accept="application/json,.json" :disabled="importing" @change="importBackup(($event.target as HTMLInputElement).files)" /></label>
       </section>
       <form class="card p-4 space-y-3" @submit.prevent="importMarkdown">
         <h3 class="font-semibold">Markdown import</h3>
@@ -71,6 +127,11 @@ async function importMarkdown(): Promise<void> {
         <select v-model="status" class="input" aria-label="Page status"><option value="draft">draft</option><option value="in-review">in-review</option><option value="verified">verified</option><option value="outdated">outdated</option></select>
         <button class="btn-primary" type="submit" :disabled="importing || !path || !content">{{ importing ? 'Importing...' : 'Import Markdown' }}</button>
       </form>
+      <section class="card p-4 lg:col-span-2">
+        <h3 class="font-semibold">Bulk Markdown import</h3>
+        <p class="mt-1 text-sm text-[var(--c-text-muted)]">Select multiple .md files or a ZIP. Folder paths become page paths.</p>
+        <input class="mt-3" type="file" accept="text/markdown,.md,application/zip,.zip" multiple :disabled="importing" @change="importBulk(($event.target as HTMLInputElement).files)" />
+      </section>
     </div>
   </section>
 </template>

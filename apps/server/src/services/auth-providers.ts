@@ -11,7 +11,7 @@ import {
   ok,
   unauthorized,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { AuthEnv } from '../env.ts'
 import type { DB } from '../db/client.ts'
 import { authAccounts, users, type User } from '../db/schema.ts'

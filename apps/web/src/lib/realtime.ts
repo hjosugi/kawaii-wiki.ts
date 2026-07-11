@@ -5,6 +5,7 @@
  */
 import { Api, getToken } from './api'
 import { API_BASE_URL } from './url'
+import { readonly, ref } from 'vue'
 
 export interface WikiEvent {
   type: 'page:changed'
@@ -16,6 +17,9 @@ export interface WikiEvent {
 type Listener = (event: WikiEvent) => void
 
 const listeners = new Set<Listener>()
+export type RealtimeStatus = 'connecting' | 'connected' | 'reconnecting' | 'offline'
+const status = ref<RealtimeStatus>(typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'connecting')
+export const realtimeStatus = readonly(status)
 let source: EventSource | null = null
 let opening = false
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
@@ -28,6 +32,7 @@ const clearReconnect = (): void => {
 
 const scheduleReconnect = (): void => {
   if (reconnectTimer) return
+  status.value = typeof navigator !== 'undefined' && navigator.onLine === false ? 'offline' : 'reconnecting'
   reconnectTimer = setTimeout(() => {
     reconnectTimer = null
     void openRealtime()
@@ -37,6 +42,7 @@ const scheduleReconnect = (): void => {
 export function connectRealtime(): void {
   if (source || opening) return
   clearReconnect()
+  status.value = 'connecting'
   void openRealtime()
 }
 
@@ -65,6 +71,9 @@ const openRealtime = async (): Promise<void> => {
   if (source) return
   const next = new EventSource(url)
   source = next
+  next.onopen = () => {
+    if (source === next) status.value = 'connected'
+  }
   next.onmessage = (msg) => {
     try {
       const event = JSON.parse(msg.data) as WikiEvent
@@ -81,6 +90,19 @@ const openRealtime = async (): Promise<void> => {
     source = null
     scheduleReconnect()
   }
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('offline', () => {
+    status.value = 'offline'
+  })
+  window.addEventListener('online', () => {
+    if (!source) {
+      clearReconnect()
+      status.value = 'connecting'
+      void openRealtime()
+    }
+  })
 }
 
 export function onWikiEvent(listener: Listener): () => void {
