@@ -24,6 +24,11 @@ Versioning; API compatibility details are in `docs/API.md`.
 - Added shared SQLite and libSQL user repository contract coverage for count,
   lookup, insert, update, and duplicate-email behavior.
 
+### Fixed
+
+- Removed the duplicate Admin view authentication redirect so the router's
+  authoritative admin guard cannot race component mounting on direct loads.
+
 ## [1.0.8] - 2026-07-11
 
 ### Changed

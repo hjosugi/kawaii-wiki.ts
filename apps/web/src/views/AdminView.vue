@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuth } from '@/stores/auth'
 import { useI18n } from '@/lib/i18n'
 
-const auth = useAuth()
 const router = useRouter()
 const { t } = useI18n()
 
@@ -66,10 +64,6 @@ function activatePanel(id: (typeof panels)[number]['id']): void {
 }
 
 onMounted(() => {
-  if (!auth.isAdmin) {
-    router.replace('/')
-    return
-  }
   syncPanelFromHash()
   window.addEventListener('hashchange', syncPanelFromHash)
 })
