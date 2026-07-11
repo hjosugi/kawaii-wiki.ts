@@ -1,4 +1,3 @@
-import { eq, asc } from 'drizzle-orm'
 import {
   type AppError,
   type Principal,
@@ -11,8 +10,7 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { pageComments, pages, users, type PageComment } from '../db/schema.ts'
+import type { CommentRecord, CommentRepository } from '../repositories/comments.ts'
 import type { SearchIndexer } from './search.ts'
 
 export interface CommentView {
@@ -38,12 +36,12 @@ export interface CommentPolicyView {
 }
 
 export interface CommentService {
-  policy(path: string, principal: Principal | null): Result<CommentPolicyView, AppError>
-  list(path: string): Result<CommentView[], AppError>
-  create(path: string, body: string, principal: Principal | null): Result<CommentView, AppError>
-  update(id: string, body: string, principal: Principal | null): Result<CommentView, AppError>
-  resolve(id: string, principal: Principal | null): Result<CommentView, AppError>
-  remove(id: string, principal: Principal | null): Result<{ id: string; path: string }, AppError>
+  policy(path: string, principal: Principal | null): Promise<Result<CommentPolicyView, AppError>>
+  list(path: string): Promise<Result<CommentView[], AppError>>
+  create(path: string, body: string, principal: Principal | null): Promise<Result<CommentView, AppError>>
+  update(id: string, body: string, principal: Principal | null): Promise<Result<CommentView, AppError>>
+  resolve(id: string, principal: Principal | null): Promise<Result<CommentView, AppError>>
+  remove(id: string, principal: Principal | null): Promise<Result<{ id: string; path: string }, AppError>>
 }
 
 const mentionsOf = (body: string): string[] => {
@@ -55,7 +53,7 @@ const mentionsOf = (body: string): string[] => {
   return [...seen]
 }
 
-const toView = (comment: PageComment, authorName: string | null): CommentView => ({
+const toView = (comment: CommentRecord, authorName: string | null): CommentView => ({
   id: comment.id,
   path: comment.path,
   body: comment.body,
@@ -67,19 +65,11 @@ const toView = (comment: PageComment, authorName: string | null): CommentView =>
   updatedAt: comment.updatedAt,
 })
 
-export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): CommentService => {
-  const findActivePage = (path: string) => {
-    const page = db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
-    return page?.lifecycle === 'active' ? page : null
-  }
+export const createCommentService = (repository: CommentRepository, searchIndexer?: SearchIndexer): CommentService => {
+  const nameOf = async (id: string | null): Promise<string | null> =>
+    id ? repository.findAuthorName(id) : null
 
-  const findComment = (id: string): PageComment | null =>
-    db.select().from(pageComments).where(eq(pageComments.id, id)).get() ?? null
-
-  const nameOf = (id: string | null): string | null =>
-    id ? (db.select({ name: users.name }).from(users).where(eq(users.id, id)).get()?.name ?? null) : null
-
-  const canMutate = (principal: Principal | null, comment: PageComment): boolean =>
+  const canMutate = (principal: Principal | null, comment: CommentRecord): boolean =>
     Boolean(principal && (principal.id === comment.authorId || requirePermission(principal, 'admin:access').ok))
 
   const cleanBody = (body: string): Result<string, AppError> => {
@@ -115,34 +105,28 @@ export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): Com
   }
 
   return {
-    policy(path, principal) {
-      const page = findActivePage(path)
+    async policy(path, principal) {
+      const page = await repository.findActivePage(normalizePath(path))
       if (!page) return err(notFound(`No page at "${path}"`))
       return ok(policyFor(page, principal))
     },
 
-    list(path) {
-      const page = findActivePage(path)
+    async list(path) {
+      const page = await repository.findActivePage(normalizePath(path))
       if (!page) return err(notFound(`No page at "${path}"`))
-      const rows = db
-        .select({ comment: pageComments, authorName: users.name })
-        .from(pageComments)
-        .leftJoin(users, eq(users.id, pageComments.authorId))
-        .where(eq(pageComments.pageId, page.id))
-        .orderBy(asc(pageComments.createdAt))
-        .all()
+      const rows = await repository.listByPageId(page.id)
       return ok(rows.map((row) => toView(row.comment, row.authorName ?? null)))
     },
 
-    create(path, body, principal) {
-      const page = findActivePage(path)
+    async create(path, body, principal) {
+      const page = await repository.findActivePage(normalizePath(path))
       if (!page) return err(notFound(`No page at "${path}"`))
       const commentPolicy = policyFor(page, principal)
       if (!commentPolicy.writable) return err(forbidden('Comments are not open to this account'))
       const clean = cleanBody(body)
       if (!clean.ok) return clean
       const now = Date.now()
-      const comment: PageComment = {
+      const comment: CommentRecord = {
         id: crypto.randomUUID(),
         pageId: page.id,
         path: page.path,
@@ -152,43 +136,38 @@ export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): Com
         createdAt: now,
         updatedAt: now,
       }
-      db.insert(pageComments).values(comment).run()
+      await repository.insert(comment)
       searchIndexer?.indexPageById(page.id)
-      return ok(toView(comment, nameOf(comment.authorId)))
+      return ok(toView(comment, await nameOf(comment.authorId)))
     },
 
-    update(id, body, principal) {
-      const comment = findComment(id)
+    async update(id, body, principal) {
+      const comment = await repository.findById(id)
       if (!comment) return err(notFound('Comment not found'))
       if (!canMutate(principal, comment)) return err(forbidden())
       const clean = cleanBody(body)
       if (!clean.ok) return clean
       const updated = { ...comment, body: clean.value, updatedAt: Date.now() }
-      db.update(pageComments)
-        .set({ body: updated.body, updatedAt: updated.updatedAt })
-        .where(eq(pageComments.id, id))
-        .run()
+      if (!await repository.updateBody(id, updated.body, updated.updatedAt)) return err(notFound('Comment not found'))
       searchIndexer?.indexPageById(comment.pageId)
-      return ok(toView(updated, nameOf(updated.authorId)))
+      return ok(toView(updated, await nameOf(updated.authorId)))
     },
 
-    resolve(id, principal) {
-      const comment = findComment(id)
+    async resolve(id, principal) {
+      const comment = await repository.findById(id)
       if (!comment) return err(notFound('Comment not found'))
       if (!canMutate(principal, comment)) return err(forbidden())
-      const updated = { ...comment, resolvedAt: Date.now(), updatedAt: Date.now() }
-      db.update(pageComments)
-        .set({ resolvedAt: updated.resolvedAt, updatedAt: updated.updatedAt })
-        .where(eq(pageComments.id, id))
-        .run()
-      return ok(toView(updated, nameOf(updated.authorId)))
+      const now = Date.now()
+      const updated = { ...comment, resolvedAt: now, updatedAt: now }
+      if (!await repository.resolve(id, now, now)) return err(notFound('Comment not found'))
+      return ok(toView(updated, await nameOf(updated.authorId)))
     },
 
-    remove(id, principal) {
-      const comment = findComment(id)
+    async remove(id, principal) {
+      const comment = await repository.findById(id)
       if (!comment) return err(notFound('Comment not found'))
       if (!canMutate(principal, comment)) return err(forbidden())
-      db.delete(pageComments).where(eq(pageComments.id, id)).run()
+      if (!await repository.delete(id)) return err(notFound('Comment not found'))
       searchIndexer?.indexPageById(comment.pageId)
       return ok({ id, path: comment.path })
     },
