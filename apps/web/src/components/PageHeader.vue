@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { friendlyError } from '@/lib/friendlyErrors'
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Api, type Page, type PageInsight, type PageShareView } from '@/lib/api'
 import WikiBreadcrumbs from '@/components/WikiBreadcrumbs.vue'
 import { useI18n } from '@/lib/i18n'
@@ -30,7 +30,36 @@ const insightsError = ref<string | null>(null)
 const insights = ref<PageInsight | null>(null)
 const watching = ref(false)
 const watchBusy = ref(false)
+const moreMenu = ref<HTMLDetailsElement | null>(null)
 const { formatDate, formatDateTime, t } = useI18n()
+
+const closeMoreMenu = (): void => {
+  moreMenu.value?.removeAttribute('open')
+}
+
+const closeMoreMenuOutside = (event: PointerEvent): void => {
+  const target = event.target as Node | null
+  if (moreMenu.value?.open && (!target || !moreMenu.value.contains(target))) closeMoreMenu()
+}
+
+const closeMoreMenuOnEscape = (event: KeyboardEvent): void => {
+  if (event.key === 'Escape') closeMoreMenu()
+}
+
+const closeMoreMenuAfterAction = (event: MouseEvent): void => {
+  const target = event.target as Element | null
+  if (target?.closest('button, a')) closeMoreMenu()
+}
+
+onMounted(() => {
+  document.addEventListener('pointerdown', closeMoreMenuOutside)
+  document.addEventListener('keydown', closeMoreMenuOnEscape)
+})
+
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', closeMoreMenuOutside)
+  document.removeEventListener('keydown', closeMoreMenuOnEscape)
+})
 
 const updated = computed(() =>
   formatDateTime(props.page.updatedAt),
@@ -183,6 +212,7 @@ async function revokeShareLink(): Promise<void> {
 }
 
 watch(() => [props.page.path, props.canEdit] as const, () => {
+  closeMoreMenu()
   shareMessage.value = null
   shareError.value = null
   insightsOpen.value = false
@@ -237,9 +267,9 @@ watch(() => [props.page.path, props.canEdit] as const, () => {
             <AppIcon name="edit" :size="16" />
             {{ t('editPage') }}
           </RouterLink>
-          <details class="relative">
+          <details ref="moreMenu" class="relative">
             <summary class="btn-ghost cursor-pointer list-none gap-1.5"><AppIcon name="more" :size="16" />{{ t('moreActions') }}</summary>
-            <div class="absolute right-0 z-20 mt-2 grid w-[min(18rem,calc(100vw-2rem))] rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-1 shadow-xl">
+            <div class="absolute right-0 z-20 mt-2 grid w-[min(18rem,calc(100vw-2rem))] rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-1 shadow-xl" @click="closeMoreMenuAfterAction">
               <button class="rounded px-3 py-2 text-left text-sm hover:bg-[var(--c-surface-muted)]" type="button" @click="copyPath">{{ copied ? t('copied') : t('copyPath') }}</button>
               <button class="rounded px-3 py-2 text-left text-sm hover:bg-[var(--c-surface-muted)]" type="button" :aria-expanded="insightsOpen" aria-controls="page-insights" @click="toggleInsights">{{ t('insights') }}</button>
               <button v-if="canEdit" class="rounded px-3 py-2 text-left text-sm hover:bg-[var(--c-surface-muted)]" type="button" :disabled="shareBusy" @click="share ? copyShareLink() : createShareLink()">{{ share ? t('copyShareLink') : t('share') }}</button>

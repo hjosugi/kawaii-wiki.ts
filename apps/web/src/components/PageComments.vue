@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, watch } from 'vue'
-import { Api, type PageComment } from '@/lib/api'
+import { Api, type CommentPolicyView, type PageComment } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
@@ -17,6 +17,7 @@ const draft = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
+const policy = ref<CommentPolicyView>({ mode: 'authenticated', visible: true, writable: false, groupKey: null })
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 const { formatDateTime, t } = useI18n()
 const dialogs = useDialogs()
@@ -32,7 +33,9 @@ async function load(): Promise<void> {
   loading.value = true
   error.value = null
   try {
-    comments.value = await Api.comments(props.path)
+    const result = await Api.comments(props.path)
+    comments.value = result.comments
+    policy.value = result.policy
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -80,7 +83,7 @@ watch(() => props.path, load, { immediate: true })
 </script>
 
 <template>
-  <section id="comments" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
+  <section v-if="policy.visible" id="comments" class="mt-10 border-t border-gray-200 pt-5 dark:border-gray-800">
     <div class="flex items-center justify-between gap-3">
       <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ t('comments') }}</h2>
       <span v-if="comments.length" class="text-xs text-[var(--c-text-muted)]">{{ comments.length }}</span>
@@ -104,7 +107,7 @@ watch(() => props.path, load, { immediate: true })
               v-html="renderBody(comment.body)"
             ></div>
             <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-gray-500">
-              <span v-if="comment.authorName" class="font-medium text-gray-700 dark:text-gray-300">{{ comment.authorName }}</span>
+              <span class="font-medium text-gray-700 dark:text-gray-300">{{ comment.authorName || t('anonymous') }}</span>
               <span>{{ formatDateTime(comment.createdAt) }}</span>
               <span v-if="comment.mentions.length">
                 {{ t('mentions', { names: comment.mentions.map((m) => '@' + m).join(', ') }) }}
@@ -125,7 +128,7 @@ watch(() => props.path, load, { immediate: true })
       <p v-if="!comments.length" class="text-sm text-gray-500">{{ t('noCommentsYet') }}</p>
     </div>
 
-    <form v-if="auth.isAuthed" class="comments-form mt-4 space-y-2" @submit.prevent="submit">
+    <form v-if="policy.writable" class="comments-form mt-4 space-y-2" @submit.prevent="submit">
       <textarea
         v-model="draft"
         class="input min-h-24"
@@ -136,6 +139,8 @@ watch(() => props.path, load, { immediate: true })
         {{ saving ? t('posting') : t('postComment') }}
       </button>
     </form>
-    <RouterLink v-else to="/_login" class="btn-ghost mt-4">{{ t('signInToComment') }}</RouterLink>
+    <RouterLink v-else-if="!auth.isAuthed && policy.mode !== 'read-only'" to="/_login" class="btn-ghost mt-4">{{ t('signInToComment') }}</RouterLink>
+    <p v-else-if="policy.mode === 'read-only'" class="mt-4 text-sm text-[var(--c-text-muted)]">{{ t('commentsReadOnly') }}</p>
+    <p v-else-if="policy.mode === 'group'" class="mt-4 text-sm text-[var(--c-text-muted)]">{{ t('commentsGroupOnly', { group: policy.groupKey || '' }) }}</p>
   </section>
 </template>

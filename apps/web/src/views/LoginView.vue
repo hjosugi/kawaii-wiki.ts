@@ -3,7 +3,7 @@ import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { useRoute, useRouter } from 'vue-router'
-import { Api, setToken, type PublicAuthProvider } from '@/lib/api'
+import { Api, ApiClientError, setToken, type PublicAuthProvider } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { useI18n } from '@/lib/i18n'
 
@@ -19,6 +19,7 @@ const email = ref('')
 const name = ref('')
 const password = ref('')
 const totpCode = ref('')
+const requiresTotp = ref(false)
 const error = ref<string | null>(null)
 const notice = ref<string | null>(null)
 const busy = ref(false)
@@ -54,6 +55,7 @@ const helperText = computed(() => {
   if (mode.value === 'forgot') return t('passwordResetPrompt')
   if (mode.value === 'reset') return t('chooseNewPassword')
   if (mode.value === 'mfa-setup') return t('twoFactorSetupRequired')
+  if (mode.value === 'login' && requiresTotp.value) return t('twoFactorSignInPrompt')
   return t('welcomeBack')
 })
 
@@ -72,6 +74,7 @@ const submitDisabled = computed(() => {
   if (mode.value === 'reset') return !resetToken.value || !password.value
   if (mode.value === 'mfa-setup' && mfaRecoveryCodes.value.length) return false
   if (mode.value === 'mfa-setup') return !mfaSetupToken.value || !mfaSecret.value || !mfaCode.value
+  if (mode.value === 'login' && requiresTotp.value) return !totpCode.value.trim()
   return !email.value || !password.value
 })
 
@@ -80,7 +83,15 @@ function switchMode(next: LoginMode): void {
   error.value = null
   notice.value = null
   mfaRecoveryCodes.value = []
+  requiresTotp.value = false
+  totpCode.value = ''
   busy.value = false
+}
+
+function returnToPassword(): void {
+  requiresTotp.value = false
+  totpCode.value = ''
+  error.value = null
 }
 
 async function copyMfaRecoveryCodes(): Promise<void> {
@@ -146,6 +157,17 @@ async function submit(): Promise<void> {
     }
     finishLogin()
   } catch (e) {
+    if (
+      mode.value === 'login'
+      && !requiresTotp.value
+      && e instanceof ApiClientError
+      && e.rawMessage === 'Two-factor code required or invalid'
+    ) {
+      requiresTotp.value = true
+      error.value = null
+      busy.value = false
+      return
+    }
     error.value = friendlyError(e)
     busy.value = false
   }
@@ -226,10 +248,10 @@ onMounted(async () => {
     </p>
 
     <form class="space-y-3" @submit.prevent="submit">
-      <input v-if="mode !== 'reset' && mode !== 'mfa-setup'" v-model="email" class="input" :placeholder="t('email')" :aria-label="t('email')" autocomplete="username" />
+      <input v-if="mode !== 'reset' && mode !== 'mfa-setup' && !(mode === 'login' && requiresTotp)" v-model="email" class="input" :placeholder="t('email')" :aria-label="t('email')" autocomplete="username" />
       <input v-if="mode === 'register'" v-model="name" class="input" :placeholder="t('displayName')" :aria-label="t('displayName')" />
       <input
-        v-if="mode !== 'forgot' && mode !== 'mfa-setup'"
+        v-if="mode !== 'forgot' && mode !== 'mfa-setup' && !(mode === 'login' && requiresTotp)"
         v-model="password"
         type="password"
         class="input"
@@ -238,12 +260,12 @@ onMounted(async () => {
         :autocomplete="mode === 'reset' || mode === 'register' ? 'new-password' : 'current-password'"
       />
       <input
-        v-if="mode === 'login'"
+        v-if="mode === 'login' && requiresTotp"
         v-model="totpCode"
         class="input"
-        inputmode="text"
-        :placeholder="t('twoFactorOrRecoveryCode')"
-        :aria-label="t('twoFactorOrRecoveryCode')"
+        inputmode="numeric"
+        :placeholder="t('twoFactorCodeOrRecoveryCode')"
+        :aria-label="t('twoFactorCodeOrRecoveryCode')"
         autocomplete="one-time-code"
       />
       <div v-if="mode === 'mfa-setup' && !mfaRecoveryCodes.length" class="space-y-2">
@@ -268,9 +290,12 @@ onMounted(async () => {
       <button class="btn-primary w-full justify-center" :disabled="submitDisabled">
         {{ submitLabel }}
       </button>
+      <button v-if="mode === 'login' && requiresTotp" class="btn-ghost w-full justify-center" type="button" @click="returnToPassword">
+        {{ t('backToPassword') }}
+      </button>
     </form>
 
-    <div v-if="mode === 'login'" class="mt-4 space-y-2">
+    <div v-if="mode === 'login' && !requiresTotp" class="mt-4 space-y-2">
       <button class="btn-ghost w-full justify-center" type="button" :disabled="busy" @click="signInWithPasskey">
         {{ t('signInWithPasskey') }}
       </button>

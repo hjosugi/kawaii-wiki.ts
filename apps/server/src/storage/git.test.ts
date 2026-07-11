@@ -142,6 +142,26 @@ describe('git storage', () => {
     rmSync(cfg.root, { recursive: true, force: true })
   }, GIT_TEST_TIMEOUT_MS)
 
+  test('source-of-truth sync reconciles the complete tracked page set once', async () => {
+    const cfg = mkConfig()
+    const git = createGitStorage({ ...cfg, sourceOfTruth: true })
+    await git.init()
+    await git.savePage({ path: 'docs/kept', title: 'Kept', description: '', content: 'x' })
+    const reconciliations: string[][] = []
+    const handlers = {
+      upsert: () => {},
+      remove: () => {},
+      reconcile: (paths: readonly string[]) => reconciliations.push([...paths]),
+    }
+
+    await git.sync(handlers)
+    await git.sync(handlers)
+
+    expect(reconciliations).toEqual([['docs/kept']])
+    expect((await git.status()).sourceOfTruth).toBe(true)
+    rmSync(cfg.root, { recursive: true, force: true })
+  }, GIT_TEST_TIMEOUT_MS)
+
   test('our own push is NOT re-imported (no loop)', async () => {
     const cfg = mkConfig()
     const git = createGitStorage(cfg)

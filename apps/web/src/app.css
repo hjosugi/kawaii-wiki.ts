@@ -8,6 +8,7 @@
   --c-text-muted: #4b5563;
   --c-border: #e5e7eb;
   --c-code-bg: #f6f8fa;
+  --c-code-text: #24292f;
   --c-shadow: rgb(0 0 0 / 0.04);
   --accent: #c2185b;
   --c-accent: var(--accent);
@@ -28,6 +29,7 @@
   --c-text-muted: #d1d5db;
   --c-border: #1f2937;
   --c-code-bg: #0d1117;
+  --c-code-text: #e6edf3;
   --c-shadow: rgb(0 0 0 / 0.28);
   --c-accent-text: color-mix(in srgb, var(--c-accent) 68%, #ffffff);
 }
@@ -56,6 +58,7 @@ html[data-theme-preset='kawaii'] {
   --c-text-muted: #735266;
   --c-border: #ffd6e7;
   --c-code-bg: #fff4f9;
+  --c-code-text: #38212f;
   --c-shadow: rgb(236 72 153 / 0.11);
 }
 
@@ -67,6 +70,7 @@ html.dark[data-theme-preset='kawaii'] {
   --c-text-muted: #f6cfe1;
   --c-border: #5f334e;
   --c-code-bg: #20131d;
+  --c-code-text: #fff1f7;
 }
 
 html[data-theme-preset='pop'] {
@@ -77,6 +81,7 @@ html[data-theme-preset='pop'] {
   --c-text-muted: #526173;
   --c-border: #bbe6ef;
   --c-code-bg: #eefaff;
+  --c-code-text: #163044;
   --c-shadow: rgb(14 165 233 / 0.10);
 }
 
@@ -88,6 +93,7 @@ html.dark[data-theme-preset='pop'] {
   --c-text-muted: #add9e5;
   --c-border: #245968;
   --c-code-bg: #081b20;
+  --c-code-text: #e6fbff;
 }
 
 html[data-theme-preset='minimal'] {
@@ -98,6 +104,7 @@ html[data-theme-preset='minimal'] {
   --c-text-muted: #63635d;
   --c-border: #deded9;
   --c-code-bg: #f4f4f2;
+  --c-code-text: #202124;
   --c-shadow: rgb(0 0 0 / 0.035);
 }
 
@@ -109,6 +116,7 @@ html.dark[data-theme-preset='minimal'] {
   --c-text-muted: #b8b8b0;
   --c-border: #343432;
   --c-code-bg: #151515;
+  --c-code-text: #f3f4f6;
 }
 
 html[data-theme-preset='gamer'] {
@@ -119,6 +127,7 @@ html[data-theme-preset='gamer'] {
   --c-text-muted: #a7d6c5;
   --c-border: #1d4d42;
   --c-code-bg: #061714;
+  --c-code-text: #e9fff6;
   --c-shadow: rgb(20 184 166 / 0.16);
 }
 
@@ -130,6 +139,7 @@ html.dark[data-theme-preset='gamer'] {
   --c-text-muted: #9fe2ce;
   --c-border: #1b5548;
   --c-code-bg: #04110e;
+  --c-code-text: #ecfff8;
 }
 
 body {
@@ -654,7 +664,7 @@ main:focus {
 /* Rendered markdown: make code blocks (highlight.js) sit nicely inside prose. */
 .prose pre {
   background: var(--c-code-bg);
-  color: var(--c-text);
+  color: var(--c-code-text);
   border: 1px solid var(--c-border);
   border-radius: var(--radius);
   padding: 0.9rem 1.1rem;
@@ -662,12 +672,21 @@ main:focus {
 }
 
 .prose pre > code {
-  color: inherit;
+  color: var(--c-code-text);
 }
 
+.prose pre code,
 .prose pre code.hljs {
   background: transparent;
+  color: var(--c-code-text);
   padding: 0;
+}
+
+/* The highlight stylesheet is loaded lazily after the application CSS. Keep
+   plain-text code readable even when that stylesheet's default palette wins
+   the cascade. Token-specific colours remain available in highlighted code. */
+.prose pre code.hljs:not(:has(span)) {
+  color: var(--c-code-text);
 }
 
 .dark .hljs {
@@ -1935,6 +1954,7 @@ html.dark {
 .page-tree-folder {
   min-height: 1.75rem;
   padding-top: 0.25rem;
+  padding-left: 0.5rem;
   padding-right: 0.5rem;
   padding-bottom: 0.25rem;
   border-radius: 0.375rem;
@@ -1951,7 +1971,9 @@ html.dark {
 }
 
 .page-tree-folder {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .page-tree-line {
@@ -2062,6 +2084,16 @@ html.dark {
 
 .page-tree-row-active svg {
   color: var(--c-accent);
+}
+
+@media (min-width: 64rem) {
+  .app-header-search {
+    position: absolute;
+    left: 50%;
+    width: min(32rem, 34vw);
+    max-width: none;
+    transform: translateX(-50%);
+  }
 }
 
 .page-tree-folder {
@@ -2222,6 +2254,7 @@ html.dark {
 }
 
 .interactive-graph-compact .interactive-graph-canvas {
+  height: 14.5rem;
   min-height: 14.5rem;
 }
 

@@ -82,6 +82,7 @@ const CREDENTIAL_RATE_LIMIT_ATTEMPTS = 10
 const ASSET_UPLOAD_RATE_LIMIT_ATTEMPTS = 20
 const UNFURL_RATE_LIMIT_ATTEMPTS = 30
 const PRIVATE_ANON_READ_RATE_LIMIT_ATTEMPTS = 120
+const COMMENT_RATE_LIMIT_ATTEMPTS = 10
 const RATE_LIMIT_WINDOW_MS = 60_000
 const REALTIME_TICKET_TTL_MS = 30_000
 
@@ -151,6 +152,7 @@ export const createApp = ({
   const assetUploadLimiter = createAppRateLimiter(ASSET_UPLOAD_RATE_LIMIT_ATTEMPTS)
   const unfurlLimiter = createAppRateLimiter(UNFURL_RATE_LIMIT_ATTEMPTS)
   const privateAnonReadLimiter = createAppRateLimiter(PRIVATE_ANON_READ_RATE_LIMIT_ATTEMPTS)
+  const commentLimiter = createAppRateLimiter(COMMENT_RATE_LIMIT_ATTEMPTS)
   const webIndex = join(env.webDistDir, 'index.html')
   const hasWebDist = existsSync(webIndex)
   const requestStartedAt = new WeakMap<Request, number>()
@@ -340,6 +342,14 @@ export const createApp = ({
     )
   }
 
+  const enforceCommentLimit = (
+    request: Request,
+    server: RequestIpServer | null | undefined,
+    principal: Principal | null,
+  ): void => {
+    enforceRateLimit(commentLimiter, request, server, 'comment:create', principal, 'Too many comments; try again later')
+  }
+
   const privateAnonymousReadPaths = new Set([
     '/api/pages',
     '/api/page',
@@ -409,9 +419,6 @@ export const createApp = ({
     },
   }
   const git = createGitStorage(gitConfig)
-  if (git.enabled) {
-    void git.init().catch((error) => logger.warn({ type: 'git', action: 'init_failed', error }))
-  }
 
   const gitAuthor = (id: string | undefined): { name: string; email: string } | null => {
     if (!id) return null
@@ -446,11 +453,25 @@ export const createApp = ({
         : mirror === 'move' && page && from
           ? git.movePage(from, page, gitAuthor(principal?.id))
           : null
-    if (mirrorWrite) void mirrorWrite.catch((error) => {
-      const message = error instanceof Error ? error.message : String(error)
-      logger.warn({ type: 'git', action: 'mirror_failed', path: targetPath, error: message })
-      audit(logger, 'git.sync.error', { userId: principal?.id ?? null, path: targetPath, operation: mirror, message })
-    })
+    if (mirrorWrite) {
+      if (env.git.sourceOfTruth) {
+        try {
+          await mirrorWrite
+          await git.sync(gitSyncHandlers)
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error)
+          logger.warn({ type: 'git', action: 'mirror_failed', path: targetPath, error: message })
+          audit(logger, 'git.sync.error', { userId: principal?.id ?? null, path: targetPath, operation: mirror, message })
+          throw error
+        }
+      } else {
+        void mirrorWrite.catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+          logger.warn({ type: 'git', action: 'mirror_failed', path: targetPath, error: message })
+          audit(logger, 'git.sync.error', { userId: principal?.id ?? null, path: targetPath, operation: mirror, message })
+        })
+      }
+    }
     audit(logger, auditAction, { userId: principal?.id ?? null, path: targetPath, ...auditData })
     if (automation) await publishAutomation(automation)
   }
@@ -458,6 +479,7 @@ export const createApp = ({
   const gitSyncHandlers = createGitSyncHandlers({
     services,
     bus,
+    authoritative: env.git.sourceOfTruth,
     onPageWrite: (write) => {
       void pageWriteEffects({
         action: write.action,
@@ -477,6 +499,20 @@ export const createApp = ({
       })
     },
   })
+
+  const gitReady = env.git.sourceOfTruth
+    ? git.init()
+      .then(() => git.sync(gitSyncHandlers))
+      .then(() => undefined)
+      .catch((error) => {
+        logger.error({ type: 'git', action: 'source_of_truth_initialization_failed', error })
+        throw error
+      })
+    : Promise.resolve()
+
+  if (git.enabled && !env.git.sourceOfTruth) {
+    void git.init().catch((error) => logger.warn({ type: 'git', action: 'init_failed', error }))
+  }
 
   startGitSyncScheduler(git, env.git, gitSyncHandlers, (error) =>
     logger.warn({ type: 'git', action: 'auto_sync_failed', error }),
@@ -524,6 +560,7 @@ export const createApp = ({
     markRequestStarted: (request) => {
       requestStartedAt.set(request, Date.now())
     },
+    waitUntilReady: () => gitReady,
   })
     .use(openapi({
       path: '/api/docs',
@@ -567,6 +604,7 @@ export const createApp = ({
       emitPageChanged,
       pageWriteEffects,
       publishAutomation,
+      enforceCommentLimit,
     }))
     .use(createPreferenceRoutes())
     .use(createNotificationRoutes())

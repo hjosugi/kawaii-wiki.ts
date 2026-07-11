@@ -12,6 +12,22 @@ describe('loadEnv', () => {
     expect(env.auth.privateWiki).toBe(true)
   })
 
+  test('validates Git source-of-truth mode', () => {
+    const env = loadEnv({
+      KAWAII_WIKI_GIT_ENABLED: 'true',
+      KAWAII_WIKI_GIT_SOURCE_OF_TRUTH: 'true',
+      KAWAII_WIKI_GIT_REMOTE_URL: 'git@github.com:owner/wiki-content.git',
+    })
+
+    expect(env.git.sourceOfTruth).toBe(true)
+    expect(env.git.remoteUrl).toBe('git@github.com:owner/wiki-content.git')
+    expect(() => loadEnv({ KAWAII_WIKI_GIT_SOURCE_OF_TRUTH: 'true' })).toThrow(/GIT_ENABLED/)
+    expect(() => loadEnv({
+      KAWAII_WIKI_GIT_ENABLED: 'true',
+      KAWAII_WIKI_GIT_SOURCE_OF_TRUTH: 'true',
+    })).toThrow(/GIT_REMOTE_URL/)
+  })
+
   test('keeps local/dev startup permissive with the default JWT secret', () => {
     const env = loadEnv({})
 

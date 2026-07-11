@@ -3,6 +3,31 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.7] - 2026-07-11
+
+### Added
+
+- Git source-of-truth mode, which waits for the configured content repository
+  at startup and reconciles database-only pages.
+- Page comment policies for hidden, read-only, signed-in, group-only, and
+  rate-limited anonymous posting.
+- Direct page attachments, a localized shared file picker, and visual
+  regression tests for the Minimal theme and core page layout.
+
+### Changed
+
+- Centered and simplified the header, compacted page graphs, clarified display
+  settings and staged two-factor login, and redesigned redirect management.
+- Made `hjosugi/kawaii-wiki.ts-doc` the authoritative Markdown source for the
+  deployed documentation site.
+
+### Fixed
+
+- Restored confirmation buttons removed by production CSS extraction and made
+  page action menus close on outside click and Escape.
+- Fixed page-tree icon clipping, duplicate New page symbols, and native English
+  file inputs on Japanese screens.
+
 ## [1.0.6] - 2026-07-11
 
 ### Fixed

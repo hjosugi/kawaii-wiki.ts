@@ -30,11 +30,9 @@ const { t } = useI18n()
 const { markdownFeatures } = useMarkdownFeatures()
 const reading = useReadingPreferences()
 const readingFontSizes = ['small', 'medium', 'large'] as const
-const GRAPH_PREFERENCE_KEY = 'kawaii-wiki:page-graph-visible'
-const storedGraphPreference = typeof window === 'undefined' ? null : window.localStorage.getItem(GRAPH_PREFERENCE_KEY)
-const graphVisible = ref(storedGraphPreference === null
-  ? false
-  : storedGraphPreference === 'true')
+// A graph is a secondary aid, so every page starts with the article visible
+// and the graph closed. Opening it is intentionally scoped to this view.
+const graphVisible = ref(false)
 const graphLoading = ref(false)
 
 const page = ref<Page | null>(null)
@@ -80,7 +78,6 @@ const renderedContent = computed(() => {
 
 async function setGraphVisible(next: boolean): Promise<void> {
   graphVisible.value = next
-  window.localStorage.setItem(GRAPH_PREFERENCE_KEY, String(next))
   if (!next || graph.value.nodes.length || graphLoading.value) return
   graphLoading.value = true
   try {
@@ -226,7 +223,7 @@ onUnmounted(stopRealtime)
           {{ graphVisible ? t('hideGraph') : t('showGraph') }}
         </button>
       </div>
-      <div v-if="graphVisible" class="mb-5 xl:hidden">
+      <div v-if="graphVisible" class="page-inline-graph mb-5 max-w-2xl xl:hidden">
         <Skeleton v-if="graphLoading" :label="t('loading')" :lines="3" />
         <InteractiveGraph v-else :graph="graph" :focus-path="page.path" compact />
       </div>

@@ -28,7 +28,17 @@ export interface CommentView {
   readonly updatedAt: number
 }
 
+export type CommentAccessMode = 'off' | 'read-only' | 'authenticated' | 'group' | 'open'
+
+export interface CommentPolicyView {
+  readonly mode: CommentAccessMode
+  readonly visible: boolean
+  readonly writable: boolean
+  readonly groupKey: string | null
+}
+
 export interface CommentService {
+  policy(path: string, principal: Principal | null): Result<CommentPolicyView, AppError>
   list(path: string): Result<CommentView[], AppError>
   create(path: string, body: string, principal: Principal | null): Result<CommentView, AppError>
   update(id: string, body: string, principal: Principal | null): Result<CommentView, AppError>
@@ -79,7 +89,38 @@ export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): Com
     return ok(clean)
   }
 
+  const policyFor = (page: { labels: string }, principal: Principal | null): CommentPolicyView => {
+    const labels = new Set<string>()
+    try {
+      const parsed = JSON.parse(page.labels) as unknown
+      if (Array.isArray(parsed)) for (const label of parsed) if (typeof label === 'string') labels.add(label)
+    } catch {
+      // Invalid legacy labels fall back to the safe authenticated default.
+    }
+    const groupLabel = [...labels].find((label) => label.startsWith('kawaii-wiki-comments-group-'))
+    const groupKey = groupLabel?.slice('kawaii-wiki-comments-group-'.length).trim() || null
+    const mode: CommentAccessMode = labels.has('kawaii-wiki-comments-off')
+      ? 'off'
+      : labels.has('kawaii-wiki-comments-read-only')
+        ? 'read-only'
+        : labels.has('kawaii-wiki-comments-open')
+          ? 'open'
+          : groupKey
+            ? 'group'
+            : 'authenticated'
+    const writable = mode === 'open'
+      || (mode === 'authenticated' && Boolean(principal && requirePermission(principal, 'comment:write').ok))
+      || (mode === 'group' && Boolean(principal?.groups?.includes(groupKey ?? '')))
+    return { mode, visible: mode !== 'off', writable, groupKey }
+  }
+
   return {
+    policy(path, principal) {
+      const page = findActivePage(path)
+      if (!page) return err(notFound(`No page at "${path}"`))
+      return ok(policyFor(page, principal))
+    },
+
     list(path) {
       const page = findActivePage(path)
       if (!page) return err(notFound(`No page at "${path}"`))
@@ -94,10 +135,10 @@ export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): Com
     },
 
     create(path, body, principal) {
-      const allowed = requirePermission(principal, 'comment:write', { path })
-      if (!principal || !allowed.ok) return allowed.ok ? err(forbidden()) : allowed
       const page = findActivePage(path)
       if (!page) return err(notFound(`No page at "${path}"`))
+      const commentPolicy = policyFor(page, principal)
+      if (!commentPolicy.writable) return err(forbidden('Comments are not open to this account'))
       const clean = cleanBody(body)
       if (!clean.ok) return clean
       const now = Date.now()
@@ -106,7 +147,7 @@ export const createCommentService = (db: DB, searchIndexer?: SearchIndexer): Com
         pageId: page.id,
         path: page.path,
         body: clean.value,
-        authorId: principal.id,
+        authorId: principal?.id ?? null,
         resolvedAt: null,
         createdAt: now,
         updatedAt: now,

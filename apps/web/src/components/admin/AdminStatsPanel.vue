@@ -5,12 +5,14 @@ import { Api, type AdminStats, type AnalyticsSummary, type SearchIndexStatus } f
 import Skeleton from '@/components/Skeleton.vue'
 import { useDialogs } from '@/composables/useDialogs'
 import { useAsyncData } from '@/composables/useAsyncData'
+import { useI18n } from '@/lib/i18n'
 
 const stats = ref<AdminStats | null>(null)
 const analytics = ref<AnalyticsSummary | null>(null)
 const searchIndex = ref<SearchIndexStatus | null>(null)
 const rebuilding = ref(false)
 const dialogs = useDialogs()
+const { t } = useI18n()
 
 const { loading, error, reload: load } = useAsyncData(async () => {
   const [nextStats, nextAnalytics, nextSearchIndex] = await Promise.all([
@@ -44,19 +46,20 @@ async function rebuildAsTrigram(): Promise<void> {
 
 <template>
   <section class="space-y-6">
+    <h2 class="text-xl font-semibold">{{ t('adminStats') }}</h2>
     <p v-if="error" class="text-sm text-red-600">{{ error }}</p>
     <Skeleton v-if="loading" label="Loading admin stats" title :lines="4" />
     <div v-if="stats" class="grid grid-cols-3 gap-4 max-w-xl">
       <div class="card p-4">
-        <div class="text-3xl font-bold">{{ stats.users }}</div>
+        <div class="text-2xl font-bold">{{ stats.users }}</div>
         <div class="text-sm text-[var(--c-text-muted)] mt-1">Users</div>
       </div>
       <div class="card p-4">
-        <div class="text-3xl font-bold">{{ stats.pages }}</div>
+        <div class="text-2xl font-bold">{{ stats.pages }}</div>
         <div class="text-sm text-[var(--c-text-muted)] mt-1">Pages</div>
       </div>
       <div class="card p-4">
-        <div class="text-3xl font-bold">{{ stats.revisions }}</div>
+        <div class="text-2xl font-bold">{{ stats.revisions }}</div>
         <div class="text-sm text-[var(--c-text-muted)] mt-1">Revisions</div>
       </div>
     </div>
@@ -92,7 +95,7 @@ async function rebuildAsTrigram(): Promise<void> {
     <div v-if="analytics" class="max-w-xl">
       <h2 class="text-lg font-semibold mb-3">Insights</h2>
       <div class="card p-4">
-        <div class="text-3xl font-bold">{{ analytics.totalViews }}</div>
+        <div class="text-2xl font-bold">{{ analytics.totalViews }}</div>
         <div class="text-sm text-[var(--c-text-muted)] mt-1">Total page views</div>
         <div v-if="analytics.topPages.length" class="mt-4 space-y-2">
           <RouterLink

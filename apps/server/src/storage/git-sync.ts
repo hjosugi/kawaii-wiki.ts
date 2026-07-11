@@ -18,6 +18,7 @@ export interface GitSyncRuntimeDeps {
   readonly bus: EventBus
   readonly systemPrincipal?: Principal
   readonly onPageWrite?: (write: GitSyncPageWrite) => void
+  readonly authoritative?: boolean
 }
 
 const DEFAULT_SYSTEM: Principal = { id: 'git-sync', role: 'admin' }
@@ -27,6 +28,7 @@ export const createGitSyncHandlers = ({
   bus,
   systemPrincipal = DEFAULT_SYSTEM,
   onPageWrite,
+  authoritative = false,
 }: GitSyncRuntimeDeps): GitSyncHandlers => ({
   upsert: (path, file) => {
     const result = services.pages.upsertFromFile(path, file, {}, systemPrincipal)
@@ -42,6 +44,20 @@ export const createGitSyncHandlers = ({
       else bus.emit({ type: 'page:changed', action: 'deleted', path })
     }
   },
+  reconcile: authoritative
+    ? (trackedPaths) => {
+        const tracked = new Set(trackedPaths)
+        for (const page of services.pages.allActive()) {
+          if (!tracked.has(page.path)) {
+            const result = services.pages.remove(page.path, systemPrincipal)
+            if (result.ok) {
+              if (onPageWrite) onPageWrite({ action: 'deleted', path: page.path, principal: systemPrincipal })
+              else bus.emit({ type: 'page:changed', action: 'deleted', path: page.path })
+            }
+          }
+        }
+      }
+    : undefined,
 })
 
 export const startGitSyncScheduler = (

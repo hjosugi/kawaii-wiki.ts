@@ -2,6 +2,9 @@ import { defineConfig, presetUno, presetTypography } from 'unocss'
 import type { Theme } from '@unocss/preset-mini'
 
 const unoConfig = defineConfig({
+  // Some shared controls select a shortcut dynamically. Keep their complete
+  // styles in production builds instead of relying on static class extraction.
+  safelist: ['btn', 'btn-primary', 'btn-ghost', 'btn-danger'],
   presets: [
     // `dark: 'class'` → dark mode is driven by a `.dark` class on <html>, which
     // useTheme() sets from the user's choice (or the OS in system mode).

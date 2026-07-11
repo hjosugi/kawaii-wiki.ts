@@ -7,6 +7,7 @@ import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
 import { setDateFormatSettings, useI18n } from '@/lib/i18n'
 import Skeleton from '@/components/Skeleton.vue'
 import { useAsyncData } from '@/composables/useAsyncData'
+import FileInput from '@/components/FileInput.vue'
 
 type EditablePublicSettings = { -readonly [K in keyof PublicSettings]: PublicSettings[K] }
 type ThemePreset = PublicSettings['themePreset']
@@ -254,7 +255,7 @@ async function uploadBrandAsset(kind: 'logo' | 'favicon' | 'background', files: 
           <label v-else class="space-y-1">
             <span class="font-medium">{{ t('backgroundImage') }}</span>
             <input v-model="settings.background.value" class="input" placeholder="/assets/background.jpg" />
-            <input class="text-sm" type="file" accept="image/*" aria-label="Upload background" @change="uploadBrandAsset('background', ($event.target as HTMLInputElement).files)" />
+            <FileInput accept="image/*" aria-label="Upload background" @change="uploadBrandAsset('background', $event)" />
             <span v-if="uploading === 'background'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
           </label>
           <label class="space-y-1">
@@ -296,13 +297,13 @@ async function uploadBrandAsset(kind: 'logo' | 'favicon' | 'background', files: 
         <label class="space-y-1 text-sm">
           <span class="font-medium">{{ t('logoUrl') }}</span>
           <input v-model="settings.logoUrl" class="input" placeholder="/assets/logo.png" />
-          <input class="text-sm" type="file" accept="image/*" aria-label="Upload logo" @change="uploadBrandAsset('logo', ($event.target as HTMLInputElement).files)" />
+          <FileInput accept="image/*" aria-label="Upload logo" @change="uploadBrandAsset('logo', $event)" />
           <span v-if="uploading === 'logo'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
         </label>
         <label class="space-y-1 text-sm">
           <span class="font-medium">{{ t('faviconUrl') }}</span>
           <input v-model="settings.faviconUrl" class="input" placeholder="/assets/favicon.png" />
-          <input class="text-sm" type="file" accept="image/*" aria-label="Upload favicon" @change="uploadBrandAsset('favicon', ($event.target as HTMLInputElement).files)" />
+          <FileInput accept="image/*" aria-label="Upload favicon" @change="uploadBrandAsset('favicon', $event)" />
           <span v-if="uploading === 'favicon'" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
         </label>
       </div>

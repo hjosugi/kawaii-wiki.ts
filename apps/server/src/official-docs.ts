@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import type { PageInput, PageStatus } from '@kawaii-wiki/core'
 
-export const OFFICIAL_DOCS_VERSION = '1.0.5'
+export const OFFICIAL_DOCS_VERSION = '1.0.7'
 
 export interface OfficialDocumentationPage extends PageInput {
   readonly path: string
@@ -75,7 +75,7 @@ const referencePage = (
 export const officialDocumentationPages: readonly OfficialDocumentationPage[] = [
   page('docs/home', 'kawaii-wiki.ts ドキュメント', '利用者・管理者・開発者向けの公式ガイド。', `# kawaii-wiki.ts ドキュメント
 
-kawaii-wiki.ts は、知識を自分で所有し、Markdownで育て、ページ同士をつなぐための無料・オープンソースWikiです。主役はソフトウェア名ではなく、あなたのWikiと知識です。
+無料・オープンソースのWikiパッケージです。
 
 ## 読む順番
 

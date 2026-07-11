@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useI18n } from '@/lib/i18n'
+import FileInput from '@/components/FileInput.vue'
 
 const props = defineProps<{
   isEdit: boolean
@@ -118,7 +119,7 @@ const coverPreviewStyle = computed(() => coverUrl.value
           <select v-model="coverPosition" class="input max-w-36" :aria-label="t('coverPosition')">
             <option v-for="position in coverPositions" :key="position" :value="position">{{ position }}</option>
           </select>
-          <input class="text-sm" type="file" accept="image/*" :aria-label="t('uploadCover')" @change="emit('uploadCover', ($event.target as HTMLInputElement).files)" />
+          <FileInput accept="image/*" :aria-label="t('uploadCover')" @change="emit('uploadCover', $event)" />
           <span v-if="props.coverUploading" class="text-xs text-[var(--c-text-muted)]">{{ t('uploading') }}</span>
           <button v-if="coverUrl" class="btn-ghost py-1 text-xs" type="button" @click="coverUrl = ''">{{ t('removeCover') }}</button>
         </div>

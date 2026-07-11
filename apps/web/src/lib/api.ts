@@ -631,6 +631,7 @@ export interface RealtimeTicket {
 }
 export interface GitStatus {
   enabled: boolean
+  sourceOfTruth: boolean
   dir: string
   branch: string
   remote: string | null
@@ -640,6 +641,12 @@ export interface GitStatus {
   lastSuccessAt: number | null
   lastErrorAt: number | null
   lastError: string | null
+}
+export interface CommentPolicyView {
+  mode: 'off' | 'read-only' | 'authenticated' | 'group' | 'open'
+  visible: boolean
+  writable: boolean
+  groupKey: string | null
 }
 export interface NotificationView {
   id: string
@@ -936,9 +943,7 @@ export const Api = {
       (d) => d.revisions,
     ),
   comments: (path: string) =>
-    call<{ comments: PageComment[] }>(client().api.page.comments.get({ query: { path } })).then(
-      (d) => d.comments,
-    ),
+    call<{ comments: PageComment[]; policy: CommentPolicyView }>(client().api.page.comments.get({ query: { path } })),
   createComment: (path: string, body: string) =>
     call<{ comment: PageComment }>(client().api.page.comments.post({ path, body })).then(
       (d) => d.comment,
