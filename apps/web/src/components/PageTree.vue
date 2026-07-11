@@ -1,11 +1,15 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { normalizePath } from '@ts-wiki/core'
+import { normalizePath } from '@kawaii-wiki/core'
 import { Api, type PageSummary, type UserPreferenceKey, type UserPreferenceMap } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
+import { readMigratedStorage } from '@/lib/storage'
+import { useDialogs } from '@/composables/useDialogs'
+import { useI18n } from '@/lib/i18n'
 
 interface TreeNode {
   key: string
@@ -34,11 +38,14 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const pagesStore = usePages()
+const dialogs = useDialogs()
+const { t } = useI18n()
 
-const COLLAPSED_STORAGE_KEY = 'ts-wiki:collapsed-folders'
-const STARRED_STORAGE_KEY = 'ts-wiki:starred-pages'
-const RECENT_STORAGE_KEY = 'ts-wiki:recent-pages'
-const ORDER_STORAGE_KEY = 'ts-wiki:page-order'
+const COLLAPSED_STORAGE_KEY = 'kawaii-wiki.ts:collapsed-folders'
+const STARRED_STORAGE_KEY = 'kawaii-wiki.ts:starred-pages'
+const RECENT_STORAGE_KEY = 'kawaii-wiki.ts:recent-pages'
+const ORDER_STORAGE_KEY = 'kawaii-wiki.ts:page-order'
+const legacyStorageKey = (key: string): string => key.replace('kawaii-wiki.ts:', 'ts-wiki:')
 const COLLAPSED_PREFERENCE_KEY: UserPreferenceKey = 'nav:collapsed'
 const STARRED_PREFERENCE_KEY: UserPreferenceKey = 'nav:starred'
 const ORDER_PREFERENCE_KEY: UserPreferenceKey = 'nav:page-order'
@@ -46,7 +53,7 @@ const ORDER_PREFERENCE_KEY: UserPreferenceKey = 'nav:page-order'
 const readStringList = (key: string): string[] => {
   if (typeof window === 'undefined') return []
   try {
-    const value = JSON.parse(window.localStorage.getItem(key) ?? '[]')
+    const value = JSON.parse(readMigratedStorage(key, [legacyStorageKey(key)]) ?? '[]')
     return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : []
   } catch {
     return []
@@ -56,7 +63,7 @@ const readStringList = (key: string): string[] => {
 const readOrder = (): Record<string, number> => {
   if (typeof window === 'undefined') return {}
   try {
-    const value = JSON.parse(window.localStorage.getItem(ORDER_STORAGE_KEY) ?? '{}')
+    const value = JSON.parse(readMigratedStorage(ORDER_STORAGE_KEY, [legacyStorageKey(ORDER_STORAGE_KEY)]) ?? '{}')
     return coerceOrder(value) ?? {}
   } catch {
     return {}
@@ -247,7 +254,10 @@ async function moveWikiPage(sourcePath: string, destinationFolder: string): Prom
   const warning = inbound.length
     ? `\n\n${inbound.length} inbound link${inbound.length === 1 ? '' : 's'} point to /${sourcePath}.`
     : ''
-  if (!confirm(`Move /${sourcePath} to /${destination}? This changes the page URL.${warning}`)) return
+  if (!await dialogs.confirm({
+    title: 'Move page',
+    message: `Move /${sourcePath} to /${destination}? This changes the page URL.${warning}`,
+  })) return
   moving.value = true
   moveError.value = null
   moveNotice.value = null
@@ -259,7 +269,7 @@ async function moveWikiPage(sourcePath: string, destinationFolder: string): Prom
     moveSourcePath.value = ''
     moveDestinationFolder.value = ''
   } catch (e) {
-    moveError.value = (e as Error).message
+    moveError.value = friendlyError(e)
   } finally {
     moving.value = false
   }
@@ -325,7 +335,7 @@ const rows = computed<TreeRow[]>(() => {
 <template>
   <nav class="flex flex-col gap-3">
     <section v-if="starredPages.length" class="space-y-1">
-      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Starred</div>
+      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">{{ t('starred') }}</div>
       <RouterLink
         v-for="page in starredPages"
         :key="'starred:' + page.path"
@@ -339,7 +349,7 @@ const rows = computed<TreeRow[]>(() => {
     </section>
 
     <section v-if="recentPages.length" class="space-y-1">
-      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Recent</div>
+      <div class="px-2 text-[11px] uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">{{ t('recent') }}</div>
       <RouterLink
         v-for="page in recentPages"
         :key="'recent:' + page.path"
@@ -368,7 +378,7 @@ const rows = computed<TreeRow[]>(() => {
           v-if="row.hasChildren"
           class="page-tree-icon"
           type="button"
-          :title="row.collapsed ? 'Expand folder' : 'Collapse folder'"
+          :title="row.collapsed ? t('expandFolder') : t('collapseFolder')"
           :aria-label="`${row.collapsed ? 'Expand' : 'Collapse'} ${row.label}`"
           @click="toggleCollapse(row.path)"
         >
@@ -428,7 +438,7 @@ const rows = computed<TreeRow[]>(() => {
         <button class="btn-primary py-1 text-xs" type="button" :disabled="moving" @click="moveWikiPage(moveSourcePath, moveDestinationFolder)">
           {{ moving ? 'Moving...' : 'Move URL' }}
         </button>
-        <button class="btn-ghost py-1 text-xs" type="button" :disabled="moving" @click="closeMoveDialog">Cancel</button>
+        <button class="btn-ghost py-1 text-xs" type="button" :disabled="moving" @click="closeMoveDialog">{{ t('cancel') }}</button>
       </div>
     </section>
     <p v-if="moveNotice" class="text-xs text-green-600 dark:text-green-400">{{ moveNotice }}</p>

@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { eq } from 'drizzle-orm'
-import type { AppError } from '@ts-wiki/core'
+import type { AppError } from '@kawaii-wiki/core'
 import type { AuthEnv } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { authAccounts, oauthStates, users } from '../db/schema.ts'

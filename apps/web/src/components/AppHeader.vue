@@ -1,23 +1,33 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { defaultPublicSettings } from '@ts-wiki/core'
+import { defaultPublicSettings } from '@kawaii-wiki/core'
 import { Api, type PublicSettings } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import { setDateFormatSettings, useI18n } from '@/lib/i18n'
 import { useTheme, applySiteDefault } from '@/composables/useTheme'
 import { applyBranding } from '@/lib/branding'
 import { setMarkdownFeatureSettings } from '@/lib/markdownEnhance'
+import { shortcutLabel } from '@/lib/platform'
+import { realtimeStatus } from '@/lib/realtime'
+import NotificationBell from '@/components/NotificationBell.vue'
 
 const router = useRouter()
 const auth = useAuth()
-const { t } = useI18n()
+const { t, locale, setLocale } = useI18n()
 const theme = useTheme()
 const themeIcon = computed(() => (theme.mode.value === 'light' ? '☀' : theme.mode.value === 'dark' ? '🌙' : '🖥'))
 const q = ref('')
 const settings = ref<PublicSettings>(defaultPublicSettings())
 const accentStyle = computed(() => ({ color: settings.value.accentColor }))
 const homeTo = computed(() => `/${settings.value.homePath || 'home'}`)
+const commandShortcut = shortcutLabel('K')
+const realtimeLabel = computed(() => ({
+  connected: 'Live updates connected',
+  connecting: 'Connecting live updates',
+  reconnecting: 'Reconnecting live updates',
+  offline: 'Offline',
+}[realtimeStatus.value]))
 const builtInNav = computed(() => {
   const definitions = {
     changes: { to: '/_changes', label: t('changes'), show: true },
@@ -61,7 +71,7 @@ onMounted(async () => {
 
 <template>
   <header
-    class="sticky top-0 z-10 border-b border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur"
+    class="app-shell-header sticky top-0 z-10 border-b border-[var(--c-border)] bg-[var(--c-surface)]/90 backdrop-blur"
   >
     <div class="mx-auto flex h-14 max-w-7xl items-center gap-2 px-3 sm:gap-3 sm:px-4">
       <button
@@ -85,6 +95,28 @@ onMounted(async () => {
       </form>
 
       <div class="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+        <span
+          class="hidden items-center gap-1.5 text-xs text-[var(--c-text-muted)] xl:inline-flex"
+          :title="realtimeLabel"
+          role="status"
+        >
+          <span
+            class="h-2 w-2 rounded-full"
+            :class="realtimeStatus === 'connected' ? 'bg-emerald-500' : realtimeStatus === 'offline' ? 'bg-gray-400' : 'bg-amber-500 animate-pulse'"
+            aria-hidden="true"
+          ></span>
+          {{ realtimeStatus === 'connected' ? 'Live' : realtimeStatus === 'offline' ? 'Offline' : 'Syncing' }}
+        </span>
+        <select
+          class="input hidden w-auto py-1 text-xs sm:block"
+          :value="locale"
+          :aria-label="t('locale')"
+          @change="setLocale(($event.target as HTMLSelectElement).value === 'ja' ? 'ja' : 'en')"
+        >
+          <option value="en">EN</option>
+          <option value="ja">日本語</option>
+        </select>
+        <NotificationBell v-if="auth.isAuthed" />
         <button
           class="btn-ghost h-9 w-9 px-0 sm:w-auto sm:px-3"
           type="button"
@@ -93,7 +125,7 @@ onMounted(async () => {
           @click="openCommandPalette"
         >
           <span class="sm:hidden" aria-hidden="true">⌕</span>
-          <span class="hidden sm:inline">Cmd K</span>
+          <span class="hidden sm:inline">{{ commandShortcut }}</span>
         </button>
         <button
           class="btn-ghost hidden sm:inline-flex"

@@ -1,4 +1,4 @@
-import type { AppError, Principal, Result } from '@ts-wiki/core'
+import type { AppError, Principal, Result } from '@kawaii-wiki/core'
 import type { Page } from '../db/schema.ts'
 import type { AutomationEvent } from '../services/webhooks.ts'
 import { pageSnapshot } from './representations.ts'

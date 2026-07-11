@@ -2,6 +2,16 @@ import { describe, expect, test } from 'bun:test'
 import { DEFAULT_JWT_SECRET, loadEnv } from './env.ts'
 
 describe('loadEnv', () => {
+  test('accepts the KAWAII_WIKI prefix and gives it precedence over legacy names', () => {
+    const env = loadEnv({
+      TS_WIKI_SITE_NAME: 'legacy-name',
+      KAWAII_WIKI_SITE_NAME: 'new-name',
+      KAWAII_WIKI_PRIVATE: 'true',
+    })
+    expect(env.auth.siteName).toBe('new-name')
+    expect(env.auth.privateWiki).toBe(true)
+  })
+
   test('keeps local/dev startup permissive with the default JWT secret', () => {
     const env = loadEnv({})
 
@@ -21,7 +31,7 @@ describe('loadEnv', () => {
     })
     expect(env.mail).toEqual({
       smtpUrl: null,
-      from: 'ts-wiki <no-reply@localhost>',
+      from: 'kawaii-wiki.ts <no-reply@localhost>',
       timeoutMs: 10_000,
     })
     expect(env.assetStorage).toEqual({

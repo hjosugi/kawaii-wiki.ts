@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { startAuthentication, type PublicKeyCredentialRequestOptionsJSON } from '@simplewebauthn/browser'
 import { useRoute, useRouter } from 'vue-router'
@@ -136,7 +137,7 @@ async function submit(): Promise<void> {
     }
     router.push('/')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
     busy.value = false
   }
 }
@@ -152,7 +153,7 @@ async function signInWithPasskey(): Promise<void> {
     auth.user = result.user
     router.push('/')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
     busy.value = false
   }
 }
@@ -200,7 +201,7 @@ onMounted(async () => {
       notice.value = t('emailVerified')
       mode.value = 'login'
     } catch (e) {
-      error.value = (e as Error).message || t('emailVerificationFailed')
+      error.value = friendlyError(e) || t('emailVerificationFailed')
     } finally {
       busy.value = false
     }

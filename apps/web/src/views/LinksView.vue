@@ -1,11 +1,10 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { Api, type BrokenLink } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useAsyncData } from '@/composables/useAsyncData'
 
-const links = ref<BrokenLink[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const { data: links, loading, error, reload: load } = useAsyncData<BrokenLink[]>(Api.brokenLinks, { initial: [] })
 
 // Group broken targets by the missing page so the same dead link isn't repeated.
 const byTarget = computed(() => {
@@ -18,19 +17,6 @@ const byTarget = computed(() => {
   return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]))
 })
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    links.value = await Api.brokenLinks()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
 </script>
 
 <template>

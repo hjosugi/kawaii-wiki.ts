@@ -1,19 +1,47 @@
 import { computed, ref } from 'vue'
-import type { DateFormatStyle } from '@ts-wiki/core'
-export type { DateFormatStyle } from '@ts-wiki/core'
+import type { DateFormatStyle } from '@kawaii-wiki/core'
+export type { DateFormatStyle } from '@kawaii-wiki/core'
+import { readMigratedStorage, writeStorage } from './storage'
 
 export type Locale = 'en' | 'ja'
 
-const localeStorageKey = 'ts-wiki-locale'
+const localeStorageKey = 'kawaii-wiki.ts:locale'
 
 export const messages = {
   en: {
     admin: 'Admin',
+    adminAppearance: 'Appearance',
+    adminAudit: 'Audit',
+    adminAutomation: 'Automation',
+    adminDeliveries: 'Deliveries',
+    adminGit: 'Git',
+    adminGroups: 'Groups',
+    adminImport: 'Import',
+    adminPageRules: 'Page rules',
+    adminPolicy: 'Policy',
+    adminSections: 'Admin sections',
+    adminSecurity: 'Security',
+    adminStats: 'Stats',
+    adminTrash: 'Trash',
+    adminUsers: 'Users',
+    adminWebhooks: 'Webhooks',
     archive: 'Archive',
     assets: 'Assets',
     backToPage: 'Back to page',
     addCommentPlaceholder: 'Add a comment. Use @name to mention someone.',
+    activityFeed: 'Activity feed',
+    added: 'Added',
+    all: 'All',
+    assetFolder: 'Asset folder',
     backupCodes: 'Backup codes',
+    blankDraft: 'Blank draft',
+    breadcrumb: 'Breadcrumb',
+    browseByLabel: 'Browse by label',
+    brokenLinks: 'Broken links',
+    calendarIndex: 'Calendar index',
+    cancel: 'Cancel',
+    close: 'Close',
+    collapseFolder: 'Collapse folder',
     changes: 'Changes',
     commentBody: 'Comment body',
     comments: 'Comments',
@@ -23,8 +51,15 @@ export const messages = {
     copyBackupCodes: 'Copy backup codes',
     copyPath: 'Copy path',
     copyShareLink: 'Copy share link',
+    coverImage: 'Cover image',
+    coverImageUrl: 'Cover image URL',
+    coverPosition: 'Cover position',
     createAccount: 'Create account',
     createThisPage: 'Create this page',
+    createFirstPage: 'Create the first page to start shaping the wiki.',
+    createNamedPage: 'Create "{path}"',
+    currentPage: 'Current page',
+    dailyNote: 'Daily note {date}',
     delete: 'Delete',
     deleteCommentConfirm: 'Delete this comment?',
     discardUnsavedChanges: 'Discard unsaved changes?',
@@ -39,8 +74,17 @@ export const messages = {
     errorUnknown: 'Something went wrong. Try again.',
     errorValidation: 'Please check the highlighted input and try again.',
     events: 'Events',
+    eventIndexDescription: 'Event fences across pages',
+    enter: 'Enter',
+    expandFolder: 'Expand folder',
+    findMissingPages: 'Find missing pages',
+    folder: 'Folder',
+    from: 'From',
     email: 'Email',
     graph: 'Graph',
+    graphDescription: 'Internal links, missing pages, and how the wiki hangs together.',
+    graphView: 'Graph view',
+    home: 'Home',
     displayName: 'Display name',
 	    firstAccountAdmin: 'The first account to register becomes the admin.',
 	    forgotPassword: 'Forgot password?',
@@ -48,16 +92,47 @@ export const messages = {
     html: 'HTML',
     keepLatest: 'Keep latest',
     insertMenuHint: 'Type / at the start of a line to insert blocks.',
+    insert: 'Insert',
+    keyboardShortcuts: 'Keyboard shortcuts',
+    linkedFrom: 'Linked from',
     loading: 'Loading...',
     loadingComments: 'Loading comments',
     loadingEditor: 'Loading editor...',
     locale: 'Locale',
     markdown: 'Markdown',
     newChild: 'New child',
+    new: 'New',
     newPage: '+ New page',
+    narrow: 'Narrow',
+    noAssetsInFolder: 'No uploaded assets in this folder.',
+    noGraphYet: 'No graph yet',
+    noPagesYet: 'No pages yet',
+    noRevisionsYet: 'No revisions yet.',
     noResults: 'No results for "{query}".',
     noCommentsYet: 'No comments yet.',
     pageTitle: 'Page title',
+    page: 'Page',
+    pages: 'Pages',
+    past: 'Past',
+    reading: 'Reading',
+    readingFontSize: 'Reading font size',
+    readingWidth: 'Reading width',
+    recent: 'Recent',
+    refresh: 'Refresh',
+    removed: 'Removed',
+    pageIcon: 'Page icon',
+    pageStatus: 'Page status',
+    publishAt: 'Publish at',
+    pinned: 'Pinned',
+    navOrder: 'Navigation order',
+    clear: 'Clear',
+    noCover: 'No cover',
+    removeCover: 'Remove cover',
+    saveAsTemplate: 'Save as template',
+    templates: 'Templates',
+    uploadCover: 'Upload cover image',
+    useIcon: 'Use {icon} as page icon',
+    uploading: 'Uploading...',
 	    password: 'Password',
 	    passwordResetComplete: 'Password updated. You can sign in with the new password.',
 	    passwordResetIfExists: 'If that account exists, a reset link has been sent.',
@@ -82,11 +157,24 @@ export const messages = {
     saving: 'Saving...',
     search: 'Search...',
     searchTheWiki: 'Search the wiki...',
+    searchFiles: 'Search files',
+    searchOrJump: 'Search or jump...',
     searching: 'Searching...',
     share: 'Share',
     shareLinkCopied: 'Share link copied',
     sharedPage: 'Shared page',
     sharedPageUnavailable: 'Shared page unavailable',
+    showHelp: 'Show help',
+    skipToContent: 'Skip to content',
+    starred: 'Starred',
+    streams: 'Streams',
+    tags: 'Tags',
+    to: 'To',
+    todayNote: "Today's note",
+    upcoming: 'Upcoming',
+    watch: 'Watch',
+    watching: 'Watching',
+    wide: 'Wide',
     shareReady: 'Share link ready',
     signIn: 'Sign in',
     signInWith: 'Sign in with {provider}',
@@ -142,11 +230,38 @@ export const messages = {
   },
   ja: {
     admin: '管理',
+    adminAppearance: '外観',
+    adminAudit: '監査',
+    adminAutomation: '自動化',
+    adminDeliveries: '配信履歴',
+    adminGit: 'Git',
+    adminGroups: 'グループ',
+    adminImport: 'インポート',
+    adminPageRules: 'ページルール',
+    adminPolicy: 'ポリシー',
+    adminSections: '管理セクション',
+    adminSecurity: 'セキュリティ',
+    adminStats: '統計',
+    adminTrash: 'ゴミ箱',
+    adminUsers: 'ユーザー',
+    adminWebhooks: 'Webhook',
     archive: 'アーカイブ',
     assets: 'アセット',
     backToPage: 'ページへ戻る',
     addCommentPlaceholder: 'コメントを追加します。@name でメンションできます。',
+    activityFeed: 'アクティビティフィード',
+    added: '追加',
+    all: 'すべて',
+    assetFolder: 'アセットフォルダ',
     backupCodes: 'バックアップコード',
+    blankDraft: '空の下書き',
+    breadcrumb: 'パンくずリスト',
+    browseByLabel: 'ラベルから探す',
+    brokenLinks: 'リンク切れ',
+    calendarIndex: 'カレンダー一覧',
+    cancel: 'キャンセル',
+    close: '閉じる',
+    collapseFolder: 'フォルダを閉じる',
     changes: '変更',
     commentBody: 'コメント本文',
     comments: 'コメント',
@@ -156,8 +271,15 @@ export const messages = {
     copyBackupCodes: 'バックアップコードをコピー',
     copyPath: 'パスをコピー',
     copyShareLink: '共有リンクをコピー',
+    coverImage: 'カバー画像',
+    coverImageUrl: 'カバー画像URL',
+    coverPosition: 'カバー位置',
     createAccount: 'アカウント作成',
     createThisPage: 'このページを作成',
+    createFirstPage: '最初のページを作成してWikiを始めましょう。',
+    createNamedPage: '「{path}」を作成',
+    currentPage: '現在のページ',
+    dailyNote: '日次ノート {date}',
     delete: '削除',
     deleteCommentConfirm: 'このコメントを削除しますか？',
     discardUnsavedChanges: '未保存の変更を破棄しますか？',
@@ -172,8 +294,17 @@ export const messages = {
     errorUnknown: '問題が起きました。もう一度試してください。',
     errorValidation: '入力内容を確認して、もう一度試してください。',
     events: 'イベント',
+    eventIndexDescription: 'ページ内のイベント一覧',
+    enter: '決定',
+    expandFolder: 'フォルダを開く',
+    findMissingPages: '未作成ページを探す',
+    folder: 'フォルダ',
+    from: '比較元',
     email: 'メール',
     graph: 'グラフ',
+    graphDescription: '内部リンク、未作成ページ、Wiki全体のつながりを表示します。',
+    graphView: 'グラフ表示',
+    home: 'ホーム',
     displayName: '表示名',
 	    firstAccountAdmin: '最初に登録したアカウントが管理者になります。',
 	    forgotPassword: 'パスワードを忘れた場合',
@@ -181,16 +312,47 @@ export const messages = {
     html: 'HTML',
     keepLatest: '最新版を使う',
     insertMenuHint: '行頭で / を入力するとブロックを挿入できます。',
+    insert: '挿入',
+    keyboardShortcuts: 'キーボードショートカット',
+    linkedFrom: 'リンク元',
     loading: '読み込み中...',
     loadingComments: 'コメントを読み込み中',
     loadingEditor: 'エディタを読み込み中...',
     locale: 'ロケール',
     markdown: 'Markdown',
     newChild: '子ページを作成',
+    new: '新規',
     newPage: '+ 新規ページ',
+    narrow: '狭い',
+    noAssetsInFolder: 'このフォルダにアップロード済みアセットはありません。',
+    noGraphYet: 'グラフはまだありません',
+    noPagesYet: 'ページはまだありません',
+    noRevisionsYet: '履歴はまだありません。',
     noResults: '「{query}」の結果はありません。',
     noCommentsYet: 'まだコメントはありません。',
     pageTitle: 'ページタイトル',
+    page: 'ページ',
+    pages: 'ページ',
+    past: '過去',
+    reading: '読みやすさ',
+    readingFontSize: '文字サイズ',
+    readingWidth: '本文幅',
+    recent: '最近',
+    refresh: '再読み込み',
+    removed: '削除',
+    pageIcon: 'ページアイコン',
+    pageStatus: 'ページ状態',
+    publishAt: '公開日時',
+    pinned: '固定',
+    navOrder: 'ナビゲーション順',
+    clear: 'クリア',
+    noCover: 'カバーなし',
+    removeCover: 'カバーを削除',
+    saveAsTemplate: 'テンプレートとして保存',
+    templates: 'テンプレート',
+    uploadCover: 'カバー画像をアップロード',
+    useIcon: '{icon} をページアイコンに使用',
+    uploading: 'アップロード中...',
 	    password: 'パスワード',
 	    passwordResetComplete: 'パスワードを更新しました。新しいパスワードでログインできます。',
 	    passwordResetIfExists: 'アカウントが存在する場合、リセットリンクを送信しました。',
@@ -215,11 +377,24 @@ export const messages = {
     saving: '保存中...',
     search: '検索...',
     searchTheWiki: 'Wikiを検索...',
+    searchFiles: 'ファイルを検索',
+    searchOrJump: '検索または移動...',
     searching: '検索中...',
     share: '共有',
     shareLinkCopied: '共有リンクをコピーしました',
     sharedPage: '共有ページ',
     sharedPageUnavailable: '共有ページを表示できません',
+    showHelp: 'ヘルプを表示',
+    skipToContent: '本文へ移動',
+    starred: 'スター付き',
+    streams: '配信',
+    tags: 'タグ',
+    to: '比較先',
+    todayNote: '今日のノート',
+    upcoming: '今後',
+    watch: 'ウォッチ',
+    watching: 'ウォッチ中',
+    wide: '広い',
     shareReady: '共有リンクを作成しました',
     signIn: 'ログイン',
     signInWith: '{provider}でログイン',
@@ -276,16 +451,14 @@ export const messages = {
 } as const satisfies Record<Locale, Record<string, string>>
 
 export type MessageKey = keyof typeof messages.en
+type MissingMessageKeys =
+  | Exclude<keyof typeof messages.en, keyof typeof messages.ja>
+  | Exclude<keyof typeof messages.ja, keyof typeof messages.en>
+type MessageCatalogsMatch = [MissingMessageKeys] extends [never] ? true : false
+const messageCatalogsMatch: MessageCatalogsMatch = true
+void messageCatalogsMatch
 
 const supportedLocales = Object.keys(messages) as Locale[]
-
-const localStorageOrNull = (): Storage | null => {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage ?? null
-  } catch {
-    return null
-  }
-}
 
 const normalizeLocale = (value: string | null | undefined): Locale | null => {
   const lang = value?.trim().toLowerCase().split('-')[0]
@@ -294,7 +467,7 @@ const normalizeLocale = (value: string | null | undefined): Locale | null => {
 
 const readBrowserLocale = (): Locale => {
   if (typeof window === 'undefined') return 'en'
-  const stored = normalizeLocale(localStorageOrNull()?.getItem(localeStorageKey))
+  const stored = normalizeLocale(readMigratedStorage(localeStorageKey, ['ts-wiki-locale']))
   if (stored) return stored
   return normalizeLocale(window.navigator.language) ?? 'en'
 }
@@ -318,11 +491,16 @@ const dateSettings = ref<{
 export const setLocale = (next: Locale): void => {
   currentLocale.value = next
   applyDocumentLocale(next)
-  localStorageOrNull()?.setItem(localeStorageKey, next)
+  writeStorage(localeStorageKey, next)
 }
 
-export const t = (key: MessageKey, values: Record<string, string | number> = {}): string =>
-  messages[currentLocale.value][key].replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? ''))
+export const t = (key: MessageKey, values: Record<string, string | number> = {}): string => {
+  const localized = messages[currentLocale.value] as Record<string, string | undefined>
+  const fallback = messages.en as Record<string, string | undefined>
+  const template = localized[key] ?? fallback[key] ?? key
+  if (!localized[key] && typeof console !== 'undefined') console.warn(`[i18n] Missing ${currentLocale.value} message: ${key}`)
+  return template.replace(/\{(\w+)\}/g, (_, name: string) => String(values[name] ?? ''))
+}
 
 export const setDateFormatSettings = (settings: {
   readonly defaultLocale?: string

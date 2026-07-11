@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
-import { normalizePath } from '@ts-wiki/core'
+import { normalizePath } from '@kawaii-wiki/core'
 import { Api, ApiClientError, type AssetView, type Page, type UserPreferenceMap } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
@@ -10,8 +11,14 @@ import { usePresence } from '@/composables/usePresence'
 import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n } from '@/lib/i18n'
+import { useDialogs } from '@/composables/useDialogs'
 import { vMarkdownEnhance } from '@/lib/markdownEnhance'
+import { unsupportedVisualMarkdownFeatures } from '@/lib/visualMarkdownCapabilities'
 import Skeleton from '@/components/Skeleton.vue'
+import FormField from '@/components/FormField.vue'
+import SegmentedControl from '@/components/SegmentedControl.vue'
+import PageMetaBar from '@/components/PageMetaBar.vue'
+import { usePageEditor } from '@/composables/usePageEditor'
 import {
   builtInPageTemplates,
   pageTemplateToOption,
@@ -29,43 +36,49 @@ const router = useRouter()
 const auth = useAuth()
 const pagesStore = usePages()
 const { t } = useI18n()
+const dialogs = useDialogs()
 const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 
 const isEdit = computed(() => route.name === 'edit')
-const title = ref('')
-const path = ref('')
-const originalPath = ref('')
-const originalUpdatedAt = ref<number | null>(null)
-const content = ref('')
-const icon = ref('')
-const coverUrl = ref('')
-const coverPosition = ref('center')
-const labelsText = ref('')
-const status = ref<'draft' | 'in-review' | 'verified' | 'outdated'>('draft')
-const reviewAtDate = ref('')
-const locale = ref('und')
+const {
+  title,
+  path,
+  originalPath,
+  originalUpdatedAt,
+  content,
+  icon,
+  coverUrl,
+  coverPosition,
+  labelsText,
+  status,
+  reviewAtDate,
+  publishAtDateTime,
+  locale,
+  navOrderText,
+  pinned,
+  conflictDraft,
+  dirty,
+  captureDraft,
+  applyDraft,
+  applyPage: applyPageState,
+  markSaved,
+  labels,
+  reviewAt,
+  publishAt,
+  navOrder,
+  dateInputValue,
+} = usePageEditor()
 const defaultLocale = ref('und')
-const navOrderText = ref('')
-const pinned = ref(false)
-const savedTitle = ref('')
-const savedPath = ref('')
-const savedContent = ref('')
-const savedIcon = ref('')
-const savedCoverUrl = ref('')
-const savedCoverPosition = ref('center')
-const savedLabelsText = ref('')
-const savedStatus = ref(status.value)
-const savedReviewAtDate = ref('')
-const savedLocale = ref('und')
-const savedNavOrderText = ref('')
-const savedPinned = ref(false)
 const saving = ref(false)
 const error = ref<string | null>(null)
-const conflictDraft = ref<DraftSnapshot | null>(null)
 const selectedTemplate = ref('builtin:blank')
 let skipNextTemplateWatch = false
 const editorMode = ref<'markdown' | 'visual'>('markdown')
 const editorModeLoaded = ref(false)
+const editorModeOptions = computed(() => [
+  { value: 'markdown', label: t('markdown') },
+  { value: 'visual', label: t('visual') },
+])
 const collabDisabledForSession = ref(false)
 const pathManuallyEdited = ref(false)
 const advancedPathOpen = ref(false)
@@ -83,24 +96,7 @@ const templateDescription = ref('')
 const templateIcon = ref('')
 const savingTemplate = ref(false)
 const coverUploading = ref(false)
-const iconOptions = ['⭐', '📘', '📝', '📣', '🎤', '🎨', '🗓️', '📌', '✅', '🔥', '🌸', '🧭', '💡', '⚙️', '🔒']
-const coverPositions = ['center', 'top', 'bottom', 'left', 'right']
 
-const dirty = computed(
-  () =>
-    title.value !== savedTitle.value ||
-    path.value !== savedPath.value ||
-    content.value !== savedContent.value ||
-    icon.value !== savedIcon.value ||
-    coverUrl.value !== savedCoverUrl.value ||
-    coverPosition.value !== savedCoverPosition.value ||
-    labelsText.value !== savedLabelsText.value ||
-    status.value !== savedStatus.value ||
-    reviewAtDate.value !== savedReviewAtDate.value ||
-    locale.value !== savedLocale.value ||
-    navOrderText.value !== savedNavOrderText.value ||
-    pinned.value !== savedPinned.value,
-)
 const saveStatus = computed(() => {
   if (saving.value) return t('saving')
   if (error.value) return t('saveFailed')
@@ -111,128 +107,14 @@ const useCollaborativeMarkdown = computed(
   () => isEdit.value && editorMode.value === 'markdown' && originalPath.value && !collabDisabledForSession.value,
 )
 const assetFolder = computed(() => assetFolderFromPagePath(path.value || originalPath.value))
-const coverPreviewStyle = computed(() =>
-  coverUrl.value
-    ? {
-        backgroundImage: `url(${JSON.stringify(coverUrl.value)})`,
-        backgroundSize: 'cover',
-        backgroundPosition: coverPosition.value,
-      }
-    : {},
-)
 const existingPaths = computed(() => new Set(pagesStore.list.map((page) => page.path)))
 const createPathPreview = computed(() => path.value || nextAvailablePath(suggestedCreatePath()))
-interface DraftSnapshot {
-  title: string
-  path: string
-  content: string
-  icon: string
-  coverUrl: string
-  coverPosition: string
-  labelsText: string
-  status: 'draft' | 'in-review' | 'verified' | 'outdated'
-  reviewAtDate: string
-  locale: string
-  navOrderText: string
-  pinned: boolean
-}
-
-function captureDraft(): DraftSnapshot {
-  return {
-    title: title.value,
-    path: path.value,
-    content: content.value,
-    icon: icon.value,
-    coverUrl: coverUrl.value,
-    coverPosition: coverPosition.value,
-    labelsText: labelsText.value,
-    status: status.value,
-    reviewAtDate: reviewAtDate.value,
-    locale: locale.value,
-    navOrderText: navOrderText.value,
-    pinned: pinned.value,
-  }
-}
-
-function applyDraft(draft: DraftSnapshot): void {
-  title.value = draft.title
-  path.value = draft.path
-  content.value = draft.content
-  icon.value = draft.icon
-  coverUrl.value = draft.coverUrl
-  coverPosition.value = draft.coverPosition
-  labelsText.value = draft.labelsText
-  status.value = draft.status
-  reviewAtDate.value = draft.reviewAtDate
-  locale.value = draft.locale
-  navOrderText.value = draft.navOrderText
-  pinned.value = draft.pinned
-}
+const titlePathSegment = (): string => normalizePath(title.value || 'new-page') || 'new-page'
 
 function applyPage(page: Page): void {
-  title.value = page.title
-  path.value = page.path
-  originalPath.value = page.path
-  originalUpdatedAt.value = page.updatedAt
-  content.value = page.content
-  icon.value = page.icon
-  coverUrl.value = page.coverUrl
-  coverPosition.value = page.coverPosition || 'center'
-  labelsText.value = labelTextFromJson(page.labels)
-  status.value = page.status
-  reviewAtDate.value = dateInputValue(page.reviewAt)
-  locale.value = page.locale
-  navOrderText.value = page.navOrder === null ? '' : String(page.navOrder)
-  pinned.value = page.pinned
+  applyPageState(page)
   pathManuallyEdited.value = true
 }
-
-function markSaved(): void {
-  savedTitle.value = title.value
-  savedPath.value = path.value
-  savedContent.value = content.value
-  savedIcon.value = icon.value
-  savedCoverUrl.value = coverUrl.value
-  savedCoverPosition.value = coverPosition.value
-  savedLabelsText.value = labelsText.value
-  savedStatus.value = status.value
-  savedReviewAtDate.value = reviewAtDate.value
-  savedLocale.value = locale.value
-  savedNavOrderText.value = navOrderText.value
-  savedPinned.value = pinned.value
-}
-
-const labels = (): string[] =>
-  labelsText.value
-    .split(',')
-    .map((label) => label.trim())
-    .filter(Boolean)
-
-const reviewAt = (): number | null =>
-  reviewAtDate.value ? new Date(`${reviewAtDate.value}T00:00:00`).getTime() : null
-
-const navOrder = (): number | null => {
-  const trimmed = navOrderText.value.trim()
-  if (!trimmed) return null
-  const parsed = Number(trimmed)
-  return Number.isFinite(parsed) ? Math.trunc(parsed) : null
-}
-
-const labelTextFromJson = (value: string): string => {
-  try {
-    const parsed = JSON.parse(value) as unknown
-    return Array.isArray(parsed)
-      ? parsed.filter((label): label is string => typeof label === 'string').join(', ')
-      : ''
-  } catch {
-    return ''
-  }
-}
-
-const dateInputValue = (value: number | null): string =>
-  value ? new Date(value).toISOString().slice(0, 10) : ''
-
-const titlePathSegment = (): string => normalizePath(title.value || 'new-page') || 'new-page'
 
 function nextAvailablePath(base: string): string {
   const normalized = normalizePath(base) || 'new-page'
@@ -295,6 +177,7 @@ function applyTemplate(key: string): void {
   labelsText.value = template.metadata.labels?.join(', ') ?? ''
   status.value = template.metadata.status ?? 'draft'
   reviewAtDate.value = dateInputValue(template.metadata.reviewAt ?? null)
+  publishAtDateTime.value = ''
   locale.value = template.metadata.locale ?? defaultLocale.value
   content.value = template.content
 }
@@ -363,18 +246,31 @@ async function saveCurrentAsTemplate(): Promise<void> {
     selectedTemplate.value = `custom:${template.id}`
     showTemplateSave.value = false
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     savingTemplate.value = false
   }
 }
 
-function setEditorMode(mode: 'markdown' | 'visual'): void {
+async function setEditorMode(mode: 'markdown' | 'visual'): Promise<void> {
+  if (mode === editorMode.value) return
+  if (mode === 'visual') {
+    const unsupported = unsupportedVisualMarkdownFeatures(content.value)
+    if (unsupported.length && !await dialogs.confirm({
+      title: 'Switch to visual editor?',
+      message: `The visual editor keeps these constructs as raw Markdown: ${unsupported.join(', ')}. Avoid editing those raw blocks if exact formatting matters.`,
+      confirmLabel: 'Switch editor',
+    })) return
+  }
   if (mode === 'visual' && isEdit.value) collabDisabledForSession.value = true
   editorMode.value = mode
   if (editorModeLoaded.value && auth.isAuthed) {
     void Api.updatePreferences({ 'editor:mode': mode } as UserPreferenceMap).catch(() => {})
   }
+}
+
+const onEditorModeInput = (mode: string): void => {
+  if (mode === 'markdown' || mode === 'visual') void setEditorMode(mode)
 }
 
 async function loadAttachments(pagePath: string): Promise<void> {
@@ -398,7 +294,7 @@ async function uploadCover(files: FileList | null): Promise<void> {
     const asset = await Api.uploadAsset(files[0], assetFolder.value)
     coverUrl.value = asset.url
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     coverUploading.value = false
   }
@@ -431,7 +327,7 @@ onMounted(async () => {
       markSaved()
       void loadAttachments(page.path)
     } catch (e) {
-      error.value = (e as Error).message
+      error.value = friendlyError(e)
     }
   } else {
     title.value = ''
@@ -442,6 +338,7 @@ onMounted(async () => {
     coverPosition.value = 'center'
     status.value = 'draft'
     reviewAtDate.value = ''
+    publishAtDateTime.value = ''
     locale.value = defaultLocale.value
     navOrderText.value = ''
     pinned.value = false
@@ -472,9 +369,9 @@ function beforeUnload(event: BeforeUnloadEvent): void {
 
 window.addEventListener('beforeunload', beforeUnload)
 onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(async () => {
   if (!dirty.value || saving.value) return true
-  return confirm(t('discardUnsavedChanges'))
+  return dialogs.confirm({ message: t('discardUnsavedChanges'), danger: true })
 })
 
 async function save(): Promise<void> {
@@ -489,6 +386,7 @@ async function save(): Promise<void> {
       coverPosition: coverPosition.value,
       status: status.value,
       reviewAt: reviewAt(),
+      publishAt: publishAt(),
       locale: locale.value,
       navOrder: navOrder(),
       pinned: pinned.value,
@@ -496,7 +394,10 @@ async function save(): Promise<void> {
     if (isEdit.value) {
       if (path.value !== originalPath.value) {
         const inbound = await Api.backlinks(originalPath.value).catch(() => [])
-        if (inbound.length > 0 && !confirm(`${inbound.length} inbound link${inbound.length === 1 ? '' : 's'} point to /${originalPath.value}. Move anyway?`)) {
+        if (inbound.length > 0 && !await dialogs.confirm({
+          title: 'Move page',
+          message: `${inbound.length} inbound link${inbound.length === 1 ? '' : 's'} point to /${originalPath.value}. Move anyway?`,
+        })) {
           path.value = originalPath.value
           return
         }
@@ -527,7 +428,7 @@ async function save(): Promise<void> {
     router.push('/' + path.value)
   } catch (e) {
     const apiError = e instanceof ApiClientError ? e : null
-    const message = (e as Error).message
+    const message = friendlyError(e)
     const rawMessage = apiError?.rawMessage ?? message
     if (isEdit.value && (apiError?.kind === 'conflict' || /changed since you opened|reload the latest/i.test(rawMessage))) {
       conflictDraft.value = captureDraft()
@@ -563,107 +464,52 @@ function discardConflictDraft(): void {
 }
 
 async function remove(): Promise<void> {
-  if (!confirm(`Move "${title.value}" to trash? It can be restored by an admin/editor.`)) return
+  if (!await dialogs.confirm({ message: `Move "${title.value}" to trash? It can be restored by an admin/editor.`, danger: true })) return
   try {
     await Api.deletePage(path.value)
     await pagesStore.refresh()
     router.push('/')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function archive(): Promise<void> {
-  if (!confirm(`Archive "${title.value}"? It will be hidden from search and navigation.`)) return
+  if (!await dialogs.confirm({ message: `Archive "${title.value}"? It will be hidden from search and navigation.` })) return
   try {
     await Api.archivePage(path.value)
     await pagesStore.refresh()
     router.push('/')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 </script>
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center gap-3 mb-4">
-      <input v-model="title" class="input flex-1 min-w-50 text-lg font-semibold" :placeholder="t('pageTitle')" :aria-label="t('pageTitle')" />
-      <RouterLink class="btn-ghost" to="/_templates">
-        Templates
-      </RouterLink>
-      <button class="btn-ghost" type="button" :disabled="savingTemplate" @click="openSaveTemplate">
-        Save as template
-      </button>
-      <select v-model="status" class="input max-w-40" aria-label="Page status">
-        <option value="draft">draft</option>
-        <option value="in-review">in-review</option>
-        <option value="verified">verified</option>
-        <option value="outdated">outdated</option>
-      </select>
-      <input v-model="reviewAtDate" class="input max-w-42" type="date" :title="t('reviewDate')" :aria-label="t('reviewDate')" />
-      <input v-model="locale" class="input max-w-28" placeholder="locale" :title="t('locale')" :aria-label="t('locale')" />
-      <label class="inline-flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] px-3 py-2 text-sm">
-        <input v-model="pinned" type="checkbox" />
-        <span>Pinned</span>
-      </label>
-      <input
-        v-model="navOrderText"
-        class="input max-w-30"
-        inputmode="numeric"
-        placeholder="Nav order"
-        title="Shared sidebar order"
-        aria-label="Shared sidebar order"
-      />
-      <button class="btn-primary" :disabled="saving || !title || !path" @click="save">
-        {{ saving ? t('saving') : t('save') }}
-      </button>
-      <button v-if="isEdit" class="btn-ghost" @click="archive">{{ t('archive') }}</button>
-      <button v-if="isEdit" class="btn-danger" @click="remove">{{ t('delete') }}</button>
-    </div>
-
-    <section class="mb-4 grid gap-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3 lg:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)]">
-      <div class="space-y-2">
-        <label class="block text-sm font-medium" for="page-icon">Page icon</label>
-        <div class="flex gap-2">
-          <input id="page-icon" v-model="icon" class="input max-w-24 text-center text-xl" maxlength="16" placeholder="⭐" aria-label="Page icon" />
-          <button class="btn-ghost" type="button" @click="icon = ''">Clear</button>
-        </div>
-        <div class="flex flex-wrap gap-1.5">
-          <button
-            v-for="option in iconOptions"
-            :key="option"
-            class="h-8 w-8 rounded-md border border-[var(--c-border)] bg-[var(--c-bg)] text-base hover:border-[var(--c-accent)]"
-            type="button"
-            :aria-label="`Use ${option} as page icon`"
-            @click="icon = option"
-          >
-            {{ option }}
-          </button>
-        </div>
-      </div>
-      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
-        <div class="space-y-2">
-          <label class="block text-sm font-medium" for="cover-url">Cover image</label>
-          <input id="cover-url" v-model="coverUrl" class="input" placeholder="/assets/cover.jpg" aria-label="Cover image URL" />
-          <div class="flex flex-wrap items-center gap-2 text-sm">
-            <select v-model="coverPosition" class="input max-w-36" aria-label="Cover position">
-              <option v-for="position in coverPositions" :key="position" :value="position">{{ position }}</option>
-            </select>
-            <input class="text-sm" type="file" accept="image/*" aria-label="Upload cover image" @change="uploadCover(($event.target as HTMLInputElement).files)" />
-            <span v-if="coverUploading" class="text-xs text-[var(--c-text-muted)]">Uploading...</span>
-            <button v-if="coverUrl" class="btn-ghost py-1 text-xs" type="button" @click="coverUrl = ''">Remove cover</button>
-          </div>
-        </div>
-        <div
-          class="min-h-28 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)]"
-          :style="coverPreviewStyle"
-          aria-hidden="true"
-        >
-          <div v-if="!coverUrl" class="grid h-full min-h-28 place-items-center text-xs text-[var(--c-text-muted)]">No cover</div>
-        </div>
-      </div>
-    </section>
+    <PageMetaBar
+      v-model:title="title"
+      v-model:status="status"
+      v-model:review-at-date="reviewAtDate"
+      v-model:publish-at-date-time="publishAtDateTime"
+      v-model:locale="locale"
+      v-model:pinned="pinned"
+      v-model:nav-order-text="navOrderText"
+      v-model:icon="icon"
+      v-model:cover-url="coverUrl"
+      v-model:cover-position="coverPosition"
+      :is-edit="isEdit"
+      :saving="saving"
+      :saving-template="savingTemplate"
+      :cover-uploading="coverUploading"
+      :can-save="Boolean(title && path)"
+      @save="save"
+      @archive="archive"
+      @remove="remove"
+      @save-template="openSaveTemplate"
+      @upload-cover="uploadCover"
+    />
 
     <section v-if="!isEdit" class="mb-4 space-y-3">
       <div class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)] px-3 py-2 text-sm">
@@ -740,12 +586,9 @@ async function archive(): Promise<void> {
         <button class="btn-ghost" type="button" @click="showTemplateSave = false">Cancel</button>
       </form>
     </section>
-    <input
-      v-model="labelsText"
-      class="input mb-3"
-      placeholder="labels, comma separated"
-      aria-label="Labels"
-    />
+    <FormField class="mb-3" label="Labels" for-id="page-labels" hint="Separate labels with commas.">
+      <input id="page-labels" v-model="labelsText" class="input" placeholder="labels, comma separated" />
+    </FormField>
     <div class="mb-3 flex flex-wrap items-center gap-3 text-sm">
       <span
         class="font-medium"
@@ -757,24 +600,7 @@ async function archive(): Promise<void> {
         {{ t('history') }}
       </RouterLink>
       <Skeleton v-if="templatesLoading" class="w-40" label="Loading templates" :lines="1" />
-      <div class="inline-flex rounded-md border border-gray-200 p-0.5 dark:border-gray-800" aria-label="Editor mode">
-        <button
-          type="button"
-          class="px-3 py-1 rounded text-sm font-medium transition-colors"
-          :class="editorMode === 'markdown' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'"
-          @click="setEditorMode('markdown')"
-        >
-          {{ t('markdown') }}
-        </button>
-        <button
-          type="button"
-          class="px-3 py-1 rounded text-sm font-medium transition-colors"
-          :class="editorMode === 'visual' ? 'bg-violet-600 text-white' : 'text-gray-600 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-800'"
-          @click="setEditorMode('visual')"
-        >
-          {{ t('visual') }}
-        </button>
-      </div>
+      <SegmentedControl :model-value="editorMode" :options="editorModeOptions" label="Editor mode" @update:model-value="onEditorModeInput" />
     </div>
     <p v-if="error" class="text-sm text-red-600 mb-3">{{ error }}</p>
     <section v-if="conflictDraft" class="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">

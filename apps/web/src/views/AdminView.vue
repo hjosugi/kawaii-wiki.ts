@@ -9,24 +9,25 @@ const router = useRouter()
 const { t } = useI18n()
 
 const panels = [
-  { id: 'stats', label: 'Stats', component: defineAsyncComponent(() => import('@/components/admin/AdminStatsPanel.vue')) },
-  { id: 'pages', label: 'Pages', component: defineAsyncComponent(() => import('@/components/admin/AdminPagesPanel.vue')) },
-  { id: 'templates', label: 'Templates', component: defineAsyncComponent(() => import('@/components/PageTemplatesPanel.vue')) },
-  { id: 'history', label: 'History', component: defineAsyncComponent(() => import('@/components/admin/AdminHistoryPanel.vue')) },
-  { id: 'audit', label: 'Audit', component: defineAsyncComponent(() => import('@/components/admin/AdminAuditPanel.vue')) },
-  { id: 'policy', label: 'Policy', component: defineAsyncComponent(() => import('@/components/admin/AdminPolicyPanel.vue')) },
-  { id: 'security', label: 'Security', component: defineAsyncComponent(() => import('@/components/admin/AdminSecurityPanel.vue')) },
-  { id: 'redirects', label: 'Redirects', component: defineAsyncComponent(() => import('@/components/admin/AdminRedirectsPanel.vue')) },
-  { id: 'users', label: 'Users', component: defineAsyncComponent(() => import('@/components/admin/AdminUsersPanel.vue')) },
-  { id: 'groups', label: 'Groups', component: defineAsyncComponent(() => import('@/components/admin/AdminGroupsPanel.vue')) },
-  { id: 'page-rules', label: 'Page rules', component: defineAsyncComponent(() => import('@/components/admin/AdminPageRulesPanel.vue')) },
-  { id: 'webhooks', label: 'Webhooks', component: defineAsyncComponent(() => import('@/components/admin/AdminWebhookSubscriptionsPanel.vue')) },
-  { id: 'webhook-deliveries', label: 'Deliveries', component: defineAsyncComponent(() => import('@/components/admin/AdminWebhookDeliveriesPanel.vue')) },
-  { id: 'automation', label: 'Automation', component: defineAsyncComponent(() => import('@/components/admin/AdminAutomationPanel.vue')) },
-  { id: 'appearance', label: 'Appearance', component: defineAsyncComponent(() => import('@/components/admin/AdminAppearancePanel.vue')) },
-  { id: 'import', label: 'Import', component: defineAsyncComponent(() => import('@/components/admin/AdminImportPanel.vue')) },
-  { id: 'trash', label: 'Trash', component: defineAsyncComponent(() => import('@/components/admin/AdminTrashPanel.vue')) },
-  { id: 'assets', label: 'Assets', component: defineAsyncComponent(() => import('@/components/admin/AdminAssetsPanel.vue')) },
+  { id: 'stats', label: 'adminStats', component: defineAsyncComponent(() => import('@/components/admin/AdminStatsPanel.vue')) },
+  { id: 'pages', label: 'pages', component: defineAsyncComponent(() => import('@/components/admin/AdminPagesPanel.vue')) },
+  { id: 'templates', label: 'templates', component: defineAsyncComponent(() => import('@/components/PageTemplatesPanel.vue')) },
+  { id: 'history', label: 'history', component: defineAsyncComponent(() => import('@/components/admin/AdminHistoryPanel.vue')) },
+  { id: 'audit', label: 'adminAudit', component: defineAsyncComponent(() => import('@/components/admin/AdminAuditPanel.vue')) },
+  { id: 'policy', label: 'adminPolicy', component: defineAsyncComponent(() => import('@/components/admin/AdminPolicyPanel.vue')) },
+  { id: 'security', label: 'adminSecurity', component: defineAsyncComponent(() => import('@/components/admin/AdminSecurityPanel.vue')) },
+  { id: 'redirects', label: 'redirects', component: defineAsyncComponent(() => import('@/components/admin/AdminRedirectsPanel.vue')) },
+  { id: 'users', label: 'adminUsers', component: defineAsyncComponent(() => import('@/components/admin/AdminUsersPanel.vue')) },
+  { id: 'groups', label: 'adminGroups', component: defineAsyncComponent(() => import('@/components/admin/AdminGroupsPanel.vue')) },
+  { id: 'page-rules', label: 'adminPageRules', component: defineAsyncComponent(() => import('@/components/admin/AdminPageRulesPanel.vue')) },
+  { id: 'webhooks', label: 'adminWebhooks', component: defineAsyncComponent(() => import('@/components/admin/AdminWebhookSubscriptionsPanel.vue')) },
+  { id: 'webhook-deliveries', label: 'adminDeliveries', component: defineAsyncComponent(() => import('@/components/admin/AdminWebhookDeliveriesPanel.vue')) },
+  { id: 'automation', label: 'adminAutomation', component: defineAsyncComponent(() => import('@/components/admin/AdminAutomationPanel.vue')) },
+  { id: 'git', label: 'adminGit', component: defineAsyncComponent(() => import('@/components/admin/AdminGitPanel.vue')) },
+  { id: 'appearance', label: 'adminAppearance', component: defineAsyncComponent(() => import('@/components/admin/AdminAppearancePanel.vue')) },
+  { id: 'import', label: 'adminImport', component: defineAsyncComponent(() => import('@/components/admin/AdminImportPanel.vue')) },
+  { id: 'trash', label: 'adminTrash', component: defineAsyncComponent(() => import('@/components/admin/AdminTrashPanel.vue')) },
+  { id: 'assets', label: 'assets', component: defineAsyncComponent(() => import('@/components/admin/AdminAssetsPanel.vue')) },
 ] as const
 
 const panelIds = new Set(panels.map((panel) => panel.id))
@@ -60,10 +61,10 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncPanelFromHash
   <div class="space-y-5">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h1 class="text-2xl font-bold tracking-tight">{{ t('admin') }}</h1>
-      <span class="text-sm text-[var(--c-text-muted)]">{{ activePanel.label }}</span>
+      <span class="text-sm text-[var(--c-text-muted)]">{{ t(activePanel.label) }}</span>
     </div>
     <div class="overflow-x-auto border-b border-[var(--c-border)]">
-      <nav class="flex min-w-max gap-1" aria-label="Admin sections">
+      <nav class="flex min-w-max gap-1" :aria-label="t('adminSections')">
         <a
           v-for="panel in panels"
           :key="panel.id"
@@ -73,7 +74,7 @@ onBeforeUnmount(() => window.removeEventListener('hashchange', syncPanelFromHash
           :aria-current="activePanelId === panel.id ? 'page' : undefined"
           @click.prevent="activatePanel(panel.id)"
         >
-          {{ panel.label }}
+          {{ t(panel.label) }}
         </a>
       </nav>
     </div>

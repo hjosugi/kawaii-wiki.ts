@@ -3,7 +3,7 @@ import { t } from 'elysia'
 import {
   type Principal,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { Services } from '../../services/index.ts'
 import type { AssetStorage, AssetObject } from '../../storage/assets.ts'
 import {
@@ -57,6 +57,12 @@ const safeAssetRequestPath = (rawPath: string): string | null => {
   if (!decoded || decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('\0')) return null
   if (decoded.split('/').some((part) => part === '.' || part === '..' || part.length === 0)) return null
   return decoded
+}
+
+const pagedAssets = (assets: AssetView[], limit = 100, offset = 0) => {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 1_000)
+  const safeOffset = Math.max(Math.trunc(offset), 0)
+  return { assets: assets.slice(safeOffset, safeOffset + safeLimit), total: assets.length, limit: safeLimit, offset: safeOffset }
 }
 
 const generateImageThumbnail = async (file: File, mime: string): Promise<File | null> => {
@@ -123,16 +129,16 @@ export const createAssetRoutes = ({
     app
       .get('/api/assets', ({ query, services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
-        return { assets: unwrap(services.assets.list(principal, query.folder, query.q)) }
-      }, { query: t.Object({ folder: t.Optional(t.String()), q: t.Optional(t.String()) }) })
+        return pagedAssets(unwrap(services.assets.list(principal, query.folder, query.q)), query.limit, query.offset)
+      }, { query: t.Object({ folder: t.Optional(t.String()), q: t.Optional(t.String()), limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
       .get('/api/assets/folders', ({ services, principal }) => {
         requireHttpPermission(principal, 'asset:read')
         return { folders: unwrap(services.assets.folders(principal)) }
       })
-      .get('/api/assets/trash', ({ services, principal }) => {
+      .get('/api/assets/trash', ({ query, services, principal }) => {
         requireHttpPermission(principal, 'admin:access')
-        return { assets: unwrap(services.assets.trash(principal)) }
-      })
+        return pagedAssets(unwrap(services.assets.trash(principal)), query.limit, query.offset)
+      }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
       .get(
         '/api/assets/usage',
         ({ query, services, principal }) => {

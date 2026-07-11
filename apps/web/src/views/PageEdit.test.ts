@@ -32,6 +32,14 @@ vi.mock('@/composables/usePresence', () => ({
   usePresence: () => ({ viewers: [] }),
 }))
 
+vi.mock('@/composables/useDialogs', () => ({
+  useDialogs: () => ({
+    confirm: ({ message }: { message: string }) => Promise.resolve(window.confirm(message)),
+    prompt: ({ message, defaultValue }: { message: string; defaultValue?: string }) =>
+      Promise.resolve(window.prompt(message, defaultValue)),
+  }),
+}))
+
 vi.mock('@/composables/useMarkdownFeatures', async () => {
   const { ref } = await import('vue')
   return {
@@ -81,14 +89,15 @@ const page = (patch: Partial<Page> = {}): Page => ({
   coverPosition: 'center',
   content: '# Source\n',
   renderedHtml: '<h1>Source</h1>',
-  toc: '[]',
+  toc: [],
   contentType: 'markdown',
   lifecycle: 'active',
   status: 'draft',
-  labels: '[]',
+  labels: [],
   ownerId: null,
   authorId: 'editor-1',
   reviewAt: null,
+  publishAt: null,
   navOrder: null,
   pinned: false,
   spaceKey: 'main',

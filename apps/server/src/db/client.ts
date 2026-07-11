@@ -52,8 +52,10 @@ export const createSqliteDb = (path: string, options: CreateDbOptions = {}): DB 
   sqlite.exec('PRAGMA journal_mode = WAL;')
   sqlite.exec('PRAGMA foreign_keys = ON;')
   if (options.migrate !== false) runMigrations(sqlite, { ftsTokenizer: options.ftsTokenizer })
-  const db = drizzle(sqlite, { schema }) as unknown as DB
-  return Object.assign(db, { $client: sqlite, $driver: 'sqlite' as const })
+  const db = drizzle(sqlite, { schema })
+  // Drizzle exposes Bun's concrete Database type while the application keeps a
+  // deliberately smaller cross-driver raw client surface.
+  return Object.assign(db, { $client: sqlite, $driver: 'sqlite' as const }) as unknown as DB
 }
 
 const sqliteConfig = (path: string): DatabaseConfig => ({ driver: 'sqlite', path })
@@ -97,9 +99,20 @@ const drizzleLibsqlSync = (client: RawDatabase): DB => {
     tableNamesMap: tablesConfig.tableNamesMap,
   }
   const dialect = new SQLiteSyncDialect()
-  const session = new BetterSQLiteSession(client as never, dialect, relationalSchema as never)
-  const db = new LibsqlSyncDrizzleDatabase('sync', dialect, session as never, relationalSchema as never)
-  return Object.assign(db, { $client: client, $driver: 'libsql' as const }) as DB
+  type SessionArgs = ConstructorParameters<typeof BetterSQLiteSession>
+  const session = new BetterSQLiteSession(
+    client as unknown as SessionArgs[0],
+    dialect,
+    relationalSchema as unknown as SessionArgs[2],
+  )
+  type DatabaseArgs = ConstructorParameters<typeof LibsqlSyncDrizzleDatabase>
+  const db = new LibsqlSyncDrizzleDatabase(
+    'sync',
+    dialect,
+    session as unknown as DatabaseArgs[2],
+    relationalSchema as unknown as DatabaseArgs[3],
+  )
+  return Object.assign(db, { $client: client, $driver: 'libsql' as const }) as unknown as DB
 }
 
 export const createLibsqlDb = (config: LibsqlDatabaseConfig, options: CreateDbOptions = {}): DB => {
@@ -108,7 +121,7 @@ export const createLibsqlDb = (config: LibsqlDatabaseConfig, options: CreateDbOp
   const client = new LibsqlDatabase(target.path, {
     ...(target.syncUrl ? { syncUrl: target.syncUrl } : {}),
     ...(config.authToken ? { authToken: config.authToken } : {}),
-  } as never) as RawDatabase
+  } as ConstructorParameters<typeof LibsqlDatabase>[1]) as RawDatabase
 
   client.exec('PRAGMA foreign_keys = ON;')
   if (options.migrate !== false) runMigrations(client, { ftsTokenizer: options.ftsTokenizer })

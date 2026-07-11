@@ -1,5 +1,7 @@
 import { computed, ref, type ComputedRef, type Ref } from 'vue'
 import { Api, type SearchHit, type SearchResponse, type SearchScope, type SearchShortQueryHint, type SearchSort, type SearchTokenizerHint } from '@/lib/api'
+import { readMigratedStorage, writeStorage } from '@/lib/storage'
+import { friendlyError } from '@/lib/friendlyErrors'
 
 export interface SearchFilters {
   pathPrefix?: string
@@ -19,20 +21,12 @@ export interface UseSearchOptions {
   sort?: SearchSort
 }
 
-const recentSearchesKey = 'ts-wiki-recent-searches'
+const recentSearchesKey = 'kawaii-wiki.ts:recent-searches'
 const maxRecentSearches = 10
-
-const storage = (): Storage | null => {
-  try {
-    return typeof window === 'undefined' ? null : window.localStorage
-  } catch {
-    return null
-  }
-}
 
 export const readRecentSearches = (): string[] => {
   try {
-    const parsed = JSON.parse(storage()?.getItem(recentSearchesKey) ?? '[]') as unknown
+    const parsed = JSON.parse(readMigratedStorage(recentSearchesKey, ['ts-wiki-recent-searches']) ?? '[]') as unknown
     return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string').slice(0, maxRecentSearches) : []
   } catch {
     return []
@@ -40,7 +34,7 @@ export const readRecentSearches = (): string[] => {
 }
 
 const writeRecentSearches = (items: readonly string[]): void => {
-  storage()?.setItem(recentSearchesKey, JSON.stringify(items.slice(0, maxRecentSearches)))
+  writeStorage(recentSearchesKey, JSON.stringify(items.slice(0, maxRecentSearches)))
 }
 
 export const rememberSearch = (query: string): string[] => {
@@ -111,7 +105,7 @@ export const useSearch = (options: UseSearchOptions = {}) => {
     } catch (e) {
       if (!opts.append) hits.value = []
       total.value = 0
-      error.value = (e as Error).message
+      error.value = friendlyError(e)
       return null
     } finally {
       loading.value = false

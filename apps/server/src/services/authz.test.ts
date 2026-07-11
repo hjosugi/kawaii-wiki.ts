@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { can, type Principal, type Role } from '@ts-wiki/core'
+import { can, type Principal, type Role } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
 import { createServices } from './index.ts'
 

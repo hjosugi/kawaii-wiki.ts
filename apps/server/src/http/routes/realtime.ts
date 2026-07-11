@@ -1,5 +1,5 @@
 import { t } from 'elysia'
-import { type Principal, requirePermission, unauthorized } from '@ts-wiki/core'
+import { type Principal, requirePermission, unauthorized } from '@kawaii-wiki/core'
 import type { Services } from '../../services/index.ts'
 import type { EventBus } from '../../realtime/bus.ts'
 import { createCollabRuntime, createPresenceRuntime } from '../../realtime/runtime.ts'

@@ -2,7 +2,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createRouter, createMemoryHistory } from 'vue-router'
 import { beforeEach, describe, expect, test, vi } from 'vitest'
-import { defaultPublicSettings } from '@ts-wiki/core'
+import { defaultPublicSettings } from '@kawaii-wiki/core'
 import AppHeader from './AppHeader.vue'
 
 const api = vi.hoisted(() => ({

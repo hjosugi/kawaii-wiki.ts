@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, watch, computed, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Api, type AssetView, type Page, type PageBacklink } from '@/lib/api'
@@ -19,12 +20,15 @@ import PageToc from '@/components/PageToc.vue'
 import Skeleton from '@/components/Skeleton.vue'
 import type { PageGraph } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
+import { useReadingPreferences } from '@/composables/useReadingPreferences'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const { t } = useI18n()
 const { markdownFeatures } = useMarkdownFeatures()
+const reading = useReadingPreferences()
+const readingFontSizes = ['small', 'medium', 'large'] as const
 
 const page = ref<Page | null>(null)
 const graph = ref<PageGraph>({ nodes: [], edges: [] })
@@ -34,6 +38,11 @@ const error = ref<string | null>(null)
 const loading = ref(false)
 const redirectedFrom = ref<string[]>([])
 const homePath = ref('home')
+const publicationNotice = computed(() => {
+  if (page.value?.status === 'draft') return 'Draft — only editors can view this page.'
+  const publishAt = page.value?.publishAt
+  return publishAt && publishAt > Date.now() ? `Scheduled for ${new Date(publishAt).toLocaleString()}.` : ''
+})
 
 const path = computed(() => paramToPath(route.params.path) || homePath.value)
 const routeRedirectedFrom = computed(() => typeof route.query.redirectedFrom === 'string' ? route.query.redirectedFrom : null)
@@ -45,51 +54,46 @@ const editorsLabel = computed(() => {
   if (names.length === 2) return `${names[0]} and ${names[1]} are editing`
   return `${names.length} people editing`
 })
-const toc = computed<{ id: string; text: string; level: number }[]>(() => {
-  try {
-    return JSON.parse(page.value?.toc ?? '[]')
-  } catch {
-    return []
-  }
-})
+const toc = computed(() => page.value?.toc ?? [])
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  page.value = null
-  backlinks.value = []
-  attachments.value = []
-  redirectedFrom.value = routeRedirectedFrom.value ? [routeRedirectedFrom.value] : []
+async function refreshPage(options: { showLoading: boolean; clearBefore?: boolean }): Promise<void> {
+  if (options.showLoading) loading.value = true
+  if (options.clearBefore) {
+    error.value = null
+    page.value = null
+    graph.value = { nodes: [], edges: [] }
+    backlinks.value = []
+    attachments.value = []
+    redirectedFrom.value = routeRedirectedFrom.value ? [routeRedirectedFrom.value] : []
+  }
   try {
     const result = await Api.getPageResult(path.value)
+    const [nextGraph, nextBacklinks, nextUsage] = await Promise.all([
+      Api.graph().catch((): PageGraph => ({ nodes: [], edges: [] })),
+      Api.backlinks(result.page.path).catch(() => []),
+      Api.assetUsage(result.page.path).catch(() => []),
+    ])
     page.value = result.page
+    graph.value = nextGraph
+    backlinks.value = nextBacklinks
+    attachments.value = attachmentsForPage(nextUsage, result.page.path)
     setPageMeta(result.page)
     redirectedFrom.value = result.redirectedFrom.length ? [...result.redirectedFrom] : redirectedFrom.value
     if (result.redirectedFrom.length && result.page.path !== path.value) {
       await router.replace({ path: `/${result.page.path}`, query: { redirectedFrom: result.redirectedFrom[0] } })
     }
-    try {
-      const [nextGraph, nextBacklinks, nextUsage] = await Promise.all([
-        Api.graph(),
-        Api.backlinks(path.value),
-        Api.assetUsage(result.page.path),
-      ])
-      graph.value = nextGraph
-      backlinks.value = nextBacklinks
-      attachments.value = attachmentsForPage(nextUsage, result.page.path)
-    } catch {
-      graph.value = { nodes: [], edges: [] }
-      backlinks.value = []
-      attachments.value = []
-    }
   } catch (e) {
-    error.value = (e as Error).message
+    page.value = null
+    graph.value = { nodes: [], edges: [] }
+    backlinks.value = []
+    attachments.value = []
+    if (options.showLoading) error.value = friendlyError(e)
   } finally {
-    loading.value = false
+    if (options.showLoading) loading.value = false
   }
 }
 
-watch(path, load, { immediate: true })
+watch(path, () => refreshPage({ showLoading: true, clearBefore: true }), { immediate: true })
 
 Api.publicSettings()
   .then((settings) => {
@@ -97,27 +101,8 @@ Api.publicSettings()
   })
   .catch(() => {})
 
-// Realtime: when THIS page changes elsewhere, refresh it in place (no flash).
-async function reloadInPlace(): Promise<void> {
-  try {
-    const [nextPage, nextBacklinks] = await Promise.all([
-      Api.getPageResult(path.value),
-      Api.backlinks(path.value),
-    ])
-    const nextUsage = await Api.assetUsage(nextPage.page.path)
-    page.value = nextPage.page
-    setPageMeta(nextPage.page)
-    redirectedFrom.value = nextPage.redirectedFrom
-    backlinks.value = nextBacklinks
-    attachments.value = attachmentsForPage(nextUsage, nextPage.page.path)
-  } catch {
-    page.value = null // deleted or moved away → show the empty state
-    backlinks.value = []
-    attachments.value = []
-  }
-}
 const stopRealtime = onWikiEvent((event) => {
-  if (event.path === path.value || event.from === path.value) void reloadInPlace()
+  if (event.path === path.value || event.from === path.value) void refreshPage({ showLoading: false })
 })
 onUnmounted(stopRealtime)
 </script>
@@ -128,10 +113,13 @@ onUnmounted(stopRealtime)
   <div v-else-if="page" class="flex gap-8">
     <article class="flex-1 min-w-0">
       <PageHeader :page="page" :can-edit="auth.canEdit" :home-path="homePath" />
+      <p v-if="publicationNotice" class="mb-4 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100">
+        {{ publicationNotice }}
+      </p>
       <p v-if="redirectedFrom.length" class="mb-4 text-sm text-gray-500">
         Redirected from /{{ redirectedFrom[0] }}
       </p>
-      <div v-if="viewers.length > 1" class="flex items-center gap-2 -mt-2 mb-4">
+      <div v-if="viewers.length > 1" class="page-presence flex items-center gap-2 -mt-2 mb-4">
         <div class="flex -space-x-2">
           <span
             v-for="(v, i) in viewers.slice(0, 5)"
@@ -162,10 +150,28 @@ onUnmounted(stopRealtime)
           <PageToc :entries="toc" :sticky="false" :show-title="false" />
         </div>
       </details>
-      <div v-markdown-enhance="markdownFeatures" class="prose dark:prose-invert max-w-none" v-html="page.renderedHtml"></div>
+      <div class="page-reading-controls mb-4 flex flex-wrap items-center justify-end gap-3 text-xs text-[var(--c-text-muted)] print:hidden">
+        <span>{{ t('reading') }}</span>
+        <div class="inline-flex rounded border border-[var(--c-border)] p-0.5" :aria-label="t('readingWidth')">
+          <button class="rounded px-2 py-1" :class="reading.width.value === 'comfortable' ? 'bg-[var(--c-accent)] text-white' : ''" type="button" @click="reading.setWidth('comfortable')">{{ t('narrow') }}</button>
+          <button class="rounded px-2 py-1" :class="reading.width.value === 'wide' ? 'bg-[var(--c-accent)] text-white' : ''" type="button" @click="reading.setWidth('wide')">{{ t('wide') }}</button>
+        </div>
+        <div class="inline-flex rounded border border-[var(--c-border)] p-0.5" :aria-label="t('readingFontSize')">
+          <button v-for="size in readingFontSizes" :key="size" class="rounded px-2 py-1 capitalize" :class="reading.fontSize.value === size ? 'bg-[var(--c-accent)] text-white' : ''" type="button" @click="reading.setFontSize(size)">{{ size[0] }}</button>
+        </div>
+      </div>
+      <div
+        v-markdown-enhance="markdownFeatures"
+        class="prose dark:prose-invert"
+        :class="[
+          reading.width.value === 'comfortable' ? 'max-w-[72ch]' : 'max-w-none',
+          reading.fontSize.value === 'small' ? 'text-sm' : reading.fontSize.value === 'large' ? 'text-lg' : 'text-base',
+        ]"
+        v-html="page.renderedHtml"
+      ></div>
       <PageAttachments :assets="attachments" />
       <section v-if="backlinks.length" class="mt-10 border-t border-gray-200 dark:border-gray-800 pt-5">
-        <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Linked from</h2>
+        <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ t('linkedFrom') }}</h2>
         <div class="mt-3 flex flex-wrap gap-2">
           <RouterLink
             v-for="link in backlinks"
@@ -181,7 +187,7 @@ onUnmounted(stopRealtime)
       <PageComments :path="page.path" />
     </article>
 
-    <aside class="hidden xl:block w-72 shrink-0 space-y-6">
+    <aside class="page-rail hidden xl:block w-72 shrink-0 space-y-6">
       <InteractiveGraph :graph="graph" :focus-path="page.path" compact />
       <PageToc v-if="toc.length" :entries="toc" />
     </aside>

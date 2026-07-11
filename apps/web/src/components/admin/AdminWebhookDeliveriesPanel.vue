@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type WebhookDeliveryView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
@@ -14,7 +15,7 @@ async function load(): Promise<void> {
   try {
     deliveries.value = await Api.adminWebhookDeliveries(status.value === 'all' ? undefined : status.value)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -26,7 +27,7 @@ async function retryDelivery(delivery: WebhookDeliveryView): Promise<void> {
     const updated = await Api.adminRetryWebhookDelivery(delivery.id)
     deliveries.value = deliveries.value.map((item) => (item.id === updated.id ? updated : item))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

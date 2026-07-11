@@ -1,40 +1,28 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
 import { Api, type PageGraph } from '@/lib/api'
 import EmptyState from '@/components/EmptyState.vue'
 import InteractiveGraph from '@/components/InteractiveGraph.vue'
 import Skeleton from '@/components/Skeleton.vue'
+import { useAsyncData } from '@/composables/useAsyncData'
+import { useI18n } from '@/lib/i18n'
 
-const graph = ref<PageGraph>({ nodes: [], edges: [] })
-const loading = ref(false)
-const error = ref<string | null>(null)
-
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    graph.value = await Api.graph()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
-
-onMounted(load)
+const { data: graph, loading, error, reload: load } = useAsyncData<PageGraph>(Api.graph, {
+  initial: { nodes: [], edges: [] },
+})
+const { t } = useI18n()
 </script>
 
 <template>
   <div class="space-y-5">
     <header class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 dark:border-gray-800 pb-4">
       <div>
-        <h1 class="text-2xl font-bold tracking-tight">Graph</h1>
+        <h1 class="text-2xl font-bold tracking-tight">{{ t('graph') }}</h1>
         <p class="text-sm text-[var(--c-text-muted)] mt-1">
-          Internal links, missing pages, and how the wiki hangs together.
+          {{ t('graphDescription') }}
         </p>
       </div>
       <button class="btn-ghost" type="button" :disabled="loading" @click="load">
-        Refresh
+        {{ t('refresh') }}
       </button>
     </header>
 
@@ -43,14 +31,14 @@ onMounted(load)
 
     <EmptyState
       v-else-if="!graph.nodes.length"
-      title="No graph yet"
-      message="Create pages and link them with [[Wiki Links]] or normal Markdown links."
+      :title="t('noGraphYet')"
+      :message="t('graphDescription')"
     >
       <template #actions>
-        <RouterLink to="/_new" class="btn-primary">New page</RouterLink>
+        <RouterLink to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
       </template>
     </EmptyState>
 
-    <InteractiveGraph v-else :graph="graph" title="Graph view" />
+    <InteractiveGraph v-else :graph="graph" :title="t('graphView')" />
   </div>
 </template>

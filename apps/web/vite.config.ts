@@ -11,7 +11,7 @@ export default defineConfig({
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
       // Consume the core package as TypeScript source so Vite transpiles it.
-      '@ts-wiki/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
+      '@kawaii-wiki/core': fileURLToPath(new URL('../../packages/core/src/index.ts', import.meta.url)),
     },
   },
   server: {

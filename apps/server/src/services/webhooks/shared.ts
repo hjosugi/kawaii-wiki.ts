@@ -3,7 +3,6 @@ import { isIP } from 'node:net'
 import {
   type AppError,
   type PageStatus,
-  type Principal,
   type Result,
   err,
   isPageStatus,
@@ -12,9 +11,8 @@ import {
   normalizePath,
   ok,
   parseJsonStringArray,
-  requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { WebhookSubscription } from '../../db/schema.ts'
 import type {
   AutomationRuleActions,
@@ -32,9 +30,6 @@ export const defaultResolver: WebhookHostnameResolver = async (hostname) =>
 
 export const truncate = (value: string, limit: number): string =>
   value.length > limit ? `${value.slice(0, limit)}...` : value
-
-export const requireManage = (principal: Principal | null): Result<true, AppError> =>
-  requirePermission(principal, 'automation:manage')
 
 export const cleanName = (name: string | undefined, fallback: string): string => {
   const clean = name?.trim()

@@ -17,6 +17,20 @@ export const DEFAULT_JWT_SECRET = 'dev-insecure-secret-change-me'
 
 type EnvSource = Record<string, string | undefined>
 
+/**
+ * `KAWAII_WIKI_*` is the public prefix after the project rename. Keep reading
+ * `TS_WIKI_*` so existing deployments can upgrade without rewriting all of
+ * their secrets in one release. When both are present, the new name wins.
+ */
+const withKawaiiWikiAliases = (input: EnvSource): EnvSource => {
+  const source = { ...input }
+  for (const [key, value] of Object.entries(input)) {
+    if (!key.startsWith('KAWAII_WIKI_') || value === undefined) continue
+    source[`TS_WIKI_${key.slice('KAWAII_WIKI_'.length)}`] = value
+  }
+  return source
+}
+
 export interface GitEnv {
   readonly enabled: boolean
   readonly dir: string
@@ -446,7 +460,7 @@ const loadAuthEnv = (source: EnvSource): AuthEnv => {
   }
   assertUniqueOidcProviderIds(providers)
   return {
-    siteName: optionalTrimmed(source.TS_WIKI_SITE_NAME) ?? 'ts-wiki',
+    siteName: optionalTrimmed(source.TS_WIKI_SITE_NAME) ?? 'kawaii-wiki.ts',
     publicOrigin,
     passkeyRpId: optionalTrimmed(source.PASSKEY_RP_ID) ?? originHost(publicOrigin),
     tokenTtlSeconds: parsePositiveInteger(source.TS_WIKI_JWT_TTL_SECONDS, 30 * 24 * 60 * 60, 'TS_WIKI_JWT_TTL_SECONDS'),
@@ -486,7 +500,7 @@ const parseTimezone = (value: string | undefined): string | null => {
 }
 
 const defaultMailFrom = (publicOrigin: string): string =>
-  `ts-wiki <no-reply@${originHost(publicOrigin)}>`
+  `kawaii-wiki.ts <no-reply@${originHost(publicOrigin)}>`
 
 const loadMailEnv = (source: EnvSource, publicOrigin: string): MailEnv => ({
   smtpUrl: optionalTrimmed(source.SMTP_URL) ?? optionalTrimmed(source.TS_WIKI_SMTP_URL),
@@ -507,7 +521,8 @@ const loadLocalizationEnv = (source: EnvSource): LocalizationEnv => ({
   dateFormat: parseDateFormat(source.TS_WIKI_DATE_FORMAT),
 })
 
-export const loadEnv = (source: EnvSource = process.env): Env => {
+export const loadEnv = (input: EnvSource = process.env): Env => {
+  const source = withKawaiiWikiAliases(input)
   const production = isProduction(source)
   const dataDir = source.DATA_DIR ?? './data'
   const database = loadDatabaseEnv(source, dataDir)
@@ -558,8 +573,8 @@ export const loadEnv = (source: EnvSource = process.env): Env => {
       branch: source.TS_WIKI_GIT_BRANCH ?? 'main',
       remote,
       remoteUrl,
-      authorName: source.TS_WIKI_GIT_AUTHOR_NAME ?? 'ts-wiki',
-      authorEmail: source.TS_WIKI_GIT_AUTHOR_EMAIL ?? 'ts-wiki@localhost',
+      authorName: source.TS_WIKI_GIT_AUTHOR_NAME ?? 'kawaii-wiki.ts',
+      authorEmail: source.TS_WIKI_GIT_AUTHOR_EMAIL ?? 'kawaii-wiki.ts@localhost',
       syncIntervalMs: Number(source.TS_WIKI_GIT_SYNC_INTERVAL_MS ?? 0),
     },
     realtime: {

@@ -1,22 +1,27 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, ref, watch } from 'vue'
-import { diffLines, type Change } from 'diff'
+import { diffWordsWithSpace, type Change } from 'diff'
 import { useRoute, useRouter } from 'vue-router'
 import { Api, type Page, type PageRevision } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import Skeleton from '@/components/Skeleton.vue'
+import { useI18n } from '@/lib/i18n'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const pagesStore = usePages()
+const { t } = useI18n()
 
 const path = computed(() => paramToPath(route.params.path))
 const page = ref<Page | null>(null)
 const revisions = ref<PageRevision[]>([])
 const selectedId = ref<string | null>(null)
+const compareId = ref<string>('current')
+const diffMode = ref<'unified' | 'side-by-side'>('unified')
 const loading = ref(false)
 const restoring = ref(false)
 const error = ref<string | null>(null)
@@ -27,13 +32,14 @@ const selectedIndex = computed(() =>
 const selectedRevision = computed(() =>
   selectedIndex.value >= 0 ? revisions.value[selectedIndex.value] : null,
 )
-const newerContent = computed(() => {
-  if (!selectedRevision.value) return page.value?.content ?? ''
-  if (selectedIndex.value <= 0) return page.value?.content ?? ''
-  return revisions.value[selectedIndex.value - 1]?.content ?? ''
-})
+const contentFor = (id: string | null): string =>
+  id === 'current'
+    ? page.value?.content ?? ''
+    : revisions.value.find((revision) => revision.id === id)?.content ?? ''
+const compareRevision = computed(() => compareId.value === 'current' ? null : revisions.value.find((revision) => revision.id === compareId.value) ?? null)
+const newerContent = computed(() => contentFor(compareId.value))
 const diff = computed<Change[]>(() =>
-  selectedRevision.value ? diffLines(selectedRevision.value.content, newerContent.value) : [],
+  selectedRevision.value ? diffWordsWithSpace(selectedRevision.value.content, newerContent.value) : [],
 )
 
 const formatDate = (value: number): string =>
@@ -53,8 +59,9 @@ async function load(): Promise<void> {
     page.value = nextPage
     revisions.value = nextRevisions
     selectedId.value = nextRevisions[0]?.id ?? null
+    compareId.value = 'current'
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -70,7 +77,7 @@ async function restore(): Promise<void> {
     await pagesStore.refresh()
     router.push('/' + path.value)
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     restoring.value = false
   }
@@ -83,8 +90,8 @@ watch(path, load, { immediate: true })
   <div class="space-y-5">
     <div class="flex flex-wrap items-start justify-between gap-3">
       <div>
-        <RouterLink :to="'/' + path" class="link-quiet text-sm">Back to page</RouterLink>
-        <h1 class="mt-2 text-3xl font-bold tracking-tight">History</h1>
+        <RouterLink :to="'/' + path" class="link-quiet text-sm">{{ t('backToPage') }}</RouterLink>
+        <h1 class="mt-2 text-3xl font-bold tracking-tight">{{ t('history') }}</h1>
         <p class="mt-1 font-mono text-sm text-gray-500">/{{ path }}</p>
       </div>
       <button
@@ -117,7 +124,7 @@ watch(path, load, { immediate: true })
           </div>
           <div class="mt-1 text-xs font-mono text-[var(--c-text-muted)] truncate">/{{ revision.path }}</div>
         </button>
-        <p v-if="!revisions.length" class="p-3 text-sm text-gray-500">No revisions yet.</p>
+        <p v-if="!revisions.length" class="p-3 text-sm text-gray-500">{{ t('noRevisionsYet') }}</p>
       </aside>
 
       <section class="card overflow-hidden">
@@ -129,13 +136,35 @@ watch(path, load, { immediate: true })
             </p>
           </div>
           <div class="flex items-center gap-3 text-xs">
-            <span class="text-green-600">Added</span>
-            <span class="text-red-600">Removed</span>
+            <span class="text-green-600">{{ t('added') }}</span>
+            <span class="text-red-600">{{ t('removed') }}</span>
           </div>
         </div>
-        <pre class="m-0 max-h-[70vh] overflow-auto p-0 text-sm leading-6"><template v-for="(part, index) in diff" :key="index"><span
+        <div class="flex flex-wrap items-end gap-3 border-b border-[var(--c-border)] p-3 text-sm">
+          <label class="grid gap-1">
+            <span class="text-xs text-[var(--c-text-muted)]">{{ t('from') }}</span>
+            <select v-model="selectedId" class="input py-1">
+              <option v-for="revision in revisions" :key="revision.id" :value="revision.id">{{ formatDate(revision.createdAt) }} · {{ revision.action }}</option>
+            </select>
+          </label>
+          <label class="grid gap-1">
+            <span class="text-xs text-[var(--c-text-muted)]">{{ t('to') }}</span>
+            <select v-model="compareId" class="input py-1">
+              <option value="current">{{ t('currentPage') }}</option>
+              <option v-for="revision in revisions" :key="revision.id" :value="revision.id">{{ formatDate(revision.createdAt) }} · {{ revision.action }}</option>
+            </select>
+          </label>
+          <button class="btn-ghost py-1" type="button" @click="diffMode = diffMode === 'unified' ? 'side-by-side' : 'unified'">
+            {{ diffMode === 'unified' ? 'Side by side' : 'Unified' }}
+          </button>
+        </div>
+        <pre v-if="diffMode === 'unified'" class="m-0 max-h-[70vh] overflow-auto whitespace-pre-wrap p-4 text-sm leading-6"><template v-for="(part, index) in diff" :key="index"><span
           :class="part.added ? 'history-added' : part.removed ? 'history-removed' : 'history-same'"
         >{{ part.value }}</span></template></pre>
+        <div v-else class="grid max-h-[70vh] grid-cols-2 divide-x divide-[var(--c-border)] overflow-auto">
+          <section><h3 class="sticky top-0 bg-[var(--c-surface-muted)] px-3 py-2 text-xs font-semibold">{{ selectedRevision?.title || 'From' }}</h3><pre class="m-0 whitespace-pre-wrap p-3 text-sm">{{ selectedRevision?.content }}</pre></section>
+          <section><h3 class="sticky top-0 bg-[var(--c-surface-muted)] px-3 py-2 text-xs font-semibold">{{ compareRevision?.title || 'Current page' }}</h3><pre class="m-0 whitespace-pre-wrap p-3 text-sm">{{ newerContent }}</pre></section>
+        </div>
       </section>
     </div>
   </div>

@@ -1,7 +1,7 @@
 import { Elysia } from 'elysia'
 import { cors } from '@elysiajs/cors'
 import { jwt } from '@elysiajs/jwt'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import type { Env } from '../env.ts'
 import type { Services } from '../services/index.ts'
 import { toErrorResponse } from './errors.ts'

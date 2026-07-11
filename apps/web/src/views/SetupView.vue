@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { Api, setToken, type FtsTokenizer, type SetupInput } from '@/lib/api'
@@ -10,7 +11,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuth()
 
-const siteTitle = ref('ts-wiki')
+const siteTitle = ref('kawaii-wiki.ts')
 const theme = ref<ThemeMode>('system')
 const tokenizer = ref<FtsTokenizer>('unicode61')
 const sampleContent = ref(true)
@@ -82,7 +83,7 @@ async function completeSetup(): Promise<void> {
     applySiteDefault(result.settings.theme)
     await router.push(redirectTarget(result.settings.homePath))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
     busy.value = false
   }
 }
@@ -95,7 +96,7 @@ onMounted(async () => {
       return
     }
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     checking.value = false
   }

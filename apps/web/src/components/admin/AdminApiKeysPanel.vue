@@ -1,20 +1,22 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import type { Role } from '@ts-wiki/core'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { ref } from 'vue'
+import type { Role } from '@kawaii-wiki/core'
 import { Api, type ApiKeyView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
+import { useAsyncData } from '@/composables/useAsyncData'
 
 const roles: Role[] = ['viewer', 'editor', 'admin']
-const apiKeys = ref<ApiKeyView[]>([])
-const loading = ref(false)
+const { data: apiKeys, loading, error, reload: load } = useAsyncData<ApiKeyView[]>(Api.adminApiKeys, { initial: [] })
 const busy = ref(false)
-const error = ref<string | null>(null)
 const message = ref<string | null>(null)
 const name = ref('')
 const role = ref<Role>('viewer')
 const expiresAt = ref('')
 const issuedSecret = ref('')
 const issuedName = ref('')
+const dialogs = useDialogs()
 
 function formatDate(value: number | null): string {
   if (value === null) return 'never'
@@ -31,18 +33,6 @@ function parsedExpiry(): number | null {
   if (!expiresAt.value) return null
   const timestamp = new Date(expiresAt.value).getTime()
   return Number.isFinite(timestamp) ? timestamp : null
-}
-
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    apiKeys.value = await Api.adminApiKeys()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
 }
 
 async function createApiKey(): Promise<void> {
@@ -62,7 +52,7 @@ async function createApiKey(): Promise<void> {
     role.value = 'viewer'
     expiresAt.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
@@ -79,7 +69,7 @@ async function copySecret(): Promise<void> {
 }
 
 async function revokeApiKey(apiKey: ApiKeyView): Promise<void> {
-  if (!confirm(`Revoke API key "${apiKey.name}"?`)) return
+  if (!await dialogs.confirm({ message: `Revoke API key "${apiKey.name}"?`, danger: true })) return
   busy.value = true
   error.value = null
   message.value = null
@@ -87,13 +77,12 @@ async function revokeApiKey(apiKey: ApiKeyView): Promise<void> {
     const revoked = await Api.adminRevokeApiKey(apiKey.id)
     apiKeys.value = apiKeys.value.map((item) => (item.id === revoked.id ? revoked : item))
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

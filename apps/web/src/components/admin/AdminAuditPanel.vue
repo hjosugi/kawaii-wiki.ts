@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { Api, type AdminAuditEvent } from '@/lib/api'
 import { useI18n } from '@/lib/i18n'
@@ -48,7 +49,7 @@ async function load(nextOffset = offset.value): Promise<void> {
     total.value = result.total
     offset.value = result.offset
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }

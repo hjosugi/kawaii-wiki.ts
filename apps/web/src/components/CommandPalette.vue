@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { normalizePath } from '@ts-wiki/core'
+import { normalizePath } from '@kawaii-wiki/core'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { useListNavigation, useSearch } from '@/composables/useSearch'
 import { Api } from '@/lib/api'
 import ModalDialog from '@/components/ModalDialog.vue'
+import { useI18n } from '@/lib/i18n'
 
 interface CommandItem {
   readonly key: string
@@ -25,6 +26,7 @@ const search = useSearch({ limit: 8, debounceMs: 120, scope: 'title' })
 const dailyNotesPath = ref('journal')
 const dailyNotesTimeZone = ref(browserTimeZone())
 const commandSettingsLoaded = ref(false)
+const { t } = useI18n()
 
 const localPages = computed(() => {
   const needle = search.q.value.trim().toLowerCase()
@@ -36,7 +38,7 @@ const localPages = computed(() => {
 const pageByPath = computed(() => new Map(pages.list.map((page) => [page.path, page])))
 const todayIso = computed(() => isoDateInTimeZone(dailyNotesTimeZone.value))
 const todayNotePath = computed(() => normalizePath(`${dailyNotesPath.value}/${todayIso.value}`) || `journal/${todayIso.value}`)
-const todayNoteTitle = computed(() => `Daily note ${todayIso.value}`)
+const todayNoteTitle = computed(() => t('dailyNote', { date: todayIso.value }))
 
 function browserTimeZone(): string {
   try {
@@ -93,8 +95,8 @@ const items = computed<CommandItem[]>(() => {
   if (auth.canEdit && normalized && !pages.list.some((page) => page.path === normalized)) {
     out.push({
       key: `create:${normalized}`,
-      label: `Create "${normalized}"`,
-      detail: 'New page',
+      label: t('createNamedPage', { path: normalized }),
+      detail: t('newPage'),
       run: () => router.push({ name: 'new', query: { path: normalized } }),
     })
   }
@@ -104,7 +106,7 @@ const items = computed<CommandItem[]>(() => {
     out.push({
       key: 'today-note',
       icon: todayPage?.icon || '🗓️',
-      label: "Today's note",
+      label: t('todayNote'),
       detail: todayPage ? `/${todayPage.path}` : `Create /${todayNotePath.value}`,
       run: () => {
         if (todayPage) router.push('/' + todayPage.path)
@@ -122,45 +124,45 @@ const items = computed<CommandItem[]>(() => {
 
   out.push({
     key: 'events',
-    label: 'Events',
-    detail: 'Calendar index',
+    label: t('events'),
+    detail: t('calendarIndex'),
     run: () => router.push('/_events'),
   })
   out.push({
     key: 'graph',
-    label: 'Graph',
-    detail: 'Open map',
+    label: t('graph'),
+    detail: t('graphView'),
     run: () => router.push('/_graph'),
   })
   out.push({
     key: 'tags',
-    label: 'Tags',
-    detail: 'Browse by label',
+    label: t('tags'),
+    detail: t('browseByLabel'),
     run: () => router.push('/_tags'),
   })
   out.push({
     key: 'changes',
-    label: 'Recent changes',
-    detail: 'Activity feed',
+    label: t('changes'),
+    detail: t('activityFeed'),
     run: () => router.push('/_changes'),
   })
   out.push({
     key: 'shortcuts',
-    label: 'Keyboard shortcuts',
-    detail: 'Show help',
+    label: t('keyboardShortcuts'),
+    detail: t('showHelp'),
     run: () => window.dispatchEvent(new Event('open-shortcuts-help')),
   })
   out.push({
     key: 'links',
-    label: 'Broken links',
-    detail: 'Find missing pages',
+    label: t('brokenLinks'),
+    detail: t('findMissingPages'),
     run: () => router.push('/_links'),
   })
   if (auth.canEdit) {
     out.push({
       key: 'new',
-      label: 'New page',
-      detail: 'Blank draft',
+      label: t('newPage'),
+      detail: t('blankDraft'),
       run: () => router.push('/_new'),
     })
   }
@@ -237,7 +239,7 @@ onBeforeUnmount(() => {
 <template>
   <ModalDialog
     :open="open"
-    title="Command palette"
+    :title="t('commandPalette')"
     container-class="items-start justify-center p-4 pt-[12vh]"
     panel-class="card w-full max-w-2xl overflow-hidden p-0"
     @close="close"
@@ -246,15 +248,15 @@ onBeforeUnmount(() => {
       ref="input"
       v-model="search.q.value"
       class="w-full border-0 border-b border-gray-200 dark:border-gray-800 bg-transparent px-4 py-3 text-lg outline-none"
-      placeholder="Search or jump..."
-      aria-label="Search or jump"
+      :placeholder="t('searchOrJump')"
+      :aria-label="t('searchOrJump')"
       role="combobox"
       aria-controls="command-palette-results"
       :aria-expanded="Boolean(items.length)"
       :aria-activedescendant="navigation.activeId('command-palette-item')"
     />
     <div v-if="!search.q.value.trim() && search.recentSearches.value.length" class="border-b border-gray-100 px-4 py-3 dark:border-gray-800">
-      <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">Recent</div>
+      <div class="mb-2 text-xs font-medium uppercase tracking-wide text-gray-500">{{ t('recent') }}</div>
       <div class="flex flex-wrap gap-2">
         <button
           v-for="recent in search.recentSearches.value"
@@ -285,7 +287,7 @@ onBeforeUnmount(() => {
           <span class="block font-medium truncate">{{ item.label }}</span>
           <span class="block text-xs text-gray-500 truncate">{{ item.detail }}</span>
         </span>
-        <span v-if="index === navigation.selected.value" class="text-xs text-[var(--c-text-muted)]">Enter</span>
+        <span v-if="index === navigation.selected.value" class="text-xs text-[var(--c-text-muted)]">{{ t('enter') }}</span>
       </button>
     </div>
   </ModalDialog>

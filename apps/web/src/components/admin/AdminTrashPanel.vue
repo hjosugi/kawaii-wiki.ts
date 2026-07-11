@@ -1,10 +1,13 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { onMounted, ref } from 'vue'
 import { Api, type AssetView, type PageSummary } from '@/lib/api'
 import { usePages } from '@/stores/pages'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
 
 const pagesStore = usePages()
+const dialogs = useDialogs()
 const pageTrash = ref<PageSummary[]>([])
 const assetTrash = ref<AssetView[]>([])
 const loading = ref(false)
@@ -21,7 +24,7 @@ async function load(): Promise<void> {
     pageTrash.value = pages
     assetTrash.value = assets
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -33,18 +36,18 @@ async function restorePage(path: string): Promise<void> {
     await Api.restorePage(path)
     await Promise.all([load(), pagesStore.refresh()])
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function purgePage(path: string): Promise<void> {
-  if (!confirm(`Purge "/${path}" permanently?`)) return
+  if (!await dialogs.confirm({ message: `Purge "/${path}" permanently?`, danger: true })) return
   error.value = null
   try {
     await Api.purgePage(path)
     await Promise.all([load(), pagesStore.refresh()])
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -54,18 +57,18 @@ async function restoreAsset(id: string): Promise<void> {
     await Api.restoreAsset(id)
     await load()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
 async function purgeAsset(asset: AssetView): Promise<void> {
-  if (!confirm(`Purge asset "${asset.filename}" permanently?`)) return
+  if (!await dialogs.confirm({ message: `Purge asset "${asset.filename}" permanently?`, danger: true })) return
   error.value = null
   try {
     await Api.purgeAsset(asset.id)
     await load()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 

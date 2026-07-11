@@ -7,7 +7,7 @@ import {
   ok,
   unauthorized,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { emailVerifications, passwordResets, users, type User } from '../db/schema.ts'
 import type { AuthEnv } from '../env.ts'

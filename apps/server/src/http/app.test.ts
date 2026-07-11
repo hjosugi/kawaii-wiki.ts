@@ -4,6 +4,7 @@ import { createHmac } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 import type { Env } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { sampleGuidePages } from '../sample-content.ts'
@@ -237,7 +238,7 @@ const register = async (app: App, email: string): Promise<{ token: string; user:
 
 const createPage = async (app: App, token: string, path: string, content = 'hello'): Promise<void> => {
   const response = await app.handle(
-    jsonRequest('/api/pages', { path, title: path, content }, token),
+    jsonRequest('/api/pages', { path, title: path, content, status: 'verified' }, token),
   )
   expect(response.status).toBe(200)
 }
@@ -1678,7 +1679,7 @@ describe('http app settings', () => {
     const defaults = await app.handle(new Request('http://localhost/api/settings/public'))
     expect(defaults.status).toBe(200)
     expect(await defaults.json()).toMatchObject({
-      siteTitle: 'ts-wiki',
+      siteTitle: 'kawaii-wiki.ts',
       accentColor: '#7c3aed',
       homePath: 'home',
       dailyNotesPath: 'journal',
@@ -2422,7 +2423,13 @@ describe('http app automations and webhooks', () => {
     expect(rule.status).toBe(200)
     const ruleBody = await rule.json() as { rule: { id: string } }
 
-    await createPage(app, token, 'docs/auto', 'seed')
+    const created = await app.handle(jsonRequest('/api/pages', {
+      path: 'docs/auto',
+      title: 'docs/auto',
+      content: 'seed',
+      status: 'draft',
+    }, token))
+    expect(created.status).toBe(200)
     const disabledUpdate = await app.handle(
       new Request('http://localhost/api/page?path=docs/auto', {
         method: 'PUT',
@@ -2431,7 +2438,9 @@ describe('http app automations and webhooks', () => {
       }),
     )
     expect(disabledUpdate.status).toBe(200)
-    const afterDisabled = await app.handle(new Request('http://localhost/api/page?path=docs/auto'))
+    const afterDisabled = await app.handle(new Request('http://localhost/api/page?path=docs/auto', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
     expect(await afterDisabled.json()).toMatchObject({
       page: expect.objectContaining({ labels: '[]', status: 'draft' }),
     })
@@ -2453,7 +2462,9 @@ describe('http app automations and webhooks', () => {
       }),
     )
     expect(enabledUpdate.status).toBe(200)
-    const afterEnabled = await app.handle(new Request('http://localhost/api/page?path=docs/auto'))
+    const afterEnabled = await app.handle(new Request('http://localhost/api/page?path=docs/auto', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
     expect(await afterEnabled.json()).toMatchObject({
       page: expect.objectContaining({ labels: '["triaged"]', status: 'verified' }),
     })
@@ -2999,11 +3010,17 @@ describe('http app page utilities', () => {
     const { app } = createFixture()
     const { token } = await register(app, 'admin@example.com')
     await createPage(app, token, 'docs/export', '# Export\n\nbody')
+    await uploadPngAsset(app, token, 'export-image.png')
 
     const markdown = await app.handle(new Request('http://localhost/api/export/page?path=docs/export'))
     expect(markdown.status).toBe(200)
     expect(markdown.headers.get('content-type')).toContain('text/markdown')
     expect(await markdown.text()).toContain('title: docs/export')
+
+    const printable = await app.handle(new Request('http://localhost/api/export/page?path=docs/export&format=print'))
+    expect(printable.status).toBe(200)
+    expect(printable.headers.get('content-disposition')).toContain('inline')
+    expect(await printable.text()).toContain('@page{margin:18mm}')
 
     const site = await app.handle(
       new Request('http://localhost/api/export/site', {
@@ -3011,7 +3028,28 @@ describe('http app page utilities', () => {
       }),
     )
     expect(site.status).toBe(200)
-    expect((await site.json()).pages).toContainEqual(expect.objectContaining({ path: 'docs/export' }))
+    const siteBackup = await site.json() as { pages: Array<Record<string, unknown>> }
+    expect(siteBackup.pages).toContainEqual(expect.objectContaining({ path: 'docs/export' }))
+
+    const restored = await app.handle(jsonRequest('/api/import/site', {
+      conflictPolicy: 'skip',
+      pages: siteBackup.pages,
+    }, token))
+    expect(restored.status).toBe(200)
+    expect((await restored.json()).results).toContainEqual({ path: 'docs/export', ok: true })
+
+    const zip = await app.handle(new Request('http://localhost/api/export/site?format=zip', {
+      headers: { authorization: `Bearer ${token}` },
+    }))
+    expect(zip.status).toBe(200)
+    expect(zip.headers.get('content-type')).toContain('application/zip')
+    const entries = unzipSync(new Uint8Array(await zip.arrayBuffer()))
+    expect(strFromU8(entries['content/docs/export.md']!)).toContain('# Export')
+    const manifest = JSON.parse(strFromU8(entries['manifest.json']!)) as {
+      assets: Array<{ archivePath: string }>
+    }
+    expect(manifest.assets).toHaveLength(1)
+    expect(entries[manifest.assets[0]!.archivePath]).toBeDefined()
 
     const imported = await app.handle(
       jsonRequest(
@@ -3038,6 +3076,22 @@ describe('http app page utilities', () => {
     }))).json()
     expect((await importedPage).page.content).toContain('toc: false')
     expect((await importedPage).page.renderedHtml).not.toContain('toc: false')
+
+    const bulk = new FormData()
+    bulk.append('files', new File(['---\ntitle: Bulk one\n---\n\n# One\n'], 'bulk-one.md', { type: 'text/markdown' }))
+    bulk.append('files', new File([zipSync({
+      'content/nested/bulk-two.md': strToU8('---\ntitle: Bulk two\n---\n\n# Two\n'),
+    })], 'bulk-pages.zip', { type: 'application/zip' }))
+    const bulkImported = await app.handle(new Request('http://localhost/api/import/bulk', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${token}` },
+      body: bulk,
+    }))
+    expect(bulkImported.status).toBe(200)
+    expect((await bulkImported.json()).results).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: 'bulk-one', ok: true }),
+      expect.objectContaining({ path: 'nested/bulk-two', ok: true }),
+    ]))
   }, HTTP_TEST_TIMEOUT_MS)
 })
 

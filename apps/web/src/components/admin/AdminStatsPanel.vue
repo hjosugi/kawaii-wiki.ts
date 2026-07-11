@@ -1,52 +1,45 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { ref } from 'vue'
 import { Api, type AdminStats, type AnalyticsSummary, type SearchIndexStatus } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useDialogs } from '@/composables/useDialogs'
+import { useAsyncData } from '@/composables/useAsyncData'
 
 const stats = ref<AdminStats | null>(null)
 const analytics = ref<AnalyticsSummary | null>(null)
 const searchIndex = ref<SearchIndexStatus | null>(null)
-const loading = ref(false)
 const rebuilding = ref(false)
-const error = ref<string | null>(null)
+const dialogs = useDialogs()
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    const [nextStats, nextAnalytics, nextSearchIndex] = await Promise.all([
+const { loading, error, reload: load } = useAsyncData(async () => {
+  const [nextStats, nextAnalytics, nextSearchIndex] = await Promise.all([
       Api.adminStats(),
       Api.adminAnalytics(),
       Api.adminSearchIndex(),
-    ])
-    stats.value = nextStats
-    analytics.value = nextAnalytics
-    searchIndex.value = nextSearchIndex
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
+  ])
+  stats.value = nextStats
+  analytics.value = nextAnalytics
+  searchIndex.value = nextSearchIndex
+})
 
 function percent(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
 async function rebuildAsTrigram(): Promise<void> {
-  if (!confirm('Rebuild the search index with the trigram tokenizer? Back up the database first; searches may be incomplete while the rebuild is running.')) return
+  if (!await dialogs.confirm({ message: 'Rebuild the search index with the trigram tokenizer? Back up the database first; searches may be incomplete while the rebuild is running.', danger: true })) return
   rebuilding.value = true
   error.value = null
   try {
     searchIndex.value = await Api.adminRebuildSearchIndex('trigram')
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     rebuilding.value = false
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

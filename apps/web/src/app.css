@@ -211,9 +211,59 @@ html {
 }
 
 @media print {
+  @page {
+    margin: 18mm;
+  }
+
   body::before,
   body::after {
     display: none;
+  }
+
+  html,
+  body,
+  #app {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  .app-shell-header,
+  .app-sidebar,
+  .page-rail,
+  .page-presence,
+  .comments-form,
+  .modal-dialog-overlay,
+  [role='status'][class*='fixed'] {
+    display: none !important;
+  }
+
+  main,
+  article,
+  .prose {
+    width: 100% !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin-inline: 0 !important;
+  }
+
+  article > header a,
+  article > header button,
+  article > header [class*='btn-'] {
+    display: none !important;
+  }
+
+  .prose pre,
+  .prose table,
+  .wiki-callout,
+  .wiki-event-card,
+  .wiki-media-card {
+    break-inside: avoid;
+  }
+
+  .prose h1,
+  .prose h2,
+  .prose h3 {
+    break-after: avoid;
   }
 }
 
@@ -248,6 +298,17 @@ main:focus {
 .modal-dialog-leave-to .modal-dialog-panel {
   opacity: 0;
   transform: translateY(0.25rem) scale(0.98);
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-0.5rem);
 }
 
 .skeleton-stack {

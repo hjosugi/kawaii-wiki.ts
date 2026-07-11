@@ -1,9 +1,9 @@
 import { createHmac } from 'node:crypto'
 import { isIP } from 'node:net'
-import { asc, desc, eq, lte } from 'drizzle-orm'
-import { err, notFound, ok, validationError } from '@ts-wiki/core'
+import { asc, desc, eq, inArray, lte } from 'drizzle-orm'
+import { err, notFound, ok, requirePermission, validationError } from '@kawaii-wiki/core'
 import type { DB } from '../../db/client.ts'
-import { webhookDeliveries, type WebhookDelivery, type WebhookSubscription } from '../../db/schema.ts'
+import { webhookDeliveries, webhookSubscriptions, type WebhookDelivery, type WebhookSubscription } from '../../db/schema.ts'
 import type {
   WebhookDeliveryView,
   WebhookFetcher,
@@ -14,7 +14,6 @@ import {
   ensurePublicLiteralTarget,
   hostnameForValidation,
   isPrivateOrReservedAddress,
-  requireManage,
   truncate,
 } from './shared.ts'
 
@@ -176,11 +175,15 @@ export const createWebhookDelivery = (
         method: 'POST',
         headers: {
           'content-type': 'application/json',
-          'user-agent': 'ts-wiki-webhooks/1',
+          'user-agent': 'kawaii-wiki.ts-webhooks/1',
           'x-ts-wiki-delivery': delivery.id,
           'x-ts-wiki-event': delivery.eventType,
           'x-ts-wiki-signature': signature,
           'x-ts-wiki-timestamp': timestamp,
+          'x-kawaii-wiki-delivery': delivery.id,
+          'x-kawaii-wiki-event': delivery.eventType,
+          'x-kawaii-wiki-signature': signature,
+          'x-kawaii-wiki-timestamp': timestamp,
         },
         body: delivery.payload,
       }, fetcher, resolver, allowPrivateTargets)
@@ -216,7 +219,9 @@ export const createWebhookDelivery = (
         .run()
     }
 
-    return toDeliveryView(findDelivery(delivery.id)!)
+    const persisted = findDelivery(delivery.id)
+    if (!persisted) throw new Error(`Webhook delivery ${delivery.id} disappeared while it was being processed`)
+    return toDeliveryView(persisted)
   }
 
   const enqueue = (subscription: WebhookSubscription, payload: WebhookPayload): WebhookDelivery => {
@@ -252,7 +257,7 @@ export const createWebhookDelivery = (
     },
 
     listDeliveries(principal, filters = {}) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       const limit = Math.max(1, Math.min(filters.limit ?? 100, 500))
       const rows = filters.status
@@ -269,11 +274,21 @@ export const createWebhookDelivery = (
             .orderBy(desc(webhookDeliveries.createdAt))
             .limit(limit)
             .all()
-      return ok(rows.map(toDeliveryView))
+      const subscriptionIds = [...new Set(rows.map((row) => row.subscriptionId))]
+      const names = new Map(
+        (subscriptionIds.length
+          ? db.select({ id: webhookSubscriptions.id, name: webhookSubscriptions.name })
+              .from(webhookSubscriptions)
+              .where(inArray(webhookSubscriptions.id, subscriptionIds))
+              .all()
+          : [])
+          .map((subscription) => [subscription.id, subscription.name]),
+      )
+      return ok(rows.map((row) => ({ ...toDeliveryView(row), subscriptionName: names.get(row.subscriptionId) ?? null })))
     },
 
     async retryDelivery(principal, id) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       const delivery = findDelivery(id)
       if (!delivery) return err(notFound('Webhook delivery not found'))
@@ -286,7 +301,9 @@ export const createWebhookDelivery = (
         .set({ status: 'pending', nextAttemptAt: updatedAt, error: null, updatedAt })
         .where(eq(webhookDeliveries.id, id))
         .run()
-      return ok(await deliver(findDelivery(id)!, subscription))
+      const queued = findDelivery(id)
+      if (!queued) return err(notFound('Webhook delivery not found after queueing'))
+      return ok(await deliver(queued, subscription))
     },
 
     async processDueDeliveries(limit = 25) {

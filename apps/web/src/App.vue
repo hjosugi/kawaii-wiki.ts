@@ -8,8 +8,11 @@ import ShortcutsHelp from '@/components/ShortcutsHelp.vue'
 import DrawerSheet from '@/components/DrawerSheet.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import PageTree from '@/components/PageTree.vue'
+import DialogHost from '@/components/DialogHost.vue'
+import ToastHost from '@/components/ToastHost.vue'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
+import { useI18n } from '@/lib/i18n'
 
 const auth = useAuth()
 const pages = usePages()
@@ -17,6 +20,7 @@ const route = useRoute()
 const shelllessLayout = computed(() => route.name === 'shared' || route.name === 'setup')
 const mobileNavOpen = ref(false)
 const mainEl = ref<HTMLElement | null>(null)
+const { t } = useI18n()
 
 const refreshPagesForWikiLayout = (): void => {
   if (!shelllessLayout.value) void pages.refresh()
@@ -48,46 +52,48 @@ watch(() => route.fullPath, async () => {
       href="#main"
       class="sr-only focus:not-sr-only focus:fixed focus:left-3 focus:top-3 focus:z-[60] focus:rounded-[var(--radius)] focus:bg-[var(--c-accent)] focus:px-3 focus:py-2 focus:text-sm focus:font-medium focus:text-white"
     >
-      Skip to content
+      {{ t('skipToContent') }}
     </a>
     <AppHeader v-if="!shelllessLayout" />
-    <DrawerSheet v-if="!shelllessLayout" v-model:open="mobileNavOpen" title="Pages">
+    <DrawerSheet v-if="!shelllessLayout" v-model:open="mobileNavOpen" :title="t('pages')">
       <div class="mb-3 flex items-center justify-between gap-2">
-        <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Pages</div>
-        <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">New</RouterLink>
+        <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">{{ t('pages') }}</div>
+        <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">{{ t('new') }}</RouterLink>
       </div>
       <PageTree v-if="pages.list.length" :pages="pages.list" />
       <EmptyState
         v-else
-        title="No pages yet"
-        message="Create the first page to start shaping the wiki."
+        :title="t('noPagesYet')"
+        :message="t('createFirstPage')"
       >
         <template #actions>
-          <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">New page</RouterLink>
-          <RouterLink v-else to="/_login" class="btn-ghost">Sign in</RouterLink>
+          <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
+          <RouterLink v-else to="/_login" class="btn-ghost">{{ t('signIn') }}</RouterLink>
         </template>
       </EmptyState>
     </DrawerSheet>
     <CommandPalette v-if="!shelllessLayout" />
     <ShortcutsHelp v-if="!shelllessLayout" />
+    <DialogHost />
+    <ToastHost />
     <div
       class="flex-1 w-full flex"
       :class="shelllessLayout ? '' : 'max-w-7xl mx-auto px-4 gap-6'"
     >
-      <aside v-if="!shelllessLayout" class="hidden md:block w-60 shrink-0 py-6">
+      <aside v-if="!shelllessLayout" class="app-sidebar hidden md:block w-60 shrink-0 py-6">
         <div class="flex items-center justify-between gap-2 mb-2 px-2">
-          <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">Pages</div>
-          <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">New</RouterLink>
+          <div class="text-xs uppercase tracking-wide text-[var(--c-text-muted)] font-semibold">{{ t('pages') }}</div>
+          <RouterLink v-if="auth.canEdit" to="/_new" class="text-xs link-quiet">{{ t('new') }}</RouterLink>
         </div>
         <PageTree v-if="pages.list.length" :pages="pages.list" />
         <EmptyState
           v-else
-          title="No pages yet"
-          message="Create the first page to start shaping the wiki."
+          :title="t('noPagesYet')"
+          :message="t('createFirstPage')"
         >
           <template #actions>
-            <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">New page</RouterLink>
-            <RouterLink v-else to="/_login" class="btn-ghost">Sign in</RouterLink>
+            <RouterLink v-if="auth.canEdit" to="/_new" class="btn-primary">{{ t('newPage') }}</RouterLink>
+            <RouterLink v-else to="/_login" class="btn-ghost">{{ t('signIn') }}</RouterLink>
           </template>
         </EmptyState>
       </aside>

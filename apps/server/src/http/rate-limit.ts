@@ -1,4 +1,4 @@
-import { rateLimited, type AppError } from '@ts-wiki/core'
+import { rateLimited, type AppError } from '@kawaii-wiki/core'
 
 interface RateLimitStatement {
   run(...params: unknown[]): unknown

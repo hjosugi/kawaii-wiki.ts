@@ -1,15 +1,15 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { ref, computed } from 'vue'
 import { Api, type RecentChange } from '@/lib/api'
 import { API_BASE_URL } from '@/lib/url'
 import Skeleton from '@/components/Skeleton.vue'
+import { useAsyncData } from '@/composables/useAsyncData'
 
 const PAGE_SIZE = 50
 const changes = ref<RecentChange[]>([])
-const loading = ref(false)
 const loadingMore = ref(false)
 const hasMore = ref(false)
-const error = ref<string | null>(null)
 const feedUrl = `${API_BASE_URL.replace(/\/+$/, '')}/feed.xml`
 
 const dayKey = (ms: number): string => new Date(ms).toISOString().slice(0, 10)
@@ -37,19 +37,11 @@ const actionClass = (action: string): string =>
         ? 'bg-amber-50 text-amber-700 dark:bg-amber-950 dark:text-amber-200'
         : 'bg-violet-50 text-violet-700 dark:bg-violet-950 dark:text-violet-200'
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    const next = await Api.recentChanges(PAGE_SIZE)
-    changes.value = next
-    hasMore.value = next.length === PAGE_SIZE
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
+const { loading, error, reload: load } = useAsyncData(async () => {
+  const next = await Api.recentChanges(PAGE_SIZE)
+  changes.value = next
+  hasMore.value = next.length === PAGE_SIZE
+})
 
 async function loadMore(): Promise<void> {
   const before = changes.value.at(-1)?.createdAt
@@ -61,13 +53,12 @@ async function loadMore(): Promise<void> {
     changes.value = [...changes.value, ...older]
     hasMore.value = older.length === PAGE_SIZE
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loadingMore.value = false
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

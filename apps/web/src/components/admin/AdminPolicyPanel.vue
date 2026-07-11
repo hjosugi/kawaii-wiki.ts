@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { computed, onMounted, ref } from 'vue'
 import { Api, type PublicSettings } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
@@ -55,7 +56,7 @@ async function load(): Promise<void> {
       mailConfigured: next.mailConfigured,
     })
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     loading.value = false
   }
@@ -88,7 +89,7 @@ async function save(): Promise<void> {
     })
     notice.value = 'Site policy saved.'
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     saving.value = false
   }

@@ -29,10 +29,11 @@ const page = (
   coverPosition: 'center',
   lifecycle: 'active',
   status: 'draft',
-  labels: '[]',
+  labels: [],
   ownerId: null,
   authorId: null,
   reviewAt: null,
+  publishAt: null,
   navOrder: options.navOrder ?? null,
   pinned: options.pinned ?? false,
   spaceKey: path.split('/')[0] ?? 'docs',
@@ -127,7 +128,7 @@ describe('PageTree', () => {
     ], true)
     await flushPromises()
 
-    expect(JSON.parse(window.localStorage.getItem('ts-wiki:starred-pages') ?? '[]')).toEqual(['docs/server'])
+    expect(JSON.parse(window.localStorage.getItem('kawaii-wiki.ts:starred-pages') ?? '[]')).toEqual(['docs/server'])
     expect(wrapper.text()).toContain('Starred')
     expect(wrapper.text()).toContain('Server')
 

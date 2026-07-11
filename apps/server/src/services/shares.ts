@@ -11,7 +11,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { pageShares, pages, type Page, type PageShare } from '../db/schema.ts'
 

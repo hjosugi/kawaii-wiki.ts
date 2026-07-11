@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import ModalDialog from '@/components/ModalDialog.vue'
+import { modifierKeyLabel } from '@/lib/platform'
 
 const open = ref(false)
 
-const isMac = computed(
-  () =>
-    typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || ''),
-)
-const mod = computed(() => (isMac.value ? '⌘' : 'Ctrl'))
+const mod = computed(modifierKeyLabel)
 
 const shortcuts = computed(() => [
   { keys: [mod.value, 'K'], label: 'Open command palette' },

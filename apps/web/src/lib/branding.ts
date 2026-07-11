@@ -1,8 +1,8 @@
 import type { PublicSettings } from './api'
 
-const customCssId = 'ts-wiki-custom-css'
-const customHeadId = 'ts-wiki-custom-head'
-const iconId = 'ts-wiki-favicon'
+const customCssId = 'kawaii-wiki-custom-css'
+const customHeadId = 'kawaii-wiki-custom-head'
+const iconId = 'kawaii-wiki-favicon'
 
 const safeUrl = (value: string): string => value.replace(/["\\\n\r]/g, encodeURIComponent)
 
@@ -50,7 +50,7 @@ const setTextElement = (id: string, tag: 'style' | 'template', value: string): H
 }
 
 const applyHeadHtml = (html: string): void => {
-  document.querySelectorAll('[data-ts-wiki-custom-head]').forEach((node) => node.remove())
+  document.querySelectorAll('[data-kawaii-wiki-custom-head]').forEach((node) => node.remove())
   if (!html.trim()) return
   const template = document.createElement('template')
   template.innerHTML = html
@@ -61,10 +61,10 @@ const applyHeadHtml = (html: string): void => {
       const script = document.createElement('script')
       for (const attr of Array.from(element.attributes)) script.setAttribute(attr.name, attr.value)
       script.textContent = element.textContent
-      script.dataset.tsWikiCustomHead = 'true'
+      script.dataset.kawaiiWikiCustomHead = 'true'
       document.head.appendChild(script)
     } else {
-      element.dataset.tsWikiCustomHead = 'true'
+      element.dataset.kawaiiWikiCustomHead = 'true'
       document.head.appendChild(element)
     }
   }
@@ -91,7 +91,7 @@ export const applyBranding = (settings: PublicSettings): void => {
   document.documentElement.style.setProperty('--site-background-overlay-opacity', String(settings.background?.overlayOpacity ?? 0))
   document.documentElement.dataset.themePreset = settings.themePreset
   document.documentElement.dataset.fontFamily = settings.fontFamily
-  if (document.documentElement.dataset.tsWikiMeta !== 'page') {
+  if (document.documentElement.dataset.kawaiiWikiMeta !== 'page') {
     document.title = settings.siteTitle
   }
   applyFavicon(settings.faviconUrl)

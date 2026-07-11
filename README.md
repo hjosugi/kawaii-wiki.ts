@@ -1,4 +1,4 @@
-# ts-wiki
+# kawaii-wiki.ts
 
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
@@ -28,7 +28,7 @@ bun install
 bun run dev         # server :4000  +  web :5180
 ```
 
-Open the URL Vite prints. On an empty database, ts-wiki sends you to `/setup`
+Open the URL Vite prints. On an empty database, kawaii-wiki.ts sends you to `/setup`
 to create the owner account, site title/theme, search tokenizer, and first
 pages. `bun run db:seed` is still available for CI/dev demos; it creates
 **`admin@example.com`** and prints the password. Search `banana`, open a page,
@@ -40,9 +40,9 @@ recent searches, page comments, and referenced asset filenames.
 
 Japanese/CJK search: the default SQLite FTS tokenizer is `unicode61`, which is
 best for English/European prose but only matches Japanese token prefixes. Set
-`TS_WIKI_FTS_TOKENIZER=trigram` before first migration/seed for CJK substring
+`KAWAII_WIKI_FTS_TOKENIZER=trigram` before first migration/seed for CJK substring
 search. For an existing database, back it up and run
-`TS_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
+`KAWAII_WIKI_FTS_TOKENIZER=trigram bun run db:reindex-search`.
 
 Admins can customize the wiki from **Admin → Appearance**: site title, accent
 color, light/dark/system default, theme preset, font family, site background,
@@ -50,19 +50,19 @@ logo, favicon, header links, footer text, footer links, default page locale,
 timezone, date format, custom CSS, and Markdown feature toggles. Emoji
 shortcodes are on by default; KaTeX math and client-side Mermaid rendering are
 opt-in. Initial branding/date defaults can be seeded with
-`TS_WIKI_SITE_TITLE`, `TS_WIKI_ACCENT_COLOR`, `TS_WIKI_THEME`,
-`TS_WIKI_DEFAULT_LOCALE`, `TS_WIKI_TIMEZONE`, and `TS_WIKI_DATE_FORMAT`.
+`KAWAII_WIKI_SITE_TITLE`, `KAWAII_WIKI_ACCENT_COLOR`, `KAWAII_WIKI_THEME`,
+`KAWAII_WIKI_DEFAULT_LOCALE`, `KAWAII_WIKI_TIMEZONE`, and `KAWAII_WIKI_DATE_FORMAT`.
 Trusted custom head HTML/analytics snippets are disabled by default and require
-`TS_WIKI_ALLOW_HEAD_INJECTION=true`.
+`KAWAII_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 OIDC supports the backward-compatible single-provider `OIDC_*` variables, plus
 multiple providers through numbered prefixes such as `OIDC_1_*` / `OIDC_2_*`
-or a `TS_WIKI_OIDC_PROVIDERS` JSON array. The auth route layer uses a generic
+or a `KAWAII_WIKI_OIDC_PROVIDERS` JSON array. The auth route layer uses a generic
 provider registry, so OIDC is the first implementation behind a SAML/LDAP-ready
 service boundary. Webhook delivery retry attempts,
 backoff, response-body capture, and error capture are configurable with
-`TS_WIKI_WEBHOOK_MAX_ATTEMPTS`, `TS_WIKI_WEBHOOK_BACKOFF_MS`,
-`TS_WIKI_WEBHOOK_MAX_RESPONSE_BYTES`, and `TS_WIKI_WEBHOOK_MAX_ERROR_BYTES`.
+`KAWAII_WIKI_WEBHOOK_MAX_ATTEMPTS`, `KAWAII_WIKI_WEBHOOK_BACKOFF_MS`,
+`KAWAII_WIKI_WEBHOOK_MAX_RESPONSE_BYTES`, and `KAWAII_WIKI_WEBHOOK_MAX_ERROR_BYTES`.
 Automation rules can react to page create/update/delete/move and comment-create
 events, match by path, label, status, author, locale, and space, and then update
 page metadata, move pages under a path, or fire custom webhook event types.
@@ -96,11 +96,11 @@ sidebar ordering.
 Build a production image with the Vue UI baked in:
 
 ```bash
-docker build -t ts-wiki .
-docker run --rm -p 4000:4000 -v ts-wiki-data:/data \
+docker build -t kawaii-wiki.ts .
+docker run --rm -p 4000:4000 -v kawaii-wiki.ts-data:/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
-  -e TS_WIKI_FTS_TOKENIZER=trigram \
-  ts-wiki
+  -e KAWAII_WIKI_FTS_TOKENIZER=trigram \
+  kawaii-wiki.ts
 ```
 
 The container serves the built web app from `/ui`, stores SQLite data plus
@@ -115,14 +115,14 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/ts-wiki:v0.4.22
-docker volume create ts-wiki-data
+docker pull ghcr.io/hjosugi/kawaii-wiki.ts:v0.4.22
+docker volume create kawaii-wiki.ts-data
 export JWT_SECRET="$(openssl rand -hex 32)"
-docker run -d --name ts-wiki --restart unless-stopped \
-  -p 4000:4000 -v ts-wiki-data:/data \
+docker run -d --name kawaii-wiki.ts --restart unless-stopped \
+  -p 4000:4000 -v kawaii-wiki.ts-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/ts-wiki:v0.4.22
+  ghcr.io/hjosugi/kawaii-wiki.ts:v0.4.22
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS
@@ -130,13 +130,13 @@ and a public domain.
 
 ## Backup
 
-ts-wiki stores the canonical wiki state in SQLite and uploaded files under
+kawaii-wiki.ts stores the canonical wiki state in SQLite and uploaded files under
 `DATA_DIR` (`./data` locally, `/data` in Docker). Use SQLite's online backup
 command and copy uploads in the same maintenance window:
 
 ```bash
 mkdir -p backups
-sqlite3 data/ts-wiki.sqlite ".backup 'backups/ts-wiki-$(date +%F).sqlite'"
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
 rsync -a data/assets/ backups/assets/
 ```
 
@@ -146,7 +146,7 @@ metadata.
 
 ## What makes it different
 
-- **Pure core, effects at the edges** — domain logic is pure functions in `@ts-wiki/core` returning `Result<T, E>`; no global `WIKI` god-object.
+- **Pure core, effects at the edges** — domain logic is pure functions in `@kawaii-wiki/core` returning `Result<T, E>`; no global `WIKI` god-object.
 - **Atomic save** — render + revision + FTS5 index happen in one transaction, so a saved page is instantly rendered *and* searchable.
 - **Zero-codegen type safety** — the Drizzle schema flows through Elysia to the Vue client via Eden Treaty; the server's type *is* the API contract.
 - **One search backend, done well** — SQLite FTS5 with BM25 and weighted columns; bundle size is tracked from the Vite build output.
@@ -166,16 +166,16 @@ Run any task with `bun run <name>` (`dev`, `db:seed`, `db:reset`, `test`, `typec
 
 ## Security knobs
 
-`TS_WIKI_PRIVATE`, `TS_WIKI_REGISTRATION`, `TS_WIKI_JWT_TTL_SECONDS`, and
+`KAWAII_WIKI_PRIVATE`, `KAWAII_WIKI_REGISTRATION`, `KAWAII_WIKI_JWT_TTL_SECONDS`, and
 `ASSET_MAX_BYTES` seed safe site policy defaults. After first setup, admins can
 change those from Admin -> Site policy without redeploying. Secrets and
 infrastructure settings such as `JWT_SECRET`, database/storage credentials,
 SMTP/OIDC secrets, ports, CORS, webhook SSRF policy, and Git remotes stay in
 the server environment.
 
-Branding defaults are configurable with `TS_WIKI_SITE_TITLE`,
-`TS_WIKI_ACCENT_COLOR`, and `TS_WIKI_THEME`. Custom head HTML is admin-trusted
-and only exposed when `TS_WIKI_ALLOW_HEAD_INJECTION=true`.
+Branding defaults are configurable with `KAWAII_WIKI_SITE_TITLE`,
+`KAWAII_WIKI_ACCENT_COLOR`, and `KAWAII_WIKI_THEME`. Custom head HTML is admin-trusted
+and only exposed when `KAWAII_WIKI_ALLOW_HEAD_INJECTION=true`.
 
 ## License
 

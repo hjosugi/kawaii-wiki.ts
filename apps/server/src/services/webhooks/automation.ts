@@ -1,5 +1,5 @@
 import { asc, eq } from 'drizzle-orm'
-import { err, isPageStatus, normalizeLabels, normalizePath, notFound, ok, type Principal, validationError } from '@ts-wiki/core'
+import { err, isPageStatus, normalizeLabels, normalizePath, notFound, ok, requirePermission, type Principal, validationError } from '@kawaii-wiki/core'
 import type { DB } from '../../db/client.ts'
 import { automationRules, pages, type AutomationRule, type Page } from '../../db/schema.ts'
 import type { PageService } from '../pages.ts'
@@ -18,7 +18,6 @@ import {
   pageSnapshot,
   parseLabels,
   parseRuleConfig,
-  requireManage,
 } from './shared.ts'
 
 const toRuleView = (row: AutomationRule): AutomationRuleView => ({
@@ -200,13 +199,13 @@ export const createAutomationRules = (db: DB, { now, pageService }: AutomationRu
     },
 
     list(principal) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       return ok(db.select().from(automationRules).orderBy(asc(automationRules.priority), asc(automationRules.createdAt)).all().map(toRuleView))
     },
 
     create(principal, input: CreateAutomationRuleInput) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       if (input.type !== 'event-rule' && input.type !== 'page-updated-metadata') return err(validationError('Unknown automation rule type', 'type'))
       const config = cleanRuleConfig(input.config)
@@ -229,7 +228,7 @@ export const createAutomationRules = (db: DB, { now, pageService }: AutomationRu
     },
 
     update(principal, id, input: UpdateAutomationRuleInput) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       const current = db.select().from(automationRules).where(eq(automationRules.id, id)).get()
       if (!current) return err(notFound('Automation rule not found'))
@@ -254,11 +253,12 @@ export const createAutomationRules = (db: DB, { now, pageService }: AutomationRu
       }
 
       db.update(automationRules).set(changes).where(eq(automationRules.id, id)).run()
-      return ok(toRuleView(db.select().from(automationRules).where(eq(automationRules.id, id)).get()!))
+      const updated = db.select().from(automationRules).where(eq(automationRules.id, id)).get()
+      return updated ? ok(toRuleView(updated)) : err(notFound('Automation rule not found after update'))
     },
 
     delete(principal, id) {
-      const allowed = requireManage(principal)
+      const allowed = requirePermission(principal, 'automation:manage')
       if (!allowed.ok) return allowed
       db.delete(automationRules).where(eq(automationRules.id, id)).run()
       return ok({ id })

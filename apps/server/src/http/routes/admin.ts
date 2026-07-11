@@ -1,5 +1,5 @@
 import { t } from 'elysia'
-import type { Principal } from '@ts-wiki/core'
+import type { Principal } from '@kawaii-wiki/core'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import { unwrap } from '../errors.ts'
@@ -194,9 +194,12 @@ export const createAdminRoutes = ({
         }),
       },
     )
-    .get('/api/admin/users', ({ services, principal }) => ({
-      users: unwrap(services.admin.listUsers(principal)),
-    }))
+    .get('/api/admin/users', ({ query, services, principal }) => {
+      const all = unwrap(services.admin.listUsers(principal))
+      const limit = Math.min(Math.max(Math.trunc(query.limit ?? 100), 1), 1_000)
+      const offset = Math.max(Math.trunc(query.offset ?? 0), 0)
+      return { users: all.slice(offset, offset + limit), total: all.length, limit, offset }
+    }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
     .put(
       '/api/admin/users/password',
       async ({ body, services, principal, request, server }) => {

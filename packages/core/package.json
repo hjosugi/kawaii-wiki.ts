@@ -1,5 +1,5 @@
 {
-  "name": "@ts-wiki/core",
+  "name": "@kawaii-wiki/core",
   "version": "0.4.22",
   "license": "0BSD",
   "private": true,
@@ -9,7 +9,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./markdown": "./src/markdown.ts"
+    "./markdown": "./src/markdown.ts",
+    "./calendar": "./src/calendar.ts",
+    "./links": "./src/links.ts",
+    "./blocks": "./src/blocks.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit"

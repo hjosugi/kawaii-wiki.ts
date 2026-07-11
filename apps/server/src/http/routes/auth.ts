@@ -1,23 +1,16 @@
 import { t } from 'elysia'
-import { and, eq, isNull } from 'drizzle-orm'
 import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server'
 import {
   forbidden,
   type Principal,
   type Role,
   unauthorized,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { Env } from '../../env.ts'
-import type { DB } from '../../db/client.ts'
 import type { Services } from '../../services/index.ts'
-import { totpRecoveryCodes, users, type User } from '../../db/schema.ts'
+import type { User } from '../../db/schema.ts'
 import {
-  hashRecoveryCode,
-  otpauthUrl,
-  randomBase32Secret,
-  randomRecoveryCode,
   verifyPassword,
-  verifyRecoveryCode,
   verifyTotpCode,
 } from '../../services/auth.ts'
 import type { AuthProviderCallbackParams } from '../../services/auth-providers.ts'
@@ -35,7 +28,6 @@ interface JwtSigner {
 }
 
 const MFA_SETUP_TOKEN_TTL_SECONDS = 10 * 60
-const TOTP_RECOVERY_CODE_COUNT = 8
 
 const base64UrlString = t.String({ minLength: 1 })
 const credentialType = t.Literal('public-key')
@@ -83,7 +75,6 @@ const authenticationResponse = t.Object({
 })
 
 export interface AuthRoutesContext {
-  readonly db: DB
   readonly env: Env
   readonly authPolicy: () => {
     readonly registration: Env['auth']['registration']
@@ -107,7 +98,6 @@ export interface AuthRoutesContext {
 }
 
 export const createAuthRoutes = ({
-  db,
   env,
   authPolicy,
   logger,
@@ -164,43 +154,6 @@ export const createAuthRoutes = ({
       return isUserActive(user) ? user : null
     }
     return userForMfaSetupToken(jwt, setupToken, services)
-  }
-
-  const issueTotpRecoveryCodes = async (userId: string): Promise<string[]> => {
-    const createdAt = Date.now()
-    const codeSet = new Set<string>()
-    while (codeSet.size < TOTP_RECOVERY_CODE_COUNT) codeSet.add(randomRecoveryCode())
-    const recoveryCodes = [...codeSet]
-    const rows = await Promise.all(recoveryCodes.map(async (code) => ({
-      id: crypto.randomUUID(),
-      userId,
-      codeHash: await hashRecoveryCode(code),
-      createdAt,
-      usedAt: null,
-    })))
-    db.transaction((tx) => {
-      tx.delete(totpRecoveryCodes).where(eq(totpRecoveryCodes.userId, userId)).run()
-      for (const row of rows) tx.insert(totpRecoveryCodes).values(row).run()
-    })
-    return recoveryCodes
-  }
-
-  const consumeTotpRecoveryCode = async (userId: string, code: string): Promise<boolean> => {
-    const rows = db
-      .select()
-      .from(totpRecoveryCodes)
-      .where(and(eq(totpRecoveryCodes.userId, userId), isNull(totpRecoveryCodes.usedAt)))
-      .all()
-    for (const row of rows) {
-      if (await verifyRecoveryCode(code, row.codeHash)) {
-        db.update(totpRecoveryCodes)
-          .set({ usedAt: Date.now() })
-          .where(and(eq(totpRecoveryCodes.id, row.id), isNull(totpRecoveryCodes.usedAt)))
-          .run()
-        return true
-      }
-    }
-    return false
   }
 
   const authProviderCallbackParams = (query: Record<string, unknown>): AuthProviderCallbackParams => {
@@ -300,7 +253,7 @@ export const createAuthRoutes = ({
             if (body.totpCode) {
               twoFactorOk = Boolean(user.totpSecret && verifyTotpCode(user.totpSecret, body.totpCode))
               if (!twoFactorOk) {
-                twoFactorOk = await consumeTotpRecoveryCode(user.id, body.totpCode)
+                twoFactorOk = await services.totp.consumeRecoveryCode(user.id, body.totpCode)
                 if (twoFactorOk) audit(logger, 'auth.totp.recovery_code.use', { userId: user.id })
               }
             }
@@ -383,12 +336,7 @@ export const createAuthRoutes = ({
 	        enforceCredentialLimit(request, server, 'totp-setup', principal)
 	        const user = await userForTotpEnrollment(jwt, principal, services, body?.setupToken)
 	        if (!user) throw new HttpError(unauthorized())
-	        const secret = user.totpSecret || randomBase32Secret()
-	        db.update(users)
-	          .set({ totpSecret: secret, totpEnabled: user.totpEnabled })
-	          .where(eq(users.id, user.id))
-	          .run()
-	        return { secret, otpauthUrl: otpauthUrl(env.auth.siteName, user.email, secret) }
+	        return unwrap(services.totp.setup(user))
 	      }, { body: t.Optional(t.Object({ setupToken: t.Optional(t.String()) })) })
 	      .post(
 	        '/api/auth/totp/enable',
@@ -396,13 +344,10 @@ export const createAuthRoutes = ({
 	          enforceCredentialLimit(request, server, 'totp-enable', principal)
 	          const user = await userForTotpEnrollment(jwt, principal, services, body.setupToken)
 	          if (!user) throw new HttpError(unauthorized())
-	          if (!user?.totpSecret || !verifyTotpCode(user.totpSecret, body.code)) {
-	            throw new HttpError(unauthorized('Invalid two-factor code'))
-	          }
-	          db.update(users).set({ totpEnabled: 1 }).where(eq(users.id, user.id)).run()
-	          const recoveryCodes = await issueTotpRecoveryCodes(user.id)
+	          const enabled = unwrap(await services.totp.enable(user, body.code))
+	          const recoveryCodes = enabled.recoveryCodes
 	          audit(logger, 'auth.totp.enable', { userId: user.id, recoveryCodes: recoveryCodes.length })
-	          const publicUpdated = publicUser({ ...user, totpEnabled: 1 })
+	          const publicUpdated = publicUser(enabled.user)
 	          if (!principal) {
 	            return { token: await signAuthToken(jwt, user), user: publicUpdated, recoveryCodes }
 	          }
@@ -419,10 +364,7 @@ export const createAuthRoutes = ({
           if (!user || !isUserActive(user) || !user.totpEnabled || !user.totpSecret) {
             throw new HttpError(unauthorized())
           }
-          if (!verifyTotpCode(user.totpSecret, body.code)) {
-            throw new HttpError(unauthorized('Invalid two-factor code'))
-          }
-          const recoveryCodes = await issueTotpRecoveryCodes(user.id)
+          const recoveryCodes = unwrap(await services.totp.regenerate(user, body.code))
           audit(logger, 'auth.totp.recovery_codes.regenerate', { userId: user.id, recoveryCodes: recoveryCodes.length })
           return { recoveryCodes }
         },
@@ -435,15 +377,9 @@ export const createAuthRoutes = ({
           if (!principal) throw new HttpError(unauthorized())
           const user = services.users.findById(principal.id)
           if (!user) throw new HttpError(unauthorized())
-          if (user.totpEnabled && (!user.totpSecret || !body.code || !verifyTotpCode(user.totpSecret, body.code))) {
-            throw new HttpError(unauthorized('Invalid two-factor code'))
-          }
-          db.transaction((tx) => {
-            tx.update(users).set({ totpSecret: null, totpEnabled: 0 }).where(eq(users.id, user.id)).run()
-            tx.delete(totpRecoveryCodes).where(eq(totpRecoveryCodes.userId, user.id)).run()
-          })
+          const updated = unwrap(services.totp.disable(user, body.code))
           audit(logger, 'auth.totp.disable', { userId: user.id })
-          return { user: publicUser({ ...user, totpSecret: null, totpEnabled: 0 }) }
+          return { user: publicUser(updated) }
         },
         { body: t.Object({ code: t.Optional(t.String()) }) },
       )

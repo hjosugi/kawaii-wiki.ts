@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { defaultPublicSettings } from '@ts-wiki/core'
+import { defaultPublicSettings } from '@kawaii-wiki/core'
 import { createWikiRouter } from './index'
 import { Api, setToken } from '@/lib/api'
 import type { PublicSettings } from '@/lib/api'
@@ -13,7 +13,7 @@ const makePublicSettings = (overrides: Partial<PublicSettings> = {}): PublicSett
 
 vi.mock('@/lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/lib/api')>()
-  const core = await import('@ts-wiki/core')
+  const core = await import('@kawaii-wiki/core')
   return {
     ...actual,
     Api: {

@@ -1,5 +1,5 @@
 import { t } from 'elysia'
-import { can, type Principal } from '@ts-wiki/core'
+import { can, type Principal } from '@kawaii-wiki/core'
 import type { BaseApp } from '../base.ts'
 
 export interface SearchRoutesContext {
@@ -9,6 +9,7 @@ export interface SearchRoutesContext {
 export const createSearchRoutes = ({ requireSearchRead }: SearchRoutesContext) => (app: BaseApp) =>
   app.get('/api/search', ({ query, services, principal }) => {
     requireSearchRead(principal)
+    const publicationByPath = new Map(services.pages.list().map((page) => [page.path, page]))
     return services.search.search(
       query.q ?? '',
       {
@@ -27,7 +28,11 @@ export const createSearchRoutes = ({ requireSearchRead }: SearchRoutesContext) =
           updatedBefore: query.updatedBefore,
         },
       },
-      (path) => can(principal, 'page:read', { path }),
+      (path) => {
+        const page = publicationByPath.get(path)
+        const published = page && page.status !== 'draft' && (page.publishAt === null || page.publishAt <= Date.now())
+        return can(principal, 'page:read', { path }) && Boolean(published || can(principal, 'page:update', { path }))
+      },
     )
   }, {
     query: t.Object({

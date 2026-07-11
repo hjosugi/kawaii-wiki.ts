@@ -1,8 +1,9 @@
 import { t } from 'elysia'
 import {
+  can,
   notFound,
   type Principal,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import { isUserActive } from '../../services/users.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
@@ -18,6 +19,18 @@ import {
 import { commentSnapshot } from '../representations.ts'
 import { publicUserProfile } from '../representations.ts'
 import type { BaseApp } from '../base.ts'
+
+const pageOf = <T>(items: T[], limit = 100, offset = 0) => {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 1_000)
+  const safeOffset = Math.max(Math.trunc(offset), 0)
+  return { items: items.slice(safeOffset, safeOffset + safeLimit), total: items.length, limit: safeLimit, offset: safeOffset }
+}
+
+const isPublished = (page: { status: string; publishAt: number | null }): boolean =>
+  page.status !== 'draft' && (page.publishAt === null || page.publishAt <= Date.now())
+
+const canSeePage = (principal: Principal | null, page: { path: string; status: string; publishAt: number | null }): boolean =>
+  isPublished(page) || can(principal, 'page:update', { path: page.path })
 
 export interface PageRoutesContext {
   readonly logger: StructuredLogger
@@ -37,16 +50,17 @@ export const createPageRoutes = ({
   publishAutomation,
 }: PageRoutesContext) => (app: BaseApp) =>
   app
-    .get('/api/pages', ({ services, principal }) => {
+    .get('/api/pages', ({ query, services, principal }) => {
       requirePageRead(principal)
-      return { pages: services.pages.list() }
-    })
+      const result = pageOf(services.pages.list().filter((page) => canSeePage(principal, page)), query.limit, query.offset)
+      return { pages: result.items, total: result.total, limit: result.limit, offset: result.offset }
+    }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
     .get('/api/pages/popular', ({ query, services, principal }) => {
       requirePageRead(principal)
       const readable = new Map(
         services.pages
           .list()
-          .filter((page) => canReadPage(principal, page.path))
+          .filter((page) => canReadPage(principal, page.path) && canSeePage(principal, page))
           .map((page) => [page.path, page]),
       )
       return {
@@ -65,7 +79,7 @@ export const createPageRoutes = ({
       requirePageRead(principal)
       const user = services.users.findById(params.id)
       if (!isUserActive(user)) throw new HttpError(notFound('User profile not found'))
-      const readablePages = services.pages.list().filter((page) => canReadPage(principal, page.path))
+      const readablePages = services.pages.list().filter((page) => canReadPage(principal, page.path) && canSeePage(principal, page))
       const byPath = new Map(readablePages.map((page) => [page.path, page]))
       const profile = publicUserProfile(user)
       const favoritePages = profile.profileFavoritePages.flatMap((path) => {
@@ -84,21 +98,35 @@ export const createPageRoutes = ({
     }, {
       params: t.Object({ id: t.String() }),
     })
-    .get('/api/spaces', ({ services, principal }) => {
+    .get('/api/spaces', ({ query, services, principal }) => {
       requirePageRead(principal)
-      return { spaces: services.pages.spaces() }
-    })
-    .get('/api/pages/trash', ({ services, principal }) => {
+      const visiblePages = services.pages.list().filter((page) => canSeePage(principal, page))
+      const spaces = [...visiblePages.reduce((map, page) => {
+        const current = map.get(page.spaceKey)
+        map.set(page.spaceKey, { key: page.spaceKey, pages: (current?.pages ?? 0) + 1, updatedAt: Math.max(current?.updatedAt ?? 0, page.updatedAt) })
+        return map
+      }, new Map<string, { key: string; pages: number; updatedAt: number }>()).values()].sort((a, b) => a.key.localeCompare(b.key))
+      const result = pageOf(spaces, query.limit, query.offset)
+      return { spaces: result.items, total: result.total, limit: result.limit, offset: result.offset }
+    }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
+    .get('/api/pages/trash', ({ query, services, principal }) => {
       requireHttpPermission(principal, 'page:delete')
-      return { pages: services.pages.trash() }
-    })
+      const result = pageOf(services.pages.trash(), query.limit, query.offset)
+      return { pages: result.items, total: result.total, limit: result.limit, offset: result.offset }
+    }, { query: t.Object({ limit: t.Optional(t.Numeric()), offset: t.Optional(t.Numeric()) }) })
     .get('/api/graph', ({ services, principal }) => {
       requirePageRead(principal)
-      return services.pages.graph()
+      const visible = new Set(services.pages.list().filter((page) => canSeePage(principal, page)).map((page) => page.path))
+      const graph = services.pages.graph()
+      return {
+        nodes: graph.nodes.filter((node) => node.kind === 'missing' || visible.has(node.path)),
+        edges: graph.edges.filter((edge) => visible.has(edge.source)),
+      }
     })
     .get('/api/events/index', ({ services, principal }) => {
       requirePageRead(principal)
-      return { events: services.pages.events() }
+      const visible = new Set(services.pages.list().filter((page) => canSeePage(principal, page)).map((page) => page.path))
+      return { events: services.pages.events().filter((event) => visible.has(event.sourcePath)) }
     })
     .get('/api/labels', ({ services, principal }) => {
       requirePageRead(principal)
@@ -178,6 +206,7 @@ export const createPageRoutes = ({
           ])),
           ownerId: t.Optional(t.Union([t.String(), t.Null()])),
           reviewAt: t.Optional(t.Union([t.Number(), t.Null()])),
+          publishAt: t.Optional(t.Union([t.Number(), t.Null()])),
           locale: t.Optional(t.Union([t.String(), t.Null()])),
           navOrder: t.Optional(t.Union([t.Number(), t.Null()])),
           pinned: t.Optional(t.Boolean()),
@@ -185,12 +214,26 @@ export const createPageRoutes = ({
         }),
       },
     )
+    .post('/api/page/copy', async ({ body, services, principal }) => {
+      const page = unwrap(services.pages.copy(body.fromPath, body.newPath, principal, body.keepStatus))
+      return runPageWrite(pageWriteEffects, {
+        action: 'created',
+        page,
+        principal,
+        auditAction: 'page.copy',
+        auditData: { fromPath: body.fromPath },
+        automationType: 'page.created',
+      })
+    }, {
+      body: t.Object({ fromPath: t.String(), newPath: t.String(), keepStatus: t.Optional(t.Boolean()) }),
+    })
     .get(
       '/api/page',
       ({ query, services, principal }) => {
         requirePageRead(principal, query.path)
         const resolved = unwrap(services.pages.resolveByPath(query.path))
         const page = resolved.page
+        if (!canSeePage(principal, page)) throw new HttpError(notFound(`No page at "${query.path}"`))
         unwrap(services.analytics.recordPageView(page.path, principal))
         return { page, redirectedFrom: resolved.redirectedFrom }
       },
@@ -247,7 +290,8 @@ export const createPageRoutes = ({
       '/api/page/backlinks',
       ({ query, services, principal }) => {
         requirePageRead(principal, query.path)
-        return { backlinks: services.pages.backlinks(query.path) }
+        const visible = new Set(services.pages.list().filter((page) => canSeePage(principal, page)).map((page) => page.path))
+        return { backlinks: services.pages.backlinks(query.path).filter((link) => visible.has(link.path)) }
       },
       { query: t.Object({ path: t.String() }) },
     )
@@ -271,6 +315,7 @@ export const createPageRoutes = ({
       '/api/page/comments',
       async ({ body, services, principal }) => {
         const comment = unwrap(services.comments.create(body.path, body.body, principal))
+        services.notifications.notifyComment(comment)
         emitPageChanged('updated', comment.path)
         audit(logger, 'comment.create', {
           userId: principal?.id ?? null,
@@ -375,6 +420,7 @@ export const createPageRoutes = ({
           ])),
           ownerId: t.Optional(t.Union([t.String(), t.Null()])),
           reviewAt: t.Optional(t.Union([t.Number(), t.Null()])),
+          publishAt: t.Optional(t.Union([t.Number(), t.Null()])),
           locale: t.Optional(t.Union([t.String(), t.Null()])),
           navOrder: t.Optional(t.Union([t.Number(), t.Null()])),
           pinned: t.Optional(t.Boolean()),

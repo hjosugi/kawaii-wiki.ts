@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref } from 'vue'
 import { Api } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
@@ -23,7 +24,7 @@ async function setupTotp(): Promise<void> {
     secret.value = setup.secret
     url.value = setup.otpauthUrl
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
@@ -41,7 +42,7 @@ async function enableTotp(): Promise<void> {
     notice.value = t('recoveryCodesGenerated')
     code.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
@@ -57,7 +58,7 @@ async function regenerateRecoveryCodes(): Promise<void> {
     notice.value = t('recoveryCodesGenerated')
     code.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
@@ -80,7 +81,7 @@ async function disableTotp(): Promise<void> {
     code.value = ''
     recoveryCodes.value = []
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }

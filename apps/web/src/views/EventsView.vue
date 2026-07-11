@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
-import { calendarEventToIcs, type ExtractedCalendarEvent } from '@ts-wiki/core'
+import { computed, ref } from 'vue'
+import { calendarEventToIcs, type ExtractedCalendarEvent } from '@kawaii-wiki/core'
 import { Api } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useAsyncData } from '@/composables/useAsyncData'
+import { useI18n } from '@/lib/i18n'
 
-const events = ref<ExtractedCalendarEvent[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const { data: events, loading, error, reload: load } = useAsyncData<ExtractedCalendarEvent[]>(Api.events, { initial: [] })
+const { t } = useI18n()
 const filter = ref<'all' | 'streams'>('all')
 const now = computed(() => new Date().toISOString().slice(0, 10))
 const filteredEvents = computed(() =>
@@ -20,27 +21,14 @@ const past = computed(() => filteredEvents.value.filter((event) => event.start <
 const icsUrl = (event: ExtractedCalendarEvent): string =>
   `data:text/calendar;charset=utf-8,${encodeURIComponent(calendarEventToIcs(event))}`
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    events.value = await Api.events()
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
-}
-
-watch(now, load, { immediate: true })
 </script>
 
 <template>
   <div class="space-y-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h1 class="text-3xl font-bold tracking-tight">Events</h1>
-        <p class="mt-1 text-sm text-[var(--c-text-muted)]">Event fences across pages</p>
+        <h1 class="text-3xl font-bold tracking-tight">{{ t('events') }}</h1>
+        <p class="mt-1 text-sm text-[var(--c-text-muted)]">{{ t('eventIndexDescription') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
         <div class="inline-flex overflow-hidden rounded-[var(--radius)] border border-[var(--c-border)] bg-[var(--c-surface)]">
@@ -51,7 +39,7 @@ watch(now, load, { immediate: true })
             :aria-pressed="filter === 'all'"
             @click="filter = 'all'"
           >
-            All
+            {{ t('all') }}
           </button>
           <button
             class="px-3 py-1.5 text-sm font-medium"
@@ -60,10 +48,10 @@ watch(now, load, { immediate: true })
             :aria-pressed="filter === 'streams'"
             @click="filter = 'streams'"
           >
-            Streams
+            {{ t('streams') }}
           </button>
         </div>
-        <button class="btn-ghost" type="button" :disabled="loading" @click="load">Refresh</button>
+        <button class="btn-ghost" type="button" :disabled="loading" @click="load">{{ t('refresh') }}</button>
       </div>
     </div>
 
@@ -71,7 +59,7 @@ watch(now, load, { immediate: true })
     <Skeleton v-if="loading" label="Loading events" :lines="4" />
 
     <section v-if="upcoming.length" class="space-y-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Upcoming</h2>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ t('upcoming') }}</h2>
       <div
         v-for="event in upcoming"
         :key="event.id"
@@ -89,15 +77,15 @@ watch(now, load, { immediate: true })
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">Watch</a>
-          <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">Page</RouterLink>
+          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">{{ t('watch') }}</a>
+          <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">{{ t('page') }}</RouterLink>
           <a class="btn-ghost" :href="icsUrl(event)" :download="`${event.title}.ics`">.ics</a>
         </div>
       </div>
     </section>
 
     <section v-if="past.length" class="space-y-3">
-      <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">Past</h2>
+      <h2 class="text-sm font-semibold uppercase tracking-wide text-gray-500">{{ t('past') }}</h2>
       <div
         v-for="event in past"
         :key="event.id"
@@ -110,8 +98,8 @@ watch(now, load, { immediate: true })
           </p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">Watch</a>
-          <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">Page</RouterLink>
+          <a v-if="event.channelUrl" class="btn-ghost" :href="event.channelUrl" target="_blank" rel="noopener noreferrer">{{ t('watch') }}</a>
+          <RouterLink class="btn-ghost" :to="'/' + event.sourcePath">{{ t('page') }}</RouterLink>
         </div>
       </div>
     </section>

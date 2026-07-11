@@ -1,5 +1,5 @@
 import type { Directive } from 'vue'
-import { createRenderer, type MarkdownRenderer } from '@ts-wiki/core'
+import { createRenderer, type MarkdownRenderer } from '@kawaii-wiki/core'
 import { Api, type PageSummary, type PopularPage, type PublicSettings, type RecentChange, type YoutubeLatestVideo } from './api'
 import { enhanceCodeBlocks } from './codeCopy'
 
@@ -148,7 +148,7 @@ const enhanceMermaid = async (root: HTMLElement): Promise<void> => {
     const source = block.querySelector('code')?.textContent ?? block.textContent ?? ''
     if (!source.trim()) continue
     try {
-      const id = `ts-wiki-mermaid-${++mermaidCounter}`
+      const id = `kawaii-wiki-mermaid-${++mermaidCounter}`
       const { svg } = await mermaid.render(id, source)
       const rendered = document.createElement('div')
       rendered.className = 'wiki-diagram wiki-mermaid-rendered'

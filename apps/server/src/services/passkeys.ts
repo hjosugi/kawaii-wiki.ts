@@ -22,7 +22,7 @@ import {
   requirePermission,
   unauthorized,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import type { AuthEnv } from '../env.ts'
 import { passkeys, users, webauthnChallenges, type Passkey, type User } from '../db/schema.ts'

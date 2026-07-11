@@ -1,5 +1,5 @@
 {
-  "name": "ts-wiki",
+  "name": "kawaii-wiki.ts",
   "version": "0.4.22",
   "license": "0BSD",
   "private": true,
@@ -10,16 +10,16 @@
     "apps/*"
   ],
   "scripts": {
-    "dev": "bun --filter '@ts-wiki/server' --filter '@ts-wiki/web' dev",
-    "dev:server": "bun --filter '@ts-wiki/server' dev",
-    "dev:web": "bun --filter '@ts-wiki/web' dev",
-    "build": "bun --filter '@ts-wiki/web' build",
-    "db:migrate": "bun --filter '@ts-wiki/server' db:migrate",
-    "db:reindex-search": "bun --filter '@ts-wiki/server' db:reindex-search",
-    "db:seed": "bun --filter '@ts-wiki/server' db:seed",
-    "db:reset": "bun --filter '@ts-wiki/server' db:reset",
+    "dev": "bun --filter '@kawaii-wiki/server' --filter '@kawaii-wiki/web' dev",
+    "dev:server": "bun --filter '@kawaii-wiki/server' dev",
+    "dev:web": "bun --filter '@kawaii-wiki/web' dev",
+    "build": "bun --filter '@kawaii-wiki/web' build",
+    "db:migrate": "bun --filter '@kawaii-wiki/server' db:migrate",
+    "db:reindex-search": "bun --filter '@kawaii-wiki/server' db:reindex-search",
+    "db:seed": "bun --filter '@kawaii-wiki/server' db:seed",
+    "db:reset": "bun --filter '@kawaii-wiki/server' db:reset",
     "typecheck": "bun --filter '*' typecheck",
-    "test": "bun test packages apps/server && bun --filter '@ts-wiki/web' test"
+    "test": "bun test packages apps/server && bun --filter '@kawaii-wiki/web' test"
   },
   "devDependencies": {
     "typescript": "^5.8.3"

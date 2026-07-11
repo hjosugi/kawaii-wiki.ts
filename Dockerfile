@@ -18,7 +18,7 @@ FROM deps AS build
 COPY . .
 
 RUN cd apps/web && node ../../node_modules/vite/bin/vite.js build
-RUN bun --filter '@ts-wiki/server' typecheck
+RUN bun --filter '@kawaii-wiki/server' typecheck
 
 FROM docker.io/oven/bun:1.3-slim AS runtime
 

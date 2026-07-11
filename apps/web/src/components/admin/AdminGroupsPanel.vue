@@ -1,42 +1,44 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { friendlyError } from '@/lib/friendlyErrors'
+import { computed, ref, watch } from 'vue'
 import { Api, type AdminUserView, type AuthzGroupView } from '@/lib/api'
 import Skeleton from '@/components/Skeleton.vue'
+import { useCrudResource } from '@/composables/useCrudResource'
 
-const users = ref<AdminUserView[]>([])
-const groups = ref<AuthzGroupView[]>([])
-const loading = ref(false)
-const error = ref<string | null>(null)
+const groupResource = useCrudResource<AuthzGroupView>(Api.adminGroups)
+const userResource = useCrudResource<AdminUserView>(Api.adminUsers)
+const groups = groupResource.items
+const users = userResource.items
+const loading = computed(() => groupResource.loading.value || userResource.loading.value)
+const error = computed({
+  get: () => groupResource.error.value ?? userResource.error.value,
+  set: (value: string | null) => { groupResource.error.value = value },
+})
 const groupKey = ref('')
 const groupName = ref('')
 const groupDescription = ref('')
 const membershipGroup = ref('viewers')
 
-async function load(): Promise<void> {
-  loading.value = true
-  error.value = null
-  try {
-    const [nextUsers, nextGroups] = await Promise.all([Api.adminUsers(), Api.adminGroups()])
-    users.value = nextUsers
-    groups.value = nextGroups
-    membershipGroup.value = nextGroups[0]?.key ?? 'viewers'
-  } catch (e) {
-    error.value = (e as Error).message
-  } finally {
-    loading.value = false
-  }
+const load = async (): Promise<void> => {
+  await Promise.all([groupResource.reload(), userResource.reload()])
 }
+
+watch(groups, (nextGroups) => {
+  if (!nextGroups.some((group) => group.key === membershipGroup.value)) {
+    membershipGroup.value = nextGroups[0]?.key ?? 'viewers'
+  }
+}, { immediate: true })
 
 async function createGroup(): Promise<void> {
   error.value = null
   try {
-    const group = await Api.adminCreateGroup({ key: groupKey.value, name: groupName.value, description: groupDescription.value })
-    groups.value = [...groups.value, group].sort((a, b) => a.key.localeCompare(b.key))
+    await Api.adminCreateGroup({ key: groupKey.value, name: groupName.value, description: groupDescription.value })
+    await groupResource.reload()
     groupKey.value = ''
     groupName.value = ''
     groupDescription.value = ''
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
@@ -47,11 +49,10 @@ async function addUserToGroup(user: AdminUserView): Promise<void> {
     await Api.adminAddUserToGroup({ userId: user.id, groupKey: membershipGroup.value })
     await load()
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   }
 }
 
-onMounted(load)
 </script>
 
 <template>

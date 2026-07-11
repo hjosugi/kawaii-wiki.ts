@@ -6,7 +6,7 @@ Related issue: #262.
 
 ## Intent
 
-ts-wiki should feel less like a corporate docs clone and more like a personal,
+kawaii-wiki.ts should feel less like a corporate docs clone and more like a personal,
 pop-culture, game-wiki friendly publishing tool. The direction is expressive,
 but still practical: dense wiki reading, fast editing, and accessible controls
 remain more important than decorative novelty.

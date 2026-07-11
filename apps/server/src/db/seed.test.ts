@@ -3,11 +3,12 @@ import {
   generateSeedAdminPassword,
   resolveSeedAdminPassword,
   SEED_ADMIN_PASSWORD_ENV,
+  LEGACY_SEED_ADMIN_PASSWORD_ENV,
 } from './seed.ts'
 import { createHomeContent, sampleGuidePages, sampleSeedPages } from '../sample-content.ts'
 
 describe('seed admin password', () => {
-  test('uses TS_WIKI_SEED_ADMIN_PASSWORD when configured', () => {
+  test('uses KAWAII_WIKI_SEED_ADMIN_PASSWORD when configured', () => {
     expect(
       resolveSeedAdminPassword(
         { [SEED_ADMIN_PASSWORD_ENV]: 'correct-horse' },
@@ -19,7 +20,17 @@ describe('seed admin password', () => {
     })
   })
 
-  test('generates a password when TS_WIKI_SEED_ADMIN_PASSWORD is missing or blank', () => {
+  test('prefers the new password name while keeping the legacy alias', () => {
+    expect(resolveSeedAdminPassword({
+      [LEGACY_SEED_ADMIN_PASSWORD_ENV]: 'legacy-secret',
+      [SEED_ADMIN_PASSWORD_ENV]: 'new-secret',
+    })).toMatchObject({ password: 'new-secret', source: 'env' })
+    expect(resolveSeedAdminPassword({
+      [LEGACY_SEED_ADMIN_PASSWORD_ENV]: 'legacy-secret',
+    })).toMatchObject({ password: 'legacy-secret', source: 'env' })
+  })
+
+  test('generates a password when the seed password is missing or blank', () => {
     expect(resolveSeedAdminPassword({}, () => 'generated-secret')).toEqual({
       password: 'generated-secret',
       source: 'generated',
@@ -78,7 +89,7 @@ describe('sample guide content', () => {
     ])
     expect(pages[0]).toMatchObject({
       path: 'home',
-      title: 'Welcome to ts-wiki',
+      title: 'Welcome to kawaii-wiki.ts',
       pinned: true,
       navOrder: 0,
     })

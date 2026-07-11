@@ -1,32 +1,43 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { Api } from '@/lib/api'
-import { clipboardImageFiles, imageFiles } from '@/lib/imageUpload'
 import { clipboardHttpUrl, linkPreviewToEmbedFence } from '@/lib/linkPreview'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 import AssetPicker from '@/components/AssetPicker.vue'
 import ImageUploadDialog from '@/components/ImageUploadDialog.vue'
+import { useDialogs } from '@/composables/useDialogs'
+import { embedSnippet, eventSnippet, infoboxSnippet, linksSnippet, streamSnippet, twitchSnippet, youtubeSnippet } from '@/lib/editorSnippets'
+import EditorToolbar from '@/components/EditorToolbar.vue'
+import { editableDomToMarkdown, escapeAttr, escapeHtml, markdownToEditableHtml } from '@/lib/visualMarkdown'
+import { useImageUpload } from '@/composables/useImageUpload'
 
 const props = defineProps<{ modelValue: string; assetFolder?: string }>()
 const emit = defineEmits<{ 'update:modelValue': [value: string] }>()
 
 const editor = ref<HTMLElement | null>(null)
 const uploadInput = ref<HTMLInputElement | null>(null)
-const uploading = ref(false)
-const uploadError = ref<string | null>(null)
-const pendingImageFiles = ref<File[]>([])
 const showAssets = ref(false)
 const slashMenuOpen = ref(false)
 const slashQuery = ref('')
 let lastEmitted = ''
 let savedImageInsertRange: Range | null = null
 const { t } = useI18n()
-
-interface CalloutBlock {
-  type: string
-  title: string
-  body: string
-}
+const dialogs = useDialogs()
+const {
+  uploading,
+  uploadError,
+  pendingImageFiles,
+  cancelImageUpload,
+  uploadPreparedImages,
+  onImageInput,
+  handleImagePaste,
+  handleImageDrop,
+} = useImageUpload({
+  folder: () => props.assetFolder,
+  beforePrepare: saveImageInsertRange,
+  afterCancel: () => { savedImageInsertRange = null },
+  insert: (asset, alt) => insertImage(asset.url, alt),
+})
 
 interface VisualAction {
   id: string
@@ -35,340 +46,11 @@ interface VisualAction {
   icon: string
   detail: string
   keywords: string[]
-  run: () => void
+  run: () => void | Promise<void>
 }
-
-const escapeHtml = (value: string): string =>
-  value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-
-const escapeAttr = escapeHtml
-
-const visibleText = (node: Node): string =>
-  (node.textContent ?? '')
-    .replace(/\u00a0/g, ' ')
-    .replace(/[ \t]+\n/g, '\n')
-
-const isBlank = (line: string): boolean => line.trim() === ''
-const isFenceStart = (line: string): RegExpMatchArray | null => line.match(/^```([A-Za-z0-9_-]*)\s*$/)
-const isHeading = (line: string): RegExpMatchArray | null => line.match(/^(#{1,6})\s+(.+)$/)
-const isTableSeparator = (line: string): boolean =>
-  /^\s*\|?[\s:-]+\|[\s|:-]*$/.test(line) && line.includes('-')
-const isPipeRow = (line: string): boolean => line.trim().startsWith('|') && line.trim().endsWith('|')
-const isListItem = (line: string): RegExpMatchArray | null => line.match(/^([-*+]|\d+[.)])\s+(.+)$/)
-const isRawBlockStart = (line: string): boolean =>
-  /^(>\s+| {4,}|\t|\s+[-*+]\s+|\s+\d+[.)]\s+|---+$|\*\*\*+$|___+$)/.test(line)
-
-const tableCells = (line: string): string[] => {
-  const trimmed = line.trim().replace(/^\|/, '').replace(/\|$/, '')
-  return trimmed.split('|').map((cell) => cell.trim())
-}
-
-const parseCallout = (content: string): CalloutBlock => {
-  const fields = new Map<string, string>()
-  const body: string[] = []
-  let inBody = false
-
-  for (const line of content.split('\n')) {
-    const match = !inBody ? line.match(/^([A-Za-z][A-Za-z_-]*):\s*(.*)$/) : null
-    if (match && ['type', 'title'].includes(match[1]!.toLowerCase())) {
-      fields.set(match[1]!.toLowerCase(), match[2]!.trim())
-      continue
-    }
-    inBody = true
-    body.push(line)
-  }
-
-  const type = fields.get('type') || 'info'
-  return {
-    type: ['info', 'success', 'warning', 'danger'].includes(type) ? type : 'info',
-    title: fields.get('title') || type,
-    body: body.join('\n').trim(),
-  }
-}
-
-const inlineToHtml = (markdown: string): string => {
-  let html = ''
-  let index = 0
-
-  while (index < markdown.length) {
-    const rest = markdown.slice(index)
-    const image = rest.match(/^!\[([^\]]*)\]\(([^)]+)\)/)
-    if (image) {
-      html += `<img src="${escapeAttr(image[2] ?? '')}" alt="${escapeAttr(image[1] ?? '')}" />`
-      index += image[0].length
-      continue
-    }
-
-    const link = rest.match(/^\[([^\]]+)\]\(([^)]+)\)/)
-    if (link) {
-      html += `<a href="${escapeAttr(link[2] ?? '')}">${inlineToHtml(link[1] ?? '')}</a>`
-      index += link[0].length
-      continue
-    }
-
-    const bold = rest.match(/^\*\*([^*]+)\*\*/)
-    if (bold) {
-      html += `<strong>${inlineToHtml(bold[1] ?? '')}</strong>`
-      index += bold[0].length
-      continue
-    }
-
-    const italic = rest.match(/^\*([^*]+)\*/)
-    if (italic) {
-      html += `<em>${inlineToHtml(italic[1] ?? '')}</em>`
-      index += italic[0].length
-      continue
-    }
-
-    const underItalic = rest.match(/^_([^_]+)_/)
-    if (underItalic) {
-      html += `<em>${inlineToHtml(underItalic[1] ?? '')}</em>`
-      index += underItalic[0].length
-      continue
-    }
-
-    const code = rest.match(/^`([^`]+)`/)
-    if (code) {
-      html += `<code>${escapeHtml(code[1] ?? '')}</code>`
-      index += code[0].length
-      continue
-    }
-
-    html += escapeHtml(markdown[index] ?? '')
-    index += 1
-  }
-
-  return html
-}
-
-const rawBlockHtml = (markdown: string): string =>
-  `<pre class="visual-editor-raw" data-md-block="raw">${escapeHtml(markdown)}</pre>`
-
-const calloutHtml = (content: string): string => {
-  const callout = parseCallout(content)
-  return `<aside class="visual-editor-callout wiki-callout wiki-callout-${escapeAttr(callout.type)}" data-md-block="callout" data-callout-type="${escapeAttr(callout.type)}">
-    <div class="wiki-callout-title" data-callout-title="true">${inlineToHtml(callout.title)}</div>
-    <div class="wiki-callout-body" data-callout-body="true">${markdownToEditableHtml(callout.body)}</div>
-  </aside>`
-}
-
-const markdownToEditableHtml = (markdown: string): string => {
-  const lines = markdown.replace(/\r\n?/g, '\n').split('\n')
-  const blocks: string[] = []
-  let index = 0
-
-  while (index < lines.length) {
-    const line = lines[index] ?? ''
-    if (isBlank(line)) {
-      index += 1
-      continue
-    }
-
-    const fence = isFenceStart(line)
-    if (fence) {
-      const start = index
-      const info = (fence[1] ?? '').toLowerCase()
-      index += 1
-      const body: string[] = []
-      while (index < lines.length && !/^```\s*$/.test(lines[index] ?? '')) {
-        body.push(lines[index] ?? '')
-        index += 1
-      }
-      if (index < lines.length) index += 1
-      blocks.push(info === 'callout' ? calloutHtml(body.join('\n')) : rawBlockHtml(lines.slice(start, index).join('\n')))
-      continue
-    }
-
-    const heading = isHeading(line)
-    if (heading) {
-      const level = heading[1]!.length
-      blocks.push(`<h${level}>${inlineToHtml(heading[2] ?? '')}</h${level}>`)
-      index += 1
-      continue
-    }
-
-    if (index + 1 < lines.length && isPipeRow(line) && isTableSeparator(lines[index + 1] ?? '')) {
-      const header = tableCells(line)
-      index += 2
-      const rows: string[][] = []
-      while (index < lines.length && isPipeRow(lines[index] ?? '')) {
-        rows.push(tableCells(lines[index] ?? ''))
-        index += 1
-      }
-      blocks.push(`<table><thead><tr>${header.map((cell) => `<th>${inlineToHtml(cell)}</th>`).join('')}</tr></thead><tbody>${rows
-        .map((row) => `<tr>${row.map((cell) => `<td>${inlineToHtml(cell)}</td>`).join('')}</tr>`)
-        .join('')}</tbody></table>`)
-      continue
-    }
-
-    const list = isListItem(line)
-    if (list) {
-      const start = index
-      let scan = index
-      let hasIndentedListContent = false
-      while (scan < lines.length && !isBlank(lines[scan] ?? '')) {
-        const candidate = lines[scan] ?? ''
-        if (/^(\s+[-*+]\s+|\s+\d+[.)]\s+| {2,}\S|\t\S)/.test(candidate)) {
-          hasIndentedListContent = true
-          scan += 1
-          continue
-        }
-        if (!isListItem(candidate)) break
-        scan += 1
-      }
-      if (hasIndentedListContent) {
-        // Nested/continued lists are kept raw until the visual serializer grows
-        // a real Markdown list tree; flattening them would silently change data.
-        blocks.push(rawBlockHtml(lines.slice(start, scan).join('\n')))
-        index = scan
-        continue
-      }
-
-      const ordered = /^\d/.test(list[1] ?? '')
-      const tag = ordered ? 'ol' : 'ul'
-      const items: string[] = []
-      while (index < lines.length) {
-        const item = isListItem(lines[index] ?? '')
-        if (!item || /^\d/.test(item[1] ?? '') !== ordered) break
-        items.push(`<li>${inlineToHtml(item[2] ?? '')}</li>`)
-        index += 1
-      }
-      blocks.push(`<${tag}>${items.join('')}</${tag}>`)
-      continue
-    }
-
-    if (isRawBlockStart(line)) {
-      const raw: string[] = []
-      while (index < lines.length && !isBlank(lines[index] ?? '')) {
-        raw.push(lines[index] ?? '')
-        index += 1
-      }
-      // Unsupported block Markdown stays visible and round-trips as raw text
-      // instead of being rendered through an incomplete visual parser.
-      blocks.push(rawBlockHtml(raw.join('\n')))
-      continue
-    }
-
-    const paragraph: string[] = []
-    while (index < lines.length) {
-      const next = lines[index] ?? ''
-      if (
-        isBlank(next) ||
-        isFenceStart(next) ||
-        isHeading(next) ||
-        isRawBlockStart(next) ||
-        isListItem(next) ||
-        (index + 1 < lines.length && isPipeRow(next) && isTableSeparator(lines[index + 1] ?? ''))
-      ) {
-        break
-      }
-      paragraph.push(next)
-      index += 1
-    }
-    blocks.push(`<p>${inlineToHtml(paragraph.join(' '))}</p>`)
-  }
-
-  return blocks.join('\n') || '<p><br></p>'
-}
-
-const markdownText = (node: Node): string => visibleText(node).replace(/\s+/g, ' ').trim()
-
-const inlineMarkdown = (nodes: NodeListOf<ChildNode> | ChildNode[]): string =>
-  Array.from(nodes)
-    .map((node) => {
-      if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
-      if (!(node instanceof HTMLElement)) return ''
-      const tag = node.tagName.toLowerCase()
-      if (tag === 'br') return '\n'
-      if (tag === 'strong' || tag === 'b') return `**${inlineMarkdown(node.childNodes)}**`
-      if (tag === 'em' || tag === 'i') return `*${inlineMarkdown(node.childNodes)}*`
-      if (tag === 'code') return `\`${visibleText(node).replace(/`/g, '\\`')}\``
-      if (tag === 'a') {
-        const href = node.getAttribute('href')
-        const label = inlineMarkdown(node.childNodes) || href || ''
-        return href ? `[${label}](${href})` : label
-      }
-      if (tag === 'img') {
-        const src = node.getAttribute('src') || ''
-        const alt = node.getAttribute('alt') || 'image'
-        return src ? `![${alt}](${src})` : ''
-      }
-      return inlineMarkdown(node.childNodes)
-    })
-    .join('')
-
-const rowCellsMarkdown = (row: HTMLTableRowElement): string[] =>
-  Array.from(row.cells).map((cell) => inlineMarkdown(cell.childNodes).replace(/\|/g, '\\|').trim())
-
-const tableMarkdown = (table: HTMLTableElement): string => {
-  const rows = Array.from(table.rows)
-  if (!rows.length) return ''
-  const header = rowCellsMarkdown(rows[0]!)
-  const body = rows.slice(1).map(rowCellsMarkdown)
-  return [
-    `| ${header.join(' | ')} |`,
-    `| ${header.map(() => '---').join(' | ')} |`,
-    ...body.map((row) => `| ${row.join(' | ')} |`),
-  ].join('\n')
-}
-
-const blockMarkdown = (node: Element): string => {
-  const tag = node.tagName.toLowerCase()
-
-  if (node instanceof HTMLElement && node.dataset.mdBlock === 'raw') return visibleText(node)
-
-  if (node instanceof HTMLElement && node.dataset.mdBlock === 'callout') {
-    const type = node.dataset.calloutType || 'info'
-    const title = markdownText(node.querySelector('[data-callout-title="true"]') ?? node)
-    const body = node.querySelector('[data-callout-body="true"]')
-    const bodyMarkdown = body ? childrenMarkdown(body).trim() : ''
-    return ['```callout', `type: ${type}`, `title: ${title}`, '', bodyMarkdown, '```'].join('\n')
-  }
-
-  if (/^h[1-6]$/.test(tag)) return `${'#'.repeat(Number(tag[1]))} ${inlineMarkdown(node.childNodes).trim()}`
-  if (tag === 'p') return inlineMarkdown(node.childNodes).trim()
-  if (tag === 'ul' || tag === 'ol') {
-    return Array.from(node.children)
-      .filter((child) => child.tagName.toLowerCase() === 'li')
-      .map((child, index) => `${tag === 'ol' ? `${index + 1}.` : '-'} ${inlineMarkdown(child.childNodes).trim()}`)
-      .join('\n')
-  }
-  if (tag === 'table' && node instanceof HTMLTableElement) return tableMarkdown(node)
-  if (tag === 'pre') return visibleText(node)
-  if (tag === 'blockquote') {
-    return visibleText(node)
-      .split('\n')
-      .map((line) => `> ${line}`)
-      .join('\n')
-  }
-  if (tag === 'div') {
-    const blockChildren = Array.from(node.children).filter((child) => isBlockElement(child))
-    return blockChildren.length ? childrenMarkdown(node) : inlineMarkdown(node.childNodes).trim()
-  }
-
-  return inlineMarkdown(node.childNodes).trim()
-}
-
-const isBlockElement = (element: Element): boolean =>
-  /^(h[1-6]|p|ul|ol|table|pre|blockquote|div|aside)$/i.test(element.tagName)
-
-const childrenMarkdown = (root: Element): string =>
-  Array.from(root.childNodes)
-    .map((child) => {
-      if (child.nodeType === Node.TEXT_NODE) return (child.textContent ?? '').trim()
-      return child instanceof Element ? blockMarkdown(child).trimEnd() : ''
-    })
-    .filter((block) => block.trim().length > 0)
-    .join('\n\n')
 
 const currentMarkdown = (): string => {
-  const markdown = editor.value ? childrenMarkdown(editor.value).trimEnd() : ''
-  return markdown ? `${markdown}\n` : ''
+  return editor.value ? editableDomToMarkdown(editor.value) : ''
 }
 
 function renderFromMarkdown(markdown: string): void {
@@ -395,15 +77,83 @@ function ensureSelection(): void {
   selection?.addRange(range)
 }
 
-function runCommand(command: string, value?: string): void {
+function insertHtml(html: string): void {
   ensureSelection()
-  document.execCommand(command, false, value)
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return
+  const range = selection.getRangeAt(0)
+  range.deleteContents()
+  const fragment = range.createContextualFragment(html)
+  const last = fragment.lastChild
+  range.insertNode(fragment)
+  if (last) {
+    range.setStartAfter(last)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+  }
   syncFromDom()
 }
 
-function insertHtml(html: string): void {
+const wrapSelection = (tag: 'strong' | 'em' | 'a', attributes: Record<string, string> = {}): void => {
   ensureSelection()
-  document.execCommand('insertHTML', false, html)
+  const selection = window.getSelection()
+  if (!selection?.rangeCount) return
+  const range = selection.getRangeAt(0)
+  const element = document.createElement(tag)
+  for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value)
+  if (range.collapsed) element.appendChild(document.createTextNode('\u200b'))
+  else element.appendChild(range.extractContents())
+  range.insertNode(element)
+  range.selectNodeContents(element)
+  range.collapse(false)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  syncFromDom()
+}
+
+const replaceCurrentBlock = (tag: 'p' | 'h1' | 'h2' | 'h3'): void => {
+  ensureSelection()
+  const root = editor.value
+  const selection = window.getSelection()
+  const origin = selection?.anchorNode instanceof Element
+    ? selection.anchorNode
+    : selection?.anchorNode?.parentElement
+  const current = origin?.closest('p,h1,h2,h3,div')
+  if (!root || !current || current === root || !root.contains(current)) {
+    insertHtml(`<${tag}><br></${tag}>`)
+    return
+  }
+  const replacement = document.createElement(tag)
+  replacement.innerHTML = current.innerHTML
+  current.replaceWith(replacement)
+  const range = document.createRange()
+  range.selectNodeContents(replacement)
+  range.collapse(false)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+  syncFromDom()
+}
+
+const replaceCurrentBlockWithList = (ordered: boolean): void => {
+  ensureSelection()
+  const root = editor.value
+  const selection = window.getSelection()
+  const origin = selection?.anchorNode instanceof Element
+    ? selection.anchorNode
+    : selection?.anchorNode?.parentElement
+  const current = origin?.closest('p,h1,h2,h3,div,li')
+  if (!root || !current || current === root || !root.contains(current)) return
+  const list = document.createElement(ordered ? 'ol' : 'ul')
+  const item = document.createElement('li')
+  item.innerHTML = current.innerHTML
+  list.appendChild(item)
+  current.replaceWith(list)
+  const range = document.createRange()
+  range.selectNodeContents(item)
+  range.collapse(false)
+  selection?.removeAllRanges()
+  selection?.addRange(range)
   syncFromDom()
 }
 
@@ -424,19 +174,19 @@ function restoreSelectionRange(range: Range | null): void {
 }
 
 function formatBlock(tag: 'p' | 'h1' | 'h2' | 'h3'): void {
-  runCommand('formatBlock', tag.toUpperCase())
+  replaceCurrentBlock(tag)
 }
 
-function createLink(): void {
+async function createLink(): Promise<void> {
   ensureSelection()
   const selection = window.getSelection()
   if (!selection || selection.isCollapsed) {
     insertHtml(`<a href="https://">link</a>`)
     return
   }
-  const href = window.prompt('Link URL', 'https://')
+  const href = await dialogs.prompt({ message: 'Enter the link destination.', inputLabel: 'Link URL', defaultValue: 'https://' })
   if (!href) return
-  runCommand('createLink', href)
+  wrapSelection('a', { href })
 }
 
 function inlineCode(): void {
@@ -451,69 +201,7 @@ function insertTable(): void {
 }
 
 function insertCallout(): void {
-  insertHtml(calloutHtml('type: info\ntitle: Note\n\nCallout text') + '<p><br></p>')
-}
-
-const pad = (value: number): string => String(value).padStart(2, '0')
-
-const eventSnippet = (): string => {
-  const start = new Date(Date.now() + 60 * 60 * 1000)
-  start.setMinutes(0, 0, 0)
-  const end = new Date(start.getTime() + 30 * 60 * 1000)
-  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
-  const format = (date: Date): string =>
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
-  return `\`\`\`event
-title: Event title
-start: ${format(start)}
-end: ${format(end)}
-timezone: ${zone}
-location:
-url:
-description:
-\`\`\`
-`
-}
-
-const infoboxSnippet = (): string => `\`\`\`infobox
-title: Name
-image:
-caption:
-Field: value
-
-Details go here.
-\`\`\`
-`
-
-const linksSnippet = (): string => `\`\`\`links
-[YouTube](https://youtube.com/@handle)
-[X](https://x.com/handle)
-[Shop](https://booth.pm/)
-\`\`\`
-`
-
-const embedSnippet = (): string => `\`\`\`embed
-url: https://example.com
-title:
-description:
-\`\`\`
-`
-
-const youtubeSnippet = (): string => `\`\`\`youtube
-url: https://www.youtube.com/watch?v=dQw4w9WgXcQ
-title:
-\`\`\`
-`
-
-const twitchSnippet = (): string => `\`\`\`twitch
-channel: twitch
-title:
-\`\`\`
-`
-
-const streamSnippet = (): string => {
-  const base = eventSnippet().replace('title: Event title', 'title: Stream title')
-  return base.replace('url:\n', 'url:\nplatform: YouTube\nchannelUrl: https://youtube.com/@handle\n')
+  insertMarkdownSnippet('```callout\ntype: info\ntitle: Note\n\nCallout text\n```\n')
 }
 
 function insertMarkdownSnippet(markdown: string): void {
@@ -539,12 +227,12 @@ function chooseImage(): void {
 const visualActions: VisualAction[] = [
   { id: 'paragraph', group: 'text', label: 'toolbarParagraph', icon: 'P', detail: 'Use normal paragraph text', keywords: ['paragraph', '本文'], run: () => formatBlock('p') },
   { id: 'heading', group: 'text', label: 'toolbarHeading', icon: 'H2', detail: 'Add a section heading', keywords: ['heading', '見出し'], run: () => formatBlock('h2') },
-  { id: 'bold', group: 'text', label: 'toolbarBold', icon: 'B', detail: 'Make selected text bold', keywords: ['bold', '太字'], run: () => runCommand('bold') },
-  { id: 'italic', group: 'text', label: 'toolbarItalic', icon: 'I', detail: 'Make selected text italic', keywords: ['italic', '斜体'], run: () => runCommand('italic') },
+  { id: 'bold', group: 'text', label: 'toolbarBold', icon: 'B', detail: 'Make selected text bold', keywords: ['bold', '太字'], run: () => wrapSelection('strong') },
+  { id: 'italic', group: 'text', label: 'toolbarItalic', icon: 'I', detail: 'Make selected text italic', keywords: ['italic', '斜体'], run: () => wrapSelection('em') },
   { id: 'code', group: 'text', label: 'toolbarCode', icon: '</>', detail: 'Format selected text as code', keywords: ['code', 'コード'], run: inlineCode },
   { id: 'link', group: 'text', label: 'toolbarLink', icon: '[]', detail: 'Insert or edit a link', keywords: ['link', 'url', 'リンク'], run: createLink },
-  { id: 'bullets', group: 'text', label: 'toolbarUnorderedList', icon: '-', detail: 'Make a bullet list', keywords: ['list', '箇条書き'], run: () => runCommand('insertUnorderedList') },
-  { id: 'numbers', group: 'text', label: 'toolbarOrderedList', icon: '1.', detail: 'Make a numbered list', keywords: ['numbered', '番号'], run: () => runCommand('insertOrderedList') },
+  { id: 'bullets', group: 'text', label: 'toolbarUnorderedList', icon: '-', detail: 'Make a bullet list', keywords: ['list', '箇条書き'], run: () => replaceCurrentBlockWithList(false) },
+  { id: 'numbers', group: 'text', label: 'toolbarOrderedList', icon: '1.', detail: 'Make a numbered list', keywords: ['numbered', '番号'], run: () => replaceCurrentBlockWithList(true) },
   { id: 'table', group: 'insert', label: 'toolbarTable', icon: '| |', detail: 'Insert a two-column table', keywords: ['table', '表'], run: insertTable },
   { id: 'callout', group: 'insert', label: 'toolbarCallout', icon: '!', detail: 'Insert a highlighted note block', keywords: ['callout', 'note', 'メモ'], run: insertCallout },
   { id: 'event', group: 'insert', label: 'toolbarEvent', icon: 'Cal', detail: 'Insert an event card block', keywords: ['event', 'calendar', '予定'], run: () => insertMarkdownSnippet(eventSnippet()) },
@@ -557,9 +245,6 @@ const visualActions: VisualAction[] = [
   { id: 'image', group: 'media', label: 'toolbarImage', icon: 'Img', detail: 'Upload and insert an image', keywords: ['image', 'upload', '画像'], run: chooseImage },
   { id: 'assets', group: 'media', label: 'toolbarAssets', icon: 'Lib', detail: 'Browse uploaded assets', keywords: ['asset', 'file', '添付'], run: () => { showAssets.value = true } },
 ]
-
-const actionsByGroup = (group: VisualAction['group']): VisualAction[] =>
-  visualActions.filter((action) => action.group === group)
 
 const visibleSlashActions = (): VisualAction[] => {
   const query = slashQuery.value.toLowerCase()
@@ -637,52 +322,8 @@ function insertImage(url: string, alt: string): void {
   insertHtml(`<p><img src="${escapeAttr(url)}" alt="${escapeAttr(alt)}" /></p><p><br></p>`)
 }
 
-async function uploadImages(files: File[]): Promise<void> {
-  if (!files.length) return
-  uploadError.value = null
-  uploading.value = true
-  try {
-    for (const file of files) {
-      const asset = await Api.uploadAsset(file, props.assetFolder)
-      insertImage(asset.url, asset.filename.replace(/\.[^.]+$/, '') || 'image')
-    }
-  } catch (e) {
-    uploadError.value = (e as Error).message
-  } finally {
-    uploading.value = false
-  }
-}
-
-function prepareImageUpload(files: File[]): void {
-  if (!files.length || uploading.value) return
-  uploadError.value = null
-  saveImageInsertRange()
-  pendingImageFiles.value = [...files]
-}
-
-async function uploadPreparedImages(files: File[]): Promise<void> {
-  pendingImageFiles.value = []
-  await uploadImages(files)
-}
-
-function cancelImageUpload(): void {
-  pendingImageFiles.value = []
-  savedImageInsertRange = null
-}
-
-async function onImageInput(event: Event): Promise<void> {
-  const input = event.target as HTMLInputElement
-  prepareImageUpload(imageFiles(input.files))
-  input.value = ''
-}
-
 function onPaste(event: ClipboardEvent): void {
-  const files = clipboardImageFiles(event.clipboardData)
-  if (files.length) {
-    event.preventDefault()
-    prepareImageUpload(files)
-    return
-  }
+  if (handleImagePaste(event)) return
   const url = clipboardHttpUrl(event.clipboardData)
   if (!url) return
   event.preventDefault()
@@ -690,10 +331,7 @@ function onPaste(event: ClipboardEvent): void {
 }
 
 function onDrop(event: DragEvent): void {
-  const files = imageFiles(event.dataTransfer?.files)
-  if (!files.length) return
-  event.preventDefault()
-  prepareImageUpload(files)
+  handleImageDrop(event)
 }
 
 function insertAsset(markdown: string): void {
@@ -717,29 +355,13 @@ watch(
 
 <template>
   <div class="space-y-3">
-    <div class="editor-toolbar" :aria-label="t('toolbarInsert')">
-      <div v-for="group in (['text', 'insert', 'media'] as const)" :key="group" class="editor-toolbar-group">
-        <span class="editor-toolbar-label">
-          {{ group === 'text' ? t('toolbarText') : group === 'media' ? t('toolbarMedia') : t('toolbarInsert') }}
-        </span>
-        <button
-          v-for="action in actionsByGroup(group)"
-          :key="action.id"
-          class="btn-ghost editor-tool"
-          type="button"
-          :data-tooltip="action.detail"
-          :title="t(action.label)"
-          :aria-label="t(action.label)"
-          :disabled="(uploading || pendingImageFiles.length > 0) && action.id === 'image'"
-          @mousedown.prevent
-          @click="action.run"
-        >
-          <span class="editor-tool-icon" aria-hidden="true">{{ action.icon }}</span>
-          <span>{{ uploading && action.id === 'image' ? 'Uploading...' : t(action.label) }}</span>
-        </button>
-      </div>
+    <EditorToolbar
+      :actions="visualActions"
+      :busy-id="uploading ? 'image' : undefined"
+      :disabled-ids="uploading || pendingImageFiles.length ? ['image'] : []"
+    >
       <input ref="uploadInput" class="hidden" type="file" accept="image/*" multiple aria-label="Upload image files" @change="onImageInput" />
-    </div>
+    </EditorToolbar>
     <p class="text-xs text-[var(--c-text-muted)]">{{ t('insertMenuHint') }}</p>
     <p v-if="uploadError" class="text-sm text-red-600">{{ uploadError }}</p>
     <div v-if="slashMenuOpen" class="slash-menu">

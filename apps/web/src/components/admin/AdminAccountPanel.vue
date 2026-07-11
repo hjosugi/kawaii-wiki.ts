@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { friendlyError } from '@/lib/friendlyErrors'
 import { ref } from 'vue'
 import { Api, type ProfileLink } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
@@ -34,7 +35,7 @@ async function saveProfile(): Promise<void> {
     favoritePagesText.value = auth.user.profileFavoritePages.join('\n')
     message.value = 'Profile updated'
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }
@@ -53,7 +54,7 @@ async function savePassword(): Promise<void> {
     newPassword.value = ''
     message.value = 'Password updated'
   } catch (e) {
-    error.value = (e as Error).message
+    error.value = friendlyError(e)
   } finally {
     busy.value = false
   }

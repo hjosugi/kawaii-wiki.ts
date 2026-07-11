@@ -20,7 +20,7 @@ import {
   ok,
   requirePermission,
   validationError,
-} from '@ts-wiki/core'
+} from '@kawaii-wiki/core'
 import type { DB } from '../db/client.ts'
 import { siteSettings } from '../db/schema.ts'
 
@@ -261,12 +261,12 @@ export const createSettingsService = (db: DB, options: SettingsServiceOptions = 
   const defaults = { ...defaultSiteSettings(), ...options.defaults }
   const allowHeadInjection = options.allowHeadInjection ?? false
   const read = (): SiteSettings => {
-    const next: Record<SiteSettingKey, unknown> = { ...defaults }
+    const next: SiteSettings = { ...defaults }
     for (const row of db.select().from(siteSettings).all()) {
-      if (isSettingKey(row.key)) next[row.key] = parseStoredValue(row.key, row.value)
+      if (isSettingKey(row.key)) Object.assign(next, { [row.key]: parseStoredValue(row.key, row.value) })
     }
-    if (!allowHeadInjection) next.customHeadHtml = ''
-    return next as unknown as SiteSettings
+    if (!allowHeadInjection) Object.assign(next, { customHeadHtml: '' })
+    return next
   }
 
   const write = (settings: SiteSettings): void => {
