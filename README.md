@@ -44,7 +44,7 @@ docker compose up -d
 ```
 
 The `:1` image follows compatible 1.x releases. Production installations that
-require approval before every update should set `KAWAII_WIKI_VERSION=1.0.8` (or
+require approval before every update should set `KAWAII_WIKI_VERSION=1.0.9` (or
 another exact release) before running Compose.
 
 Detailed installation, configuration, backup, restore, Railway, Git mirror,
