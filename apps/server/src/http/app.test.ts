@@ -16,6 +16,7 @@ import type { AssetStorage } from '../storage/assets.ts'
 import type { LogEvent, StructuredLogger } from '../observability/logging.ts'
 import { createApp, type App } from './app.ts'
 import { passkeys } from '../db/schema.ts'
+import { APP_VERSION } from '../version.ts'
 
 const fixtures: Array<{ db: DB; dataDir: string; app: App }> = []
 const HTTP_TEST_TIMEOUT_MS = 15_000
@@ -1305,12 +1306,12 @@ describe('http app CORS', () => {
     const { app } = createFixture()
     const health = await app.handle(new Request('http://localhost/api/health'))
     expect(health.status).toBe(200)
-    expect(await health.json()).toEqual({ ok: true, name: 'kawaii-wiki.ts', version: '1.0.0' })
+    expect(await health.json()).toEqual({ ok: true, name: 'kawaii-wiki.ts', version: APP_VERSION })
 
     const specification = await app.handle(new Request('http://localhost/api/openapi.json'))
     expect(specification.status).toBe(200)
     expect(await specification.json()).toMatchObject({
-      info: { title: 'kawaii-wiki.ts API', version: '1.0.0' },
+      info: { title: 'kawaii-wiki.ts API', version: APP_VERSION },
       paths: { '/api/health': expect.any(Object) },
     })
   }, HTTP_TEST_TIMEOUT_MS)
