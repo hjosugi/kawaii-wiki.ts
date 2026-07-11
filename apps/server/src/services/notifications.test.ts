@@ -22,7 +22,7 @@ describe('notification service', () => {
     const actor: Principal = { id: actorUser.value.id, role: actorUser.value.role }
     const watcher: Principal = { id: watcherUser.value.id, role: watcherUser.value.role }
 
-    const page = services.pages.create({
+    const page = await services.pages.create({
       path: 'docs/notifications',
       title: 'Notifications',
       content: 'Initial',
@@ -64,14 +64,14 @@ describe('notification service', () => {
     const viewer: Principal = { id: viewerUser.value.id, role: viewerUser.value.role }
     const editor: Principal = { id: 'editor', role: 'editor' }
 
-    expect(services.pages.create({ path: 'docs/draft', title: 'Draft', content: 'Hidden' }, editor).ok).toBe(true)
-    expect(services.pages.create({
+    expect((await services.pages.create({ path: 'docs/draft', title: 'Draft', content: 'Hidden' }, editor)).ok).toBe(true)
+    expect((await services.pages.create({
       path: 'docs/future',
       title: 'Future',
       content: 'Later',
       status: 'verified',
       publishAt: Date.now() + 60_000,
-    }, editor).ok).toBe(true)
+    }, editor)).ok).toBe(true)
 
     const draft = await services.notifications.watch(viewer, 'docs/draft', true)
     const future = await services.notifications.watch(viewer, 'docs/future', true)
@@ -90,8 +90,8 @@ describe('notification service', () => {
     if (!watcherUser.ok) throw new Error('watcher seed failed')
     const watcher: Principal = { id: watcherUser.value.id, role: watcherUser.value.role }
 
-    expect(services.pages.create({ path: 'docs/old', title: 'Old', content: 'Old', status: 'verified' }, watcher).ok).toBe(true)
-    expect(services.pages.create({ path: 'docs/new', title: 'New', content: 'New', status: 'verified' }, watcher).ok).toBe(true)
+    expect((await services.pages.create({ path: 'docs/old', title: 'Old', content: 'Old', status: 'verified' }, watcher)).ok).toBe(true)
+    expect((await services.pages.create({ path: 'docs/new', title: 'New', content: 'New', status: 'verified' }, watcher)).ok).toBe(true)
 
     expect((await services.notifications.watch(watcher, 'docs/old', true)).ok).toBe(true)
     expect((await services.notifications.watch(watcher, 'docs/new', true)).ok).toBe(true)

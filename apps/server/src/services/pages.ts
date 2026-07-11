@@ -9,7 +9,6 @@
  * and aren't searchable; storage writes aren't transactional. Here a save is
  * atomic and the page is fully rendered and indexed the instant it returns.
  */
-import { eq } from 'drizzle-orm'
 import {
   type Result,
   ok,
@@ -37,19 +36,15 @@ import {
   type ExtractedCalendarEvent,
   contentWithTocFrontmatter,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { isUniqueConstraintError } from '../db/errors.ts'
 import {
-  pageAnalytics,
-  pageComments,
-  pageRedirects,
-  pages,
-  pageRevisions,
-  type Page,
-  type PageRevision,
-} from '../db/schema.ts'
-import type { SearchIndexer } from './search.ts'
-import type { PageReadRepository } from '../repositories/pages.ts'
+  DuplicatePagePathError,
+  type PageLifecycle,
+  type PageReadRepository,
+  type PageRecord,
+  type PageRevisionRecord,
+  type PageWriteRepository,
+  type RewrittenPageWrite,
+} from '../repositories/pages.ts'
 
 export interface PageSummary {
   readonly path: string
@@ -58,8 +53,8 @@ export interface PageSummary {
   readonly icon: string
   readonly coverUrl: string
   readonly coverPosition: string
-  readonly lifecycle: Page['lifecycle']
-  readonly status: Page['status']
+  readonly lifecycle: PageLifecycle
+  readonly status: PageStatus
   readonly labels: string
   readonly ownerId: string | null
   readonly authorId: string | null
@@ -119,7 +114,7 @@ export interface RecentChange {
   readonly id: string
   readonly path: string
   readonly title: string
-  readonly action: PageRevision['action']
+  readonly action: PageRevisionRecord['action']
   readonly authorId: string | null
   readonly authorName: string | null
   readonly createdAt: number
@@ -140,7 +135,7 @@ export interface PageRevisionSummary {
   readonly authorId: string | null
   /** Display name of the author, or null if unknown/deleted. */
   readonly authorName: string | null
-  readonly action: PageRevision['action']
+  readonly action: PageRevisionRecord['action']
   readonly createdAt: number
 }
 
@@ -157,7 +152,7 @@ export interface PageRevisionInsight {
 }
 
 export interface ResolvedPage {
-  readonly page: Page
+  readonly page: PageRecord
   readonly redirectedFrom: readonly string[]
 }
 
@@ -193,14 +188,14 @@ export interface UpsertPageFileOptions {
 }
 
 export interface UpsertPageFileResult {
-  readonly page: Page
+  readonly page: PageRecord
   readonly created: boolean
-  readonly previous?: Page
+  readonly previous?: PageRecord
 }
 
 export interface PageService {
   list(): Promise<PageSummary[]>
-  allActive(): Promise<Page[]>
+  allActive(): Promise<PageRecord[]>
   trash(): Promise<PageSummary[]>
   spaces(): Promise<PageSpace[]>
   graph(): Promise<PageGraph>
@@ -209,97 +204,35 @@ export interface PageService {
   brokenLinks(): Promise<BrokenLink[]>
   recentChanges(limit?: number, before?: number | null, canRead?: (path: string) => boolean): Promise<RecentChange[]>
   redirects(principal: Principal | null): Promise<Result<PageRedirectView[], AppError>>
-  createRedirect(fromPath: string, toPath: string, principal: Principal | null): Result<PageRedirectView, AppError>
-  deleteRedirect(fromPath: string, principal: Principal | null): Result<{ fromPath: string }, AppError>
+  createRedirect(fromPath: string, toPath: string, principal: Principal | null): Promise<Result<PageRedirectView, AppError>>
+  deleteRedirect(fromPath: string, principal: Principal | null): Promise<Result<{ fromPath: string }, AppError>>
   events(): Promise<ExtractedCalendarEvent[]>
   history(path: string): Promise<Result<PageRevisionSummary[], AppError>>
   revisionInsights(path: string): Promise<Result<PageRevisionInsight, AppError>>
-  getByPath(path: string): Result<Page, AppError>
-  resolveByPath(path: string): Result<ResolvedPage, AppError>
-  create(input: PageInput, principal: Principal | null): Result<Page, AppError>
-  copy(fromPath: string, newPath: string, principal: Principal | null, keepStatus?: boolean): Result<Page, AppError>
-  update(path: string, patch: UpdatePagePatch, principal: Principal | null): Result<Page, AppError>
+  getByPath(path: string): Promise<Result<PageRecord, AppError>>
+  resolveByPath(path: string): Promise<Result<ResolvedPage, AppError>>
+  create(input: PageInput, principal: Principal | null): Promise<Result<PageRecord, AppError>>
+  copy(fromPath: string, newPath: string, principal: Principal | null, keepStatus?: boolean): Promise<Result<PageRecord, AppError>>
+  update(path: string, patch: UpdatePagePatch, principal: Principal | null): Promise<Result<PageRecord, AppError>>
   upsertFromFile(
     path: string,
     file: PageFileData,
     options: UpsertPageFileOptions,
     principal: Principal | null,
-  ): Result<UpsertPageFileResult, AppError>
+  ): Promise<Result<UpsertPageFileResult, AppError>>
   /** Lightweight content save (no revision) — used by collaborative autosave. */
   saveContent(
     path: string,
     content: string,
     principal: Principal | null,
     expectedUpdatedAt?: number | null,
-  ): Result<Page, AppError>
-  restoreRevision(path: string, revisionId: string, principal: Principal | null): Result<Page, AppError>
-  archive(path: string, principal: Principal | null): Result<Page, AppError>
-  restore(path: string, principal: Principal | null): Result<Page, AppError>
-  move(oldPath: string, newPath: string, principal: Principal | null): Result<Page, AppError>
-  remove(path: string, principal: Principal | null): Result<{ path: string }, AppError>
-  purge(path: string, principal: Principal | null): Result<{ path: string }, AppError>
-}
-
-type PageWriteTransaction = Parameters<Parameters<DB['transaction']>[0]>[0]
-
-const snapshotRevision = (
-  tx: { insert: DB['insert'] },
-  page: Pick<Page, 'id' | 'path' | 'title' | 'description' | 'content'>,
-  principal: Principal | null,
-  action: PageRevision['action'],
-  now: number,
-): void => {
-  tx.insert(pageRevisions)
-    .values({
-      id: crypto.randomUUID(),
-      pageId: page.id,
-      path: page.path,
-      title: page.title,
-      description: page.description,
-      content: page.content,
-      authorId: principal?.id ?? null,
-      action,
-      createdAt: now,
-    })
-    .run()
-}
-
-export interface RewriteLinksForMoveOptions {
-  readonly principal: Principal | null
-  readonly now: number
-  readonly reindex: (
-    page: Pick<Page, 'id' | 'title' | 'description'>,
-    content: string,
-  ) => void
-  readonly renderMarkdown?: (content: string) => RenderResult
-}
-
-export const rewriteLinksForMove = (
-  tx: PageWriteTransaction,
-  oldPath: string,
-  newPath: string,
-  { principal, now, reindex, renderMarkdown: renderMarkdownOverride }: RewriteLinksForMoveOptions,
-): number => {
-  const render = renderMarkdownOverride ?? renderMarkdown
-  let rewritten = 0
-  for (const page of tx.select().from(pages).where(eq(pages.lifecycle, 'active')).all()) {
-    const content = rewritePageLinks(page.content, oldPath, newPath)
-    if (content === page.content) continue
-    const { html, toc } = render(content)
-    snapshotRevision(tx, page, principal, 'updated', now)
-    tx.update(pages)
-      .set({
-        content,
-        renderedHtml: html,
-        toc: JSON.stringify(toc),
-        updatedAt: now,
-      })
-      .where(eq(pages.id, page.id))
-      .run()
-    reindex(page, content)
-    rewritten += 1
-  }
-  return rewritten
+  ): Promise<Result<PageRecord, AppError>>
+  restoreRevision(path: string, revisionId: string, principal: Principal | null): Promise<Result<PageRecord, AppError>>
+  archive(path: string, principal: Principal | null): Promise<Result<PageRecord, AppError>>
+  restore(path: string, principal: Principal | null): Promise<Result<PageRecord, AppError>>
+  move(oldPath: string, newPath: string, principal: Principal | null): Promise<Result<PageRecord, AppError>>
+  remove(path: string, principal: Principal | null): Promise<Result<{ path: string }, AppError>>
+  purge(path: string, principal: Principal | null): Promise<Result<{ path: string }, AppError>>
 }
 
 export interface PageServiceOptions {
@@ -308,22 +241,14 @@ export interface PageServiceOptions {
 }
 
 export const createPageService = (
-  db: DB,
   pageReads: PageReadRepository,
-  searchIndexer: SearchIndexer,
+  pageWrites: PageWriteRepository,
   options: PageServiceOptions = {},
 ): PageService => {
   const renderPageMarkdown = options.renderMarkdown ?? renderMarkdown
   const defaultLocale = options.defaultLocale ?? (() => 'und')
   let derivedVersion = 0
-  const reindex = (id: string): void => {
-    derivedVersion += 1
-    searchIndexer.indexPageById(id)
-  }
-  const removeFromIndex = (id: string): void => {
-    derivedVersion += 1
-    searchIndexer.removePage(id)
-  }
+  const touchDerived = (): void => { derivedVersion += 1 }
 
   interface DerivedPageData {
     readonly path: string
@@ -348,14 +273,11 @@ export const createPageService = (
     return indexed
   }
 
-  const findByPath = (path: string): Page | undefined =>
-    db.select().from(pages).where(eq(pages.path, normalizePath(path))).get()
+  const findByPath = (path: string): Promise<PageRecord | undefined> =>
+    pageWrites.findByPath(normalizePath(path))
 
-  const findById = (id: string): Page | undefined =>
-    db.select().from(pages).where(eq(pages.id, id)).get()
-
-  const findRedirect = (path: string): string | null =>
-    db.select().from(pageRedirects).where(eq(pageRedirects.fromPath, normalizePath(path))).get()?.toPath ?? null
+  const findRedirect = (path: string): Promise<string | null> =>
+    pageWrites.findRedirect(normalizePath(path))
 
   const requirePagePermission = (
     principal: Principal | null,
@@ -363,7 +285,7 @@ export const createPageService = (
     path?: string,
   ): Result<true, AppError> => requirePermission(principal, action, path ? { path } : {})
 
-  const resolvePath = (path: string): Result<ResolvedPage, AppError> => {
+  const resolvePath = async (path: string): Promise<Result<ResolvedPage, AppError>> => {
     let currentPath = normalizePath(path)
     const redirectedFrom: string[] = []
     const seen = new Set<string>()
@@ -371,10 +293,10 @@ export const createPageService = (
     for (let hop = 0; hop < 10; hop += 1) {
       if (seen.has(currentPath)) return err(conflict(`Redirect loop detected for "${path}"`))
       seen.add(currentPath)
-      const page = findByPath(currentPath)
+      const page = await findByPath(currentPath)
       if (page?.lifecycle === 'active') return ok({ page, redirectedFrom })
 
-      const nextPath = findRedirect(currentPath)
+      const nextPath = await findRedirect(currentPath)
       if (!nextPath) return err(notFound(`No page at "${path}"`))
       redirectedFrom.push(currentPath)
       currentPath = normalizePath(nextPath)
@@ -386,13 +308,24 @@ export const createPageService = (
   const tombstoneConflict = (path: string): AppError =>
     conflict(`A deleted page exists here at "${normalizePath(path)}"; restore it from Trash or purge it first.`)
 
-  const pathConflict = (page: Page, path: string): AppError =>
+  const pathConflict = (page: PageRecord, path: string): AppError =>
     page.lifecycle === 'active' ? conflict(`A page already exists at "${normalizePath(path)}"`) : tombstoneConflict(path)
 
   const parseLabels = (value: string): string[] => normalizeLabels(parseJsonStringArray(value))
 
-  const writeExistingPage = (
-    current: Page,
+  const revisionFor = (
+    page: Pick<PageRecord, 'id' | 'path' | 'title' | 'description' | 'content'>,
+    principal: Principal | null,
+    action: PageRevisionRecord['action'],
+    now: number,
+  ): PageRevisionRecord => ({
+    id: crypto.randomUUID(), pageId: page.id, path: page.path, title: page.title,
+    description: page.description, content: page.content, authorId: principal?.id ?? null,
+    action, createdAt: now,
+  })
+
+  const writeExistingPage = async (
+    current: PageRecord,
     next: {
       title: string
       description: string
@@ -411,19 +344,14 @@ export const createPageService = (
     },
     principal: Principal | null,
     revisionAction: 'updated' | null,
-  ): Page | undefined => {
+  ): Promise<PageRecord | undefined> => {
     const { html, toc } = renderPageMarkdown(next.content)
     const now = Date.now()
 
-    return db.transaction((tx) => {
-      if (revisionAction) {
-        // Snapshot the pre-update state into history. Collaborative autosave
-        // uses the same write path but passes null to avoid revision spam.
-        snapshotRevision(tx, current, principal, revisionAction, now)
-      }
-
-      tx.update(pages)
-        .set({
+    const page = await pageWrites.writeExisting({
+      pageId: current.id,
+      revision: revisionAction ? revisionFor(current, principal, revisionAction, now) : null,
+      changes: {
           title: next.title,
           description: next.description,
           content: next.content,
@@ -441,13 +369,10 @@ export const createPageService = (
           navOrder: next.navOrder,
           pinned: next.pinned,
           updatedAt: now,
-        })
-        .where(eq(pages.id, current.id))
-        .run()
-
-      reindex(current.id)
-      return findById(current.id)
+      },
     })
+    if (page) touchDerived()
+    return page
   }
 
   return {
@@ -573,33 +498,33 @@ export const createPageService = (
       return ok(await pageReads.listRedirects())
     },
 
-    createRedirect(fromPath, toPath, principal) {
+    async createRedirect(fromPath, toPath, principal) {
       const from = normalizePath(fromPath)
       const to = normalizePath(toPath)
       const allowed = requirePagePermission(principal, 'page:update', to)
       if (!allowed.ok) return allowed
       if (!from || !to) return err(validationError('Redirect paths are required', 'fromPath'))
       if (from === to) return err(conflict('Redirect source and target must be different'))
-      const sourcePage = findByPath(from)
+      const sourcePage = await findByPath(from)
       if (sourcePage?.lifecycle === 'active') return err(conflict(`A page already exists at "${from}"`))
-      const existing = findRedirect(from)
+      const existing = await findRedirect(from)
       if (existing) return err(conflict(`A redirect already exists at "${from}"`))
-      const resolved = resolvePath(to)
+      const resolved = await resolvePath(to)
       if (!resolved.ok) return resolved
       const target = resolved.value.page.path
       if (target === from) return err(conflict('Redirect would create a loop'))
       const redirect = { fromPath: from, toPath: target, createdAt: Date.now() }
-      db.insert(pageRedirects).values(redirect).run()
+      await pageWrites.createRedirect(redirect)
       return ok(redirect)
     },
 
-    deleteRedirect(fromPath, principal) {
+    async deleteRedirect(fromPath, principal) {
       const from = normalizePath(fromPath)
       const allowed = requirePagePermission(principal, 'page:update', from)
       if (!allowed.ok) return allowed
-      const existing = findRedirect(from)
+      const existing = await findRedirect(from)
       if (!existing) return err(notFound(`No redirect at "${from}"`))
-      db.delete(pageRedirects).where(eq(pageRedirects.fromPath, from)).run()
+      await pageWrites.deleteRedirect(from)
       return ok({ fromPath: from })
     },
 
@@ -610,13 +535,13 @@ export const createPageService = (
     },
 
     async history(path) {
-      const page = findByPath(path)
+      const page = await findByPath(path)
       if (!page) return err(notFound(`No page at "${path}"`))
       return ok(await pageReads.listRevisions(page.id) as PageRevisionSummary[])
     },
 
     async revisionInsights(path) {
-      const page = findByPath(path)
+      const page = await findByPath(path)
       if (page?.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const revisions = await pageReads.listRevisions(page.id)
       const contributors = (await pageReads.revisionContributors(page.id)).map((row) => ({
@@ -628,81 +553,73 @@ export const createPageService = (
       return ok({ revisionCount: revisions.length, contributors })
     },
 
-    getByPath(path) {
-      const page = findByPath(path)
+    async getByPath(path) {
+      const page = await findByPath(path)
       if (page?.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       return ok(page)
     },
 
-    resolveByPath(path) {
-      return resolvePath(path)
+    async resolveByPath(path) {
+      return await resolvePath(path)
     },
 
-    create(input, principal) {
+    async create(input, principal) {
       const validated = validatePageInput({ ...input, locale: input.locale ?? defaultLocale() })
       if (!validated.ok) return validated
       const v = validated.value
       const allowed = requirePagePermission(principal, 'page:create', v.path)
       if (!allowed.ok) return allowed
 
-      const existing = findByPath(v.path)
+      const existing = await findByPath(v.path)
       if (existing) return err(pathConflict(existing, v.path))
 
       const { html, toc } = renderPageMarkdown(v.content)
       const now = Date.now()
       const id = crypto.randomUUID()
 
-      let page: Page | undefined
+      const candidate: PageRecord = {
+        id,
+        path: v.path,
+        title: v.title,
+        description: v.description,
+        content: v.content,
+        icon: v.icon,
+        coverUrl: v.coverUrl,
+        coverPosition: v.coverPosition,
+        renderedHtml: html,
+        toc: JSON.stringify(toc),
+        contentType: 'markdown',
+        lifecycle: 'active',
+        labels: JSON.stringify(v.labels),
+        status: v.status,
+        ownerId: v.ownerId,
+        reviewAt: v.reviewAt,
+        publishAt: v.publishAt,
+        navOrder: v.navOrder,
+        pinned: v.pinned,
+        spaceKey: v.path.split('/')[0] || 'main',
+        locale: v.locale,
+        authorId: principal?.id ?? null,
+        createdAt: now,
+        updatedAt: now,
+      }
+      let page: PageRecord | undefined
       try {
-        page = db.transaction((tx) => {
-          tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, v.path)).run()
-          tx.insert(pages)
-          .values({
-            id,
-            path: v.path,
-            title: v.title,
-            description: v.description,
-            content: v.content,
-            icon: v.icon,
-            coverUrl: v.coverUrl,
-            coverPosition: v.coverPosition,
-            renderedHtml: html,
-            toc: JSON.stringify(toc),
-            contentType: 'markdown',
-            lifecycle: 'active',
-            labels: JSON.stringify(v.labels),
-            status: v.status,
-            ownerId: v.ownerId,
-            reviewAt: v.reviewAt,
-            publishAt: v.publishAt,
-            navOrder: v.navOrder,
-            pinned: v.pinned,
-            spaceKey: v.path.split('/')[0] || 'main',
-            locale: v.locale,
-            authorId: principal?.id ?? null,
-            createdAt: now,
-            updatedAt: now,
-          })
-          .run()
-
-        snapshotRevision(tx, { id, path: v.path, title: v.title, description: v.description, content: v.content }, principal, 'created', now)
-
-        reindex(id)
-          return findById(id)
-        })
+        page = await pageWrites.create(candidate, revisionFor(candidate, principal, 'created', now))
       } catch (error) {
-        if (isUniqueConstraintError(error)) return err(conflict(`A page already exists at "${v.path}"`))
+        if (error instanceof DuplicatePagePathError) return err(conflict(`A page already exists at "${v.path}"`))
         throw error
       }
+      if (page) touchDerived()
       return page ? ok(page) : err(notFound('Page disappeared while it was being created'))
     },
 
-    copy(fromPath, newPath, principal, keepStatus = false) {
-      const source = findByPath(fromPath)
+    async copy(fromPath, newPath, principal, keepStatus = false) {
+      const source = await findByPath(fromPath)
       if (!source || source.lifecycle !== 'active') return err(notFound(`No page at "${fromPath}"`))
       const readable = requirePagePermission(principal, 'page:read', source.path)
       if (!readable.ok) return readable
-      return this.create({
+      return await this.create({
         path: newPath,
         title: `${source.title} (copy)`,
         content: source.content,
@@ -719,8 +636,8 @@ export const createPageService = (
       }, principal)
     },
 
-    update(path, patch, principal) {
-      const current = findByPath(path)
+    async update(path, patch, principal) {
+      const current = await findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:update', current.path)
       if (!allowed.ok) return allowed
@@ -750,17 +667,17 @@ export const createPageService = (
       if (!validated.ok) return validated
       const v = validated.value
 
-      const page = writeExistingPage(current, v, principal, 'updated')
+      const page = await writeExistingPage(current, v, principal, 'updated')
       return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being updated`))
     },
 
-    upsertFromFile(path, file, options, principal) {
+    async upsertFromFile(path, file, options, principal) {
       const title = (options.title ?? file.title).trim() || normalizePath(path).split('/').at(-1) || 'Imported page'
       const description = options.description ?? file.description
       const content = contentWithTocFrontmatter(file)
-      const existing = this.getByPath(path)
+      const existing = await this.getByPath(path)
       if (existing.ok) {
-        const page = this.update(path, {
+        const page = await this.update(path, {
           title,
           description,
           content,
@@ -777,7 +694,7 @@ export const createPageService = (
         return ok({ page: page.value, created: false, previous: existing.value })
       }
 
-      const page = this.create({
+      const page = await this.create({
         path,
         title,
         description,
@@ -795,8 +712,8 @@ export const createPageService = (
       return ok({ page: page.value, created: true })
     },
 
-    saveContent(path, content, principal, expectedUpdatedAt = null) {
-      const current = findByPath(path)
+    async saveContent(path, content, principal, expectedUpdatedAt = null) {
+      const current = await findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:update', current.path)
       if (!allowed.ok) return allowed
@@ -824,7 +741,7 @@ export const createPageService = (
 
       // Lightweight save for collaborative autosave: refresh content + render +
       // search index WITHOUT snapshotting a revision (explicit Save does that).
-      const page = writeExistingPage(
+      const page = await writeExistingPage(
         current,
         validated.value,
         principal,
@@ -833,15 +750,15 @@ export const createPageService = (
       return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being saved`))
     },
 
-    restoreRevision(path, revisionId, principal) {
-      const current = findByPath(path)
+    async restoreRevision(path, revisionId, principal) {
+      const current = await findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:update', current.path)
       if (!allowed.ok) return allowed
-      const revision = db.select().from(pageRevisions).where(eq(pageRevisions.id, revisionId)).get()
+      const revision = await pageWrites.findRevision(revisionId)
       if (!revision || revision.pageId !== current.id) return err(notFound('Revision not found'))
 
-      const page = writeExistingPage(
+      const page = await writeExistingPage(
         current,
         {
           title: revision.title,
@@ -865,45 +782,43 @@ export const createPageService = (
       return page ? ok(page) : err(notFound(`Page "${path}" disappeared while its revision was being restored`))
     },
 
-    archive(path, principal) {
-      const current = findByPath(path)
+    async archive(path, principal) {
+      const current = await findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:delete', current.path)
       if (!allowed.ok) return allowed
       const now = Date.now()
-      const page = db.transaction((tx) => {
-        snapshotRevision(tx, current, principal, 'archived', now)
-        tx.update(pages)
-          .set({ lifecycle: 'archived', updatedAt: now })
-          .where(eq(pages.id, current.id))
-          .run()
-        removeFromIndex(current.id)
-        return findById(current.id)
+      const page = await pageWrites.setLifecycle({
+        pageId: current.id,
+        lifecycle: 'archived',
+        updatedAt: now,
+        revision: revisionFor(current, principal, 'archived', now),
+        index: false,
       })
+      if (page) touchDerived()
       return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being archived`))
     },
 
-    restore(path, principal) {
-      const current = findByPath(path)
+    async restore(path, principal) {
+      const current = await findByPath(path)
       if (!current) return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:update', current.path)
       if (!allowed.ok) return allowed
       if (current.lifecycle === 'active') return ok(current)
       const now = Date.now()
-      const page = db.transaction((tx) => {
-        snapshotRevision(tx, current, principal, 'restored', now)
-        tx.update(pages)
-          .set({ lifecycle: 'active', updatedAt: now })
-          .where(eq(pages.id, current.id))
-          .run()
-        reindex(current.id)
-        return findById(current.id)
+      const page = await pageWrites.setLifecycle({
+        pageId: current.id,
+        lifecycle: 'active',
+        updatedAt: now,
+        revision: revisionFor(current, principal, 'restored', now),
+        index: true,
       })
+      if (page) touchDerived()
       return page ? ok(page) : err(notFound(`Page "${path}" disappeared while it was being restored`))
     },
 
-    move(oldPath, newPath, principal) {
-      const current = findByPath(oldPath)
+    async move(oldPath, newPath, principal) {
+      const current = await findByPath(oldPath)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${oldPath}"`))
       const allowed = requirePagePermission(principal, 'page:move', current.path)
       if (!allowed.ok) return allowed
@@ -929,97 +844,62 @@ export const createPageService = (
       const v = validated.value
 
       if (v.path === current.path) return ok(current)
-      const existing = findByPath(v.path)
+      const existing = await findByPath(v.path)
       if (existing) return err(pathConflict(existing, v.path))
 
       const now = Date.now()
-      const page = db.transaction((tx) => {
-        snapshotRevision(tx, current, principal, 'moved', now)
-
-        tx.update(pages)
-          .set({
-            path: v.path,
-            spaceKey: v.path.split('/')[0] || 'main',
-            updatedAt: now,
-          })
-          .where(eq(pages.id, current.id))
-          .run()
-        tx.update(pageComments)
-          .set({ path: v.path, updatedAt: now })
-          .where(eq(pageComments.pageId, current.id))
-          .run()
-        tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, v.path)).run()
-        tx.update(pageRedirects)
-          .set({ toPath: v.path })
-          .where(eq(pageRedirects.toPath, current.path))
-          .run()
-        tx.insert(pageRedirects)
-          .values({ fromPath: current.path, toPath: v.path, createdAt: now })
-          .onConflictDoUpdate({
-            target: pageRedirects.fromPath,
-            set: { toPath: v.path, createdAt: now },
-          })
-          .run()
-
-        rewriteLinksForMove(tx, current.path, v.path, {
-          principal,
-          now,
-          reindex: (page) => reindex(page.id),
-          renderMarkdown: renderPageMarkdown,
+      const rewrittenPages: RewrittenPageWrite[] = []
+      for (const candidate of await pageReads.listActive()) {
+        const content = rewritePageLinks(candidate.content, current.path, v.path)
+        if (content === candidate.content) continue
+        const rendered = renderPageMarkdown(content)
+        rewrittenPages.push({
+          pageId: candidate.id,
+          content,
+          renderedHtml: rendered.html,
+          toc: JSON.stringify(rendered.toc),
+          updatedAt: now,
+          revision: revisionFor(candidate, principal, 'updated', now),
         })
-
-        reindex(current.id)
-        return findById(current.id)
+      }
+      const page = await pageWrites.move({
+        pageId: current.id,
+        oldPath: current.path,
+        newPath: v.path,
+        spaceKey: v.path.split('/')[0] || 'main',
+        updatedAt: now,
+        revision: revisionFor(current, principal, 'moved', now),
+        rewrittenPages,
       })
+      if (page) touchDerived()
       return page ? ok(page) : err(notFound(`Page "${oldPath}" disappeared while it was being moved`))
     },
 
-    remove(path, principal) {
-      const current = findByPath(path)
+    async remove(path, principal) {
+      const current = await findByPath(path)
       if (!current || current.lifecycle !== 'active') return err(notFound(`No page at "${path}"`))
       const allowed = requirePagePermission(principal, 'page:delete', current.path)
       if (!allowed.ok) return allowed
 
       const now = Date.now()
-      const deleted = db.transaction((tx) => {
-        snapshotRevision(tx, current, principal, 'deleted', now)
-
-        tx.update(pages)
-          .set({ lifecycle: 'deleted', updatedAt: now })
-          .where(eq(pages.id, current.id))
-          .run()
-        tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, current.path)).run()
-        tx.delete(pageRedirects).where(eq(pageRedirects.toPath, current.path)).run()
-        removeFromIndex(current.id)
-        return findById(current.id)
+      const deleted = await pageWrites.remove({
+        pageId: current.id,
+        path: current.path,
+        updatedAt: now,
+        revision: revisionFor(current, principal, 'deleted', now),
       })
+      if (deleted) touchDerived()
       return deleted ? ok({ path: deleted.path }) : err(notFound(`Page "${path}" disappeared while it was being deleted`))
     },
 
-    purge(path, principal) {
+    async purge(path, principal) {
       const allowed = requirePagePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
 
-      const current = findByPath(path)
+      const current = await findByPath(path)
       if (!current) return err(notFound(`No page at "${path}"`))
-      db.transaction((tx) => {
-        const paths = new Set<string>([current.path])
-        for (const row of tx.select({ path: pageRevisions.path }).from(pageRevisions).where(eq(pageRevisions.pageId, current.id)).all()) {
-          paths.add(row.path)
-        }
-        for (const row of tx.select({ path: pageComments.path }).from(pageComments).where(eq(pageComments.pageId, current.id)).all()) {
-          paths.add(row.path)
-        }
-        for (const pagePath of paths) {
-          tx.delete(pageAnalytics).where(eq(pageAnalytics.path, pagePath)).run()
-          tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, pagePath)).run()
-          tx.delete(pageRedirects).where(eq(pageRedirects.toPath, pagePath)).run()
-        }
-        tx.delete(pageComments).where(eq(pageComments.pageId, current.id)).run()
-        tx.delete(pageRevisions).where(eq(pageRevisions.pageId, current.id)).run()
-        tx.delete(pages).where(eq(pages.id, current.id)).run()
-        removeFromIndex(current.id)
-      })
+      await pageWrites.purge(current.id, current.path)
+      touchDerived()
       return ok({ path: current.path })
     },
   }

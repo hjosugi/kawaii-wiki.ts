@@ -118,7 +118,7 @@ export const createRealtimeRoutes = ({
             ws.close(1008, 'Authentication required')
             return
           }
-          const current = services.pages.getByPath(room)
+          const current = await services.pages.getByPath(room)
           const seed = (): CollabSeed => ({
             text: current.ok ? current.value.content : '',
             updatedAt: current.ok ? current.value.updatedAt : null,

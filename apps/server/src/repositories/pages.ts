@@ -62,3 +62,77 @@ export interface PageReadRepository {
   listRevisions(pageId: string): Promise<PageRevisionWithAuthorRecord[]>
   revisionContributors(pageId: string): Promise<PageRevisionContributorRecord[]>
 }
+
+export class DuplicatePagePathError extends Error {
+  constructor() {
+    super('Page path already exists')
+    this.name = 'DuplicatePagePathError'
+  }
+}
+
+export interface PageRevisionRecord {
+  readonly id: string
+  readonly pageId: string
+  readonly path: string
+  readonly title: string
+  readonly description: string
+  readonly content: string
+  readonly authorId: string | null
+  readonly action: PageRevisionWithAuthorRecord['action']
+  readonly createdAt: number
+}
+
+export interface ExistingPageWrite {
+  readonly pageId: string
+  readonly changes: Partial<Omit<PageRecord, 'id'>>
+  readonly revision: PageRevisionRecord | null
+}
+
+export interface PageLifecycleWrite {
+  readonly pageId: string
+  readonly lifecycle: PageLifecycle
+  readonly updatedAt: number
+  readonly revision: PageRevisionRecord
+  readonly index: boolean
+}
+
+export interface RewrittenPageWrite {
+  readonly pageId: string
+  readonly content: string
+  readonly renderedHtml: string
+  readonly toc: string
+  readonly updatedAt: number
+  readonly revision: PageRevisionRecord
+}
+
+export interface MovePageWrite {
+  readonly pageId: string
+  readonly oldPath: string
+  readonly newPath: string
+  readonly spaceKey: string
+  readonly updatedAt: number
+  readonly revision: PageRevisionRecord
+  readonly rewrittenPages: readonly RewrittenPageWrite[]
+}
+
+export interface RemovePageWrite {
+  readonly pageId: string
+  readonly path: string
+  readonly updatedAt: number
+  readonly revision: PageRevisionRecord
+}
+
+export interface PageWriteRepository {
+  findByPath(path: string): Promise<PageRecord | undefined>
+  findById(id: string): Promise<PageRecord | undefined>
+  findRevision(id: string): Promise<PageRevisionRecord | undefined>
+  findRedirect(path: string): Promise<string | null>
+  writeExisting(input: ExistingPageWrite): Promise<PageRecord | undefined>
+  create(page: PageRecord, revision: PageRevisionRecord): Promise<PageRecord | undefined>
+  createRedirect(record: PageRedirectRecord): Promise<void>
+  deleteRedirect(fromPath: string): Promise<void>
+  setLifecycle(input: PageLifecycleWrite): Promise<PageRecord | undefined>
+  move(input: MovePageWrite): Promise<PageRecord | undefined>
+  remove(input: RemovePageWrite): Promise<PageRecord | undefined>
+  purge(pageId: string, path: string): Promise<void>
+}

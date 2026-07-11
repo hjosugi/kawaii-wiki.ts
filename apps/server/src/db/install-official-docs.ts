@@ -22,7 +22,7 @@ export const runOfficialDocsInstall = async (): Promise<void> => {
     await services.settings.initialize()
 
     for (const source of officialDocumentationPages) {
-      const result = services.pages.upsertFromFile(source.path, {
+      const result = await services.pages.upsertFromFile(source.path, {
         title: source.title,
         description: source.description,
         content: source.content,

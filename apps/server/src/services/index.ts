@@ -9,6 +9,7 @@ import type { StructuredLogger } from '../observability/logging.ts'
 import { createDatabaseRepositories } from '../db/repositories/index.ts'
 import { createPageService, type PageService } from './pages.ts'
 import { createFtsSearchIndexer } from '../db/repositories/search.ts'
+import { createSqlitePageWriteRepository } from '../db/repositories/pages.ts'
 import { createSearchService, type SearchService } from './search.ts'
 import { createUserService, type UserService } from './users.ts'
 import { createAssetService, type AssetService } from './assets.ts'
@@ -121,6 +122,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
   const branding = options.branding ?? defaultBranding
   const localization = options.localization ?? defaultLocalization
   const searchIndexer = createFtsSearchIndexer(db, { configuredTokenizer: search.ftsTokenizer })
+  const pageWrites = createSqlitePageWriteRepository(db, searchIndexer)
   const settings = createSettingsService(repositories.settings, {
     defaults: {
       ...(branding.siteTitle ? { siteTitle: branding.siteTitle } : {}),
@@ -168,7 +170,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     sender: options.mailSender,
     logger: options.logger,
   })
-  const pageService = createPageService(db, repositories.pageReads, searchIndexer, {
+  const pageService = createPageService(repositories.pageReads, pageWrites, {
     renderMarkdown: (content) => rendererForSettings().renderMarkdown(content),
     defaultLocale: () => settings.public().defaultLocale,
   })

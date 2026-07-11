@@ -521,8 +521,8 @@ export const createApp = ({
   )
 
   const collab = createCollabRuntime({
-    persist: (room, text, expectedUpdatedAt, principal) => {
-      const result = services.pages.saveContent(room, text, principal, expectedUpdatedAt)
+    persist: async (room, text, expectedUpdatedAt, principal) => {
+      const result = await services.pages.saveContent(room, text, principal, expectedUpdatedAt)
       if (result.ok) {
         void pageWriteEffects({
           action: 'updated',

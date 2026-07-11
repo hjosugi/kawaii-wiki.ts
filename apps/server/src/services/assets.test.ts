@@ -25,7 +25,7 @@ describe('asset service', () => {
   test('tracks usage, filters folders, and manages trash lifecycle', async () => {
     const db = createDb(':memory:')
     const services = createServices(db)
-    const page = services.pages.create({
+    const page = await services.pages.create({
       path: 'docs/asset',
       title: 'Asset page',
       content: 'Uses ![image](/assets/docs/image.png)',

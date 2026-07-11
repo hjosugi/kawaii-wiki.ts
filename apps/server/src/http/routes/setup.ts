@@ -77,7 +77,7 @@ export const createSetupRoutes = ({
           enableMermaid: true,
         }))
 
-        const home = unwrap(services.pages.create({
+        const home = unwrap(await services.pages.create({
           path: 'home',
           title: siteTitle,
           content: createHomeContent(siteTitle, { includeGuideLinks: body.sampleContent }),
@@ -89,7 +89,7 @@ export const createSetupRoutes = ({
 
         if (body.sampleContent) {
           for (const page of sampleGuidePages) {
-            unwrap(services.pages.create(page, principal))
+            unwrap(await services.pages.create(page, principal))
           }
         }
 

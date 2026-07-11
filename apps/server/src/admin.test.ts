@@ -18,7 +18,7 @@ describe('admin service (in-memory db)', () => {
   test('stats counts users, pages, revisions', async () => {
     const s = createServices(createDb(':memory:'))
     await s.users.create({ email: 'a@x.com', name: 'A', password: 'password', role: 'admin' })
-    s.pages.create({ path: 'p', title: 'P', content: 'x' }, admin)
+    await s.pages.create({ path: 'p', title: 'P', content: 'x' }, admin)
     const r = await s.admin.stats(admin)
     expect(r.ok).toBe(true)
     if (r.ok) {
@@ -31,11 +31,11 @@ describe('admin service (in-memory db)', () => {
   test('purgeHistory removes old revisions while keeping the latest per page', async () => {
     const db = createDb(':memory:')
     const s = createServices(db)
-    s.pages.create({ path: 'docs/a', title: 'A', content: 'one' }, admin)
-    s.pages.update('docs/a', { content: 'two' }, admin)
-    s.pages.update('docs/a', { content: 'three' }, admin)
-    s.pages.create({ path: 'docs/b', title: 'B', content: 'one' }, admin)
-    s.pages.update('docs/b', { content: 'two' }, admin)
+    await s.pages.create({ path: 'docs/a', title: 'A', content: 'one' }, admin)
+    await s.pages.update('docs/a', { content: 'two' }, admin)
+    await s.pages.update('docs/a', { content: 'three' }, admin)
+    await s.pages.create({ path: 'docs/b', title: 'B', content: 'one' }, admin)
+    await s.pages.update('docs/b', { content: 'two' }, admin)
     db.$client.prepare('UPDATE page_revisions SET created_at = ?').run(Date.now() - 10 * 24 * 60 * 60 * 1000)
 
     const before = await s.admin.historyStats(admin)
@@ -61,21 +61,21 @@ describe('admin service (in-memory db)', () => {
 
   test('listPages filters and paginates active pages', async () => {
     const s = createServices(createDb(':memory:'))
-    s.pages.create({
+    await s.pages.create({
       path: 'docs/a',
       title: 'A',
       content: 'a',
       labels: ['guide'],
       status: 'verified',
     }, admin)
-    s.pages.create({
+    await s.pages.create({
       path: 'docs/b',
       title: 'B',
       content: 'b',
       labels: ['guide', 'ops'],
       status: 'draft',
     }, admin)
-    s.pages.create({
+    await s.pages.create({
       path: 'notes/c',
       title: 'C',
       content: 'c',

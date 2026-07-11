@@ -169,8 +169,8 @@ export const createPageRoutes = ({
     .get('/api/redirects', async ({ services, principal }) => ({
       redirects: unwrap(await services.pages.redirects(principal)),
     }))
-    .post('/api/redirects', ({ body, services, principal }) => {
-      const redirect = unwrap(services.pages.createRedirect(body.fromPath, body.toPath, principal))
+    .post('/api/redirects', async ({ body, services, principal }) => {
+      const redirect = unwrap(await services.pages.createRedirect(body.fromPath, body.toPath, principal))
       audit(logger, 'page.redirect.create', {
         userId: principal?.id ?? null,
         fromPath: redirect.fromPath,
@@ -183,8 +183,8 @@ export const createPageRoutes = ({
         toPath: t.String(),
       }),
     })
-    .delete('/api/redirects', ({ query, services, principal }) => {
-      const result = unwrap(services.pages.deleteRedirect(query.fromPath, principal))
+    .delete('/api/redirects', async ({ query, services, principal }) => {
+      const result = unwrap(await services.pages.deleteRedirect(query.fromPath, principal))
       audit(logger, 'page.redirect.delete', {
         userId: principal?.id ?? null,
         fromPath: result.fromPath,
@@ -196,7 +196,7 @@ export const createPageRoutes = ({
     .post(
       '/api/pages',
       async ({ body, services, principal }) => {
-        const page = unwrap(services.pages.create(body, principal))
+        const page = unwrap(await services.pages.create(body, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'created',
           page,
@@ -232,7 +232,7 @@ export const createPageRoutes = ({
       },
     )
     .post('/api/page/copy', async ({ body, services, principal }) => {
-      const page = unwrap(services.pages.copy(body.fromPath, body.newPath, principal, body.keepStatus))
+      const page = unwrap(await services.pages.copy(body.fromPath, body.newPath, principal, body.keepStatus))
       return runPageWrite(pageWriteEffects, {
         action: 'created',
         page,
@@ -248,7 +248,7 @@ export const createPageRoutes = ({
       '/api/page',
       async ({ query, services, principal }) => {
         await requirePageRead(principal, query.path)
-        const resolved = unwrap(services.pages.resolveByPath(query.path))
+        const resolved = unwrap(await services.pages.resolveByPath(query.path))
         const page = resolved.page
         if (!canSeePage(principal, page)) throw new HttpError(notFound(`No page at "${query.path}"`))
         unwrap(services.analytics.recordPageView(page.path, principal))
@@ -260,7 +260,7 @@ export const createPageRoutes = ({
       '/api/page/insights',
       async ({ query, services, principal }) => {
         await requirePageRead(principal, query.path)
-        const page = unwrap(services.pages.getByPath(query.path))
+        const page = unwrap(await services.pages.getByPath(query.path))
         return {
           ...await services.analytics.page(page.path),
           ...unwrap(await services.pages.revisionInsights(page.path)),
@@ -410,8 +410,8 @@ export const createPageRoutes = ({
     .put(
       '/api/page',
       async ({ query, body, services, principal }) => {
-        const previous = valueIfOk(services.pages.getByPath(query.path))
-        const page = unwrap(services.pages.update(query.path, body, principal))
+        const previous = valueIfOk(await services.pages.getByPath(query.path))
+        const page = unwrap(await services.pages.update(query.path, body, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'updated',
           page,
@@ -449,8 +449,8 @@ export const createPageRoutes = ({
     .post(
       '/api/page/restore-revision',
       async ({ body, services, principal }) => {
-        const previous = valueIfOk(services.pages.getByPath(body.path))
-        const page = unwrap(services.pages.restoreRevision(body.path, body.revisionId, principal))
+        const previous = valueIfOk(await services.pages.getByPath(body.path))
+        const page = unwrap(await services.pages.restoreRevision(body.path, body.revisionId, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'updated',
           page,
@@ -467,7 +467,7 @@ export const createPageRoutes = ({
     .post(
       '/api/page/archive',
       async ({ body, services, principal }) => {
-        const page = unwrap(services.pages.archive(body.path, principal))
+        const page = unwrap(await services.pages.archive(body.path, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'deleted',
           page,
@@ -481,7 +481,7 @@ export const createPageRoutes = ({
     .post(
       '/api/page/restore',
       async ({ body, services, principal }) => {
-        const page = unwrap(services.pages.restore(body.path, principal))
+        const page = unwrap(await services.pages.restore(body.path, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'created',
           page,
@@ -495,8 +495,8 @@ export const createPageRoutes = ({
     .post(
       '/api/page/move',
       async ({ body, services, principal }) => {
-        const previous = valueIfOk(services.pages.getByPath(body.oldPath))
-        const page = unwrap(services.pages.move(body.oldPath, body.newPath, principal))
+        const previous = valueIfOk(await services.pages.getByPath(body.oldPath))
+        const page = unwrap(await services.pages.move(body.oldPath, body.newPath, principal))
         return runPageWrite(pageWriteEffects, {
           action: 'moved',
           page,
@@ -519,8 +519,8 @@ export const createPageRoutes = ({
     .delete(
       '/api/page',
       async ({ query, services, principal }) => {
-        const previous = valueIfOk(services.pages.getByPath(query.path))
-        const result = unwrap(services.pages.remove(query.path, principal))
+        const previous = valueIfOk(await services.pages.getByPath(query.path))
+        const result = unwrap(await services.pages.remove(query.path, principal))
         await pageWriteEffects({
           action: 'deleted',
           path: result.path,
@@ -542,8 +542,8 @@ export const createPageRoutes = ({
     .delete(
       '/api/page/purge',
       async ({ query, services, principal }) => {
-        const previous = valueIfOk(services.pages.getByPath(query.path))
-        const result = unwrap(services.pages.purge(query.path, principal))
+        const previous = valueIfOk(await services.pages.getByPath(query.path))
+        const result = unwrap(await services.pages.purge(query.path, principal))
         await pageWriteEffects({
           action: 'deleted',
           path: result.path,
