@@ -136,7 +136,7 @@ command and copy uploads in the same maintenance window:
 
 ```bash
 mkdir -p backups
-sqlite3 data/kawaii-wiki.ts.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
 rsync -a data/assets/ backups/assets/
 ```
 

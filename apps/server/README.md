@@ -72,7 +72,7 @@ default admin password.
 SQLite is the default database runtime:
 
 ```bash
-DATABASE_DRIVER=sqlite DATABASE_PATH=/data/kawaii-wiki.ts.sqlite
+DATABASE_DRIVER=sqlite DATABASE_PATH=/data/ts-wiki.sqlite
 ```
 
 Search uses SQLite FTS5. The default tokenizer is `unicode61`, which is good
@@ -162,7 +162,7 @@ Back up SQLite with its online backup command, then copy uploaded assets:
 
 ```bash
 mkdir -p backups
-sqlite3 data/kawaii-wiki.ts.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
 rsync -a data/assets/ backups/assets/
 ```
 

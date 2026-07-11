@@ -121,7 +121,7 @@ Cross-cutting principles (the "FP-leaning architecture" the user asked for):
 8. **No drizzle-kit.** The DDL (incl. the FTS5 virtual table, which drizzle-kit can't express) is
    hand-written in `migrate.ts` and must be kept in sync with `schema.ts`. Adopting drizzle-kit
    later is fine, but FTS5 will still need a manual migration step.
-9. **Backups are SQLite-first.** Use `.backup` for `data/kawaii-wiki.ts.sqlite` and copy `data/assets/`.
+9. **Backups are SQLite-first.** Use `.backup` for `data/ts-wiki.sqlite` and copy `data/assets/`.
    Git mirroring is a content mirror, not a full system backup.
 10. **Structured logs are stdout JSON plus optional DB audit rows.** Request logs cover
    method/path/status/duration/IP/user; audit logs cover auth, page/admin mutations, asset uploads,

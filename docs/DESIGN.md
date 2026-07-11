@@ -150,8 +150,8 @@ To run multiple API instances, point them at the same `DATABASE_PATH`, keep `JWT
 and give each process its own `PORT`:
 
 ```bash
-DATABASE_PATH=./data/kawaii-wiki.ts.sqlite JWT_SECRET=dev PORT=4000 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-1 bun run dev:server
-DATABASE_PATH=./data/kawaii-wiki.ts.sqlite JWT_SECRET=dev PORT=4001 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-2 bun run dev:server
+DATABASE_PATH=./data/ts-wiki.sqlite JWT_SECRET=dev PORT=4000 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-1 bun run dev:server
+DATABASE_PATH=./data/ts-wiki.sqlite JWT_SECRET=dev PORT=4001 KAWAII_WIKI_INSTANCE_ID=kawaii-wiki.ts-2 bun run dev:server
 ```
 
 For single-process tests or very small local runs, `KAWAII_WIKI_EVENT_BUS=memory` restores the old
@@ -187,7 +187,7 @@ with `KAWAII_WIKI_AUDIT_DB=false` available for stdout-only deployments.
 SQLite is the canonical store. Back it up online with:
 
 ```bash
-sqlite3 data/kawaii-wiki.ts.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
+sqlite3 data/ts-wiki.sqlite ".backup 'backups/kawaii-wiki.ts-$(date +%F).sqlite'"
 rsync -a data/assets/ backups/assets/
 ```
 
