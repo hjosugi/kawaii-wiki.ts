@@ -3,6 +3,23 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.21] - 2026-07-12
+
+### Changed
+
+- Moved active-page comment context, comment CRUD, author-name joins, and
+  mutation result reporting behind an asynchronous driver-neutral repository.
+- Converted comment routes and comment/search/notification call chains to await
+  remote-capable persistence.
+- Kept permission policy, body validation, and mention extraction in the
+  service layer.
+
+### Tests
+
+- Added shared SQLite and libSQL comment contract coverage for active pages,
+  ordered author joins, anonymous authors, updates, resolution, deletion, and
+  missing-row mutation reporting.
+
 ## [1.0.20] - 2026-07-12
 
 ### Changed

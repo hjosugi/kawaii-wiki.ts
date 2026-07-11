@@ -324,8 +324,8 @@ export const createPageRoutes = ({
       '/api/page/comments',
       async ({ query, services, principal }) => {
         await requirePageRead(principal, query.path)
-        const policy = unwrap(services.comments.policy(query.path, principal))
-        return { comments: policy.visible ? unwrap(services.comments.list(query.path)) : [], policy }
+        const policy = unwrap(await services.comments.policy(query.path, principal))
+        return { comments: policy.visible ? unwrap(await services.comments.list(query.path)) : [], policy }
       },
       { query: t.Object({ path: t.String() }) },
     )
@@ -333,7 +333,7 @@ export const createPageRoutes = ({
       '/api/page/comments',
       async ({ body, services, principal, request, server }) => {
         enforceCommentLimit(request, server, principal)
-        const comment = unwrap(services.comments.create(body.path, body.body, principal))
+        const comment = unwrap(await services.comments.create(body.path, body.body, principal))
         await services.notifications.notifyComment(comment)
         emitPageChanged('updated', comment.path)
         audit(logger, 'comment.create', {
@@ -354,7 +354,7 @@ export const createPageRoutes = ({
     .put(
       '/api/page/comments/:id',
       async ({ params, body, services, principal }) => {
-        const comment = unwrap(services.comments.update(params.id, body.body, principal))
+        const comment = unwrap(await services.comments.update(params.id, body.body, principal))
         emitPageChanged('updated', comment.path)
         audit(logger, 'comment.update', {
           userId: principal?.id ?? null,
@@ -377,7 +377,7 @@ export const createPageRoutes = ({
     .post(
       '/api/page/comments/:id/resolve',
       async ({ params, services, principal }) => {
-        const comment = unwrap(services.comments.resolve(params.id, principal))
+        const comment = unwrap(await services.comments.resolve(params.id, principal))
         emitPageChanged('updated', comment.path)
         audit(logger, 'comment.resolve', {
           userId: principal?.id ?? null,
@@ -396,7 +396,7 @@ export const createPageRoutes = ({
     .delete(
       '/api/page/comments/:id',
       async ({ params, services, principal }) => {
-        const result = unwrap(services.comments.remove(params.id, principal))
+        const result = unwrap(await services.comments.remove(params.id, principal))
         audit(logger, 'comment.delete', { userId: principal?.id ?? null, commentId: result.id })
         await publishAutomation({
           type: 'comment.deleted',

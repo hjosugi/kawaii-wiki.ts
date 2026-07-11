@@ -378,7 +378,7 @@ describe('page + search slice (in-memory db)', () => {
     expect(search.search('filterterm', { filters: { updatedBefore: 5_000 } }).hits.map((hit) => hit.path)).toEqual(['filters/admin'])
   })
 
-  test('search indexes page comments and referenced asset filenames', () => {
+  test('search indexes page comments and referenced asset filenames', async () => {
     const db = createDb(':memory:')
     const { pages, comments, assets, search } = createServices(db)
     pages.create({
@@ -387,7 +387,7 @@ describe('page + search slice (in-memory db)', () => {
       content: 'See ![diagram](/assets/assets/a/diagram.png)',
     }, admin)
 
-    const comment = comments.create('docs/context', 'The durable decisionterm lives in a comment.', admin)
+    const comment = await comments.create('docs/context', 'The durable decisionterm lives in a comment.', admin)
     expect(comment.ok).toBe(true)
     const asset = assets.record({
       id: 'asset-a',
@@ -592,10 +592,10 @@ describe('page + search slice (in-memory db)', () => {
     expect(history.ok).toBe(true)
     if (history.ok) expect(history.value[0]?.authorName).toBe('Alice')
 
-    const added = comments.create('docs/a', 'first!', alice)
+    const added = await comments.create('docs/a', 'first!', alice)
     expect(added.ok).toBe(true)
     if (added.ok) expect(added.value.authorName).toBe('Alice')
-    const list = comments.list('docs/a')
+    const list = await comments.list('docs/a')
     expect(list.ok).toBe(true)
     if (list.ok) expect(list.value[0]?.authorName).toBe('Alice')
 
@@ -705,24 +705,24 @@ describe('page + search slice (in-memory db)', () => {
     ])
   })
 
-  test('comments attach to active pages and expose mentions', () => {
+  test('comments attach to active pages and expose mentions', async () => {
     const db = createDb(':memory:')
     const { pages, comments } = createServices(db)
     pages.create({ path: 'docs/comments', title: 'Comments', content: 'hello' }, admin)
 
-    const created = comments.create('docs/comments', 'Please review @Ada and @ops-team', viewer)
+    const created = await comments.create('docs/comments', 'Please review @Ada and @ops-team', viewer)
 
     expect(created.ok).toBe(true)
     if (created.ok) {
       expect(created.value.mentions).toEqual(['ada', 'ops-team'])
       expect(created.value.authorId).toBe(viewer.id)
-      expect(comments.update(created.value.id, 'edited', admin).ok).toBe(true)
-      expect(comments.resolve(created.value.id, viewer).ok).toBe(true)
+      expect((await comments.update(created.value.id, 'edited', admin)).ok).toBe(true)
+      expect((await comments.resolve(created.value.id, viewer)).ok).toBe(true)
     }
-    const listed = comments.list('docs/comments')
+    const listed = await comments.list('docs/comments')
     expect(listed.ok).toBe(true)
     if (listed.ok) expect(listed.value.length).toBe(1)
-    expect(comments.create('docs/comments', 'anonymous', anon).ok).toBe(false)
+    expect((await comments.create('docs/comments', 'anonymous', anon)).ok).toBe(false)
   })
 
   test('asset and analytics services enforce authorization directly', async () => {
@@ -782,7 +782,7 @@ describe('page + search slice (in-memory db)', () => {
     const db = createDb(':memory:')
     const { pages, search, comments, analytics } = createServices(db)
     pages.create({ path: 'docs/archive-me', title: 'Archive me', content: 'durable kiwi' }, admin)
-    comments.create('docs/archive-me', 'sensitive note', admin)
+    await comments.create('docs/archive-me', 'sensitive note', admin)
     analytics.recordPageView('docs/archive-me', admin)
     await analytics.flush()
 

@@ -180,7 +180,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     users: createUserService(repositories.users),
     assets: createAssetService(db, { urlForStorageName: options.assetUrl, searchIndexer }),
     admin: createAdminService(db, authz),
-    comments: createCommentService(db, searchIndexer),
+    comments: createCommentService(repositories.comments, searchIndexer),
     analytics: createAnalyticsService(repositories.analytics),
     settings,
     authz,

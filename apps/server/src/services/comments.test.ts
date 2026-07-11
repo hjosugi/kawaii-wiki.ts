@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
+import { createSqliteCommentRepository } from '../db/repositories/comments.ts'
 import { createServices } from './index.ts'
 import { createCommentService } from './comments.ts'
 import type { SearchIndexer } from './search.ts'
@@ -34,41 +35,41 @@ describe('comment service', () => {
     const page = services.pages.create({ path: 'docs/comments', title: 'Comments', content: 'Body' }, admin)
     if (!page.ok) throw new Error('page seed failed')
     const indexed: string[] = []
-    const comments = createCommentService(db, fakeIndexer(indexed))
+    const comments = createCommentService(createSqliteCommentRepository(db), fakeIndexer(indexed))
 
-    const created = comments.create('docs/comments', 'Hi @Alice, @alice, and @bob', principal)
+    const created = await comments.create('docs/comments', 'Hi @Alice, @alice, and @bob', principal)
     expect(created.ok).toBe(true)
     if (!created.ok) throw new Error('comment create failed')
     expect(created.value.authorName).toBe('Commenter')
     expect(created.value.mentions).toEqual(['alice', 'bob'])
     expect(indexed).toEqual([page.value.id])
 
-    const listed = comments.list('docs/comments')
+    const listed = await comments.list('docs/comments')
     expect(listed.ok).toBe(true)
     if (listed.ok) expect(listed.value[0]?.authorName).toBe('Commenter')
 
-    const updated = comments.update(created.value.id, 'Updated @carol', principal)
+    const updated = await comments.update(created.value.id, 'Updated @carol', principal)
     expect(updated.ok).toBe(true)
     if (updated.ok) expect(updated.value.mentions).toEqual(['carol'])
 
-    const removed = comments.remove(created.value.id, principal)
+    const removed = await comments.remove(created.value.id, principal)
     expect(removed.ok).toBe(true)
     expect(indexed).toEqual([page.value.id, page.value.id, page.value.id])
   })
 
-  test('supports hidden, anonymous-open, and group-only page policies', () => {
+  test('supports hidden, anonymous-open, and group-only page policies', async () => {
     const db = createDb(':memory:')
     const services = createServices(db)
     services.pages.create({ path: 'hidden', title: 'Hidden', content: '', labels: ['kawaii-wiki-comments-off'] }, admin)
     services.pages.create({ path: 'open', title: 'Open', content: '', labels: ['kawaii-wiki-comments-open'] }, admin)
     services.pages.create({ path: 'team', title: 'Team', content: '', labels: ['kawaii-wiki-comments-group-reviewers'] }, admin)
 
-    expect(services.comments.policy('hidden', null)).toEqual(expect.objectContaining({ ok: true, value: expect.objectContaining({ visible: false, writable: false }) }))
-    const anonymous = services.comments.create('open', 'Anonymous feedback', null)
+    expect(await services.comments.policy('hidden', null)).toEqual(expect.objectContaining({ ok: true, value: expect.objectContaining({ visible: false, writable: false }) }))
+    const anonymous = await services.comments.create('open', 'Anonymous feedback', null)
     expect(anonymous.ok).toBe(true)
     if (anonymous.ok) expect(anonymous.value.authorId).toBeNull()
-    expect(services.comments.create('team', 'No membership', { id: 'u1', role: 'viewer', groups: ['viewers'] }).ok).toBe(false)
-    expect(services.comments.create('team', 'Member feedback', { id: 'u2', role: 'viewer', groups: ['viewers', 'reviewers'] }).ok).toBe(true)
+    expect((await services.comments.create('team', 'No membership', { id: 'u1', role: 'viewer', groups: ['viewers'] })).ok).toBe(false)
+    expect((await services.comments.create('team', 'Member feedback', { id: 'u2', role: 'viewer', groups: ['viewers', 'reviewers'] })).ok).toBe(true)
     db.$client.close()
   })
 })
