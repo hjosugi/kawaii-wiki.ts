@@ -3,6 +3,26 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.10] - 2026-07-11
+
+### Changed
+
+- Moved user persistence behind the asynchronous cross-database repository
+  boundary and propagated async lookups through registration, login, profiles,
+  realtime authentication, seeding, and Git mirror attribution.
+- Normalized duplicate-email persistence failures into a driver-neutral error
+  instead of leaking SQLite/libSQL constraint details into the user service.
+
+### Tests
+
+- Added shared SQLite and libSQL user repository contract coverage for count,
+  lookup, insert, update, and duplicate-email behavior.
+
+### Fixed
+
+- Removed the duplicate Admin view authentication redirect so the router's
+  authoritative admin guard cannot race component mounting on direct loads.
+
 ## [1.0.9] - 2026-07-11
 
 ### Fixed

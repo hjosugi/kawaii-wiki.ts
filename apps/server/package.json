@@ -1,6 +1,6 @@
 {
   "name": "@kawaii-wiki/server",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "license": "0BSD",
   "private": true,
   "type": "module",
