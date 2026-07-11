@@ -178,7 +178,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     pages: pageService,
     search: createSearchService(db, { configuredTokenizer: search.ftsTokenizer, indexer: searchIndexer }),
     users: createUserService(repositories.users),
-    assets: createAssetService(db, { urlForStorageName: options.assetUrl, searchIndexer }),
+    assets: createAssetService(repositories.assets, { urlForStorageName: options.assetUrl, searchIndexer }),
     admin: createAdminService(repositories.admin, authz),
     comments: createCommentService(repositories.comments, searchIndexer),
     analytics: createAnalyticsService(repositories.analytics),

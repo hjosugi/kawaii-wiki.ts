@@ -3,6 +3,7 @@ import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
 import { createServices } from './index.ts'
 import { createAssetService } from './assets.ts'
+import { createSqliteAssetRepository } from '../db/repositories/assets.ts'
 import type { SearchIndexer } from './search.ts'
 
 const admin: Principal = { id: 'admin-1', role: 'admin' }
@@ -21,7 +22,7 @@ const fakeIndexer = (indexed: string[]): SearchIndexer => ({
 })
 
 describe('asset service', () => {
-  test('tracks usage, filters folders, and manages trash lifecycle', () => {
+  test('tracks usage, filters folders, and manages trash lifecycle', async () => {
     const db = createDb(':memory:')
     const services = createServices(db)
     const page = services.pages.create({
@@ -31,9 +32,9 @@ describe('asset service', () => {
     }, admin)
     if (!page.ok) throw new Error('page seed failed')
     const indexed: string[] = []
-    const assets = createAssetService(db, { searchIndexer: fakeIndexer(indexed) })
+    const assets = createAssetService(createSqliteAssetRepository(db), { searchIndexer: fakeIndexer(indexed) })
 
-    const recorded = assets.record({
+    const recorded = await assets.record({
       id: 'asset-1',
       filename: 'image.png',
       storageName: 'docs/image.png',
@@ -48,32 +49,32 @@ describe('asset service', () => {
     expect(recorded.value.thumbUrl).toBe('/assets/docs/image.png?size=thumb')
     expect(indexed).toEqual([page.value.id])
 
-    const folders = assets.folders(editor)
+    const folders = await assets.folders(editor)
     expect(folders.ok).toBe(true)
     if (folders.ok) expect(folders.value).toEqual(['docs/images'])
 
-    const usage = assets.usage(editor)
+    const usage = await assets.usage(editor)
     expect(usage.ok).toBe(true)
     if (usage.ok) expect(usage.value[0]?.pages).toEqual([{ path: 'docs/asset', title: 'Asset page' }])
 
-    const orphans = assets.orphans(editor)
+    const orphans = await assets.orphans(editor)
     expect(orphans.ok).toBe(true)
     if (orphans.ok) expect(orphans.value).toHaveLength(0)
 
-    const removed = assets.remove('asset-1', editor)
+    const removed = await assets.remove('asset-1', editor)
     expect(removed.ok).toBe(true)
-    const trash = assets.trash(admin)
+    const trash = await assets.trash(admin)
     expect(trash.ok).toBe(true)
     if (trash.ok) expect(trash.value[0]?.id).toBe('asset-1')
 
-    const restored = assets.restore('asset-1', admin)
+    const restored = await assets.restore('asset-1', admin)
     expect(restored.ok).toBe(true)
     if (restored.ok) expect(restored.value?.deletedAt).toBeNull()
 
-    assets.remove('asset-1', editor)
-    const purged = assets.purge('asset-1', admin)
+    await assets.remove('asset-1', editor)
+    const purged = await assets.purge('asset-1', admin)
     expect(purged.ok).toBe(true)
-    const missing = assets.findById('asset-1', editor)
+    const missing = await assets.findById('asset-1', editor)
     expect(missing.ok).toBe(true)
     if (missing.ok) expect(missing.value).toBeNull()
   })

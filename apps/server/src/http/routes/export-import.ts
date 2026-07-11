@@ -93,7 +93,7 @@ export const createExportImportRoutes = ({
           createdAt: page.createdAt,
           updatedAt: page.updatedAt,
       }))
-      const exportedAssets = unwrap(services.assets.list(principal)).map((asset) => ({
+      const exportedAssets = unwrap(await services.assets.list(principal)).map((asset) => ({
         ...asset,
         archivePath: `assets/${asset.storageName}`,
       }))
