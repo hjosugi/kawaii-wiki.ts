@@ -288,7 +288,23 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
           }
         }
 
-        if (marker && marker !== head) {
+        const initialAuthoritativeSync = Boolean(config.sourceOfTruth && !synchronized)
+
+        if (initialAuthoritativeSync) {
+          // A process restart must rebuild the database from the complete Git
+          // tree even when the persisted marker already equals HEAD. This also
+          // recovers pages that were archived during an earlier incomplete sync.
+          const files = await git('ls-files', 'content')
+          const trackedPaths: string[] = []
+          for (const file of files.text().split('\n')) {
+            if (!file.trim()) continue
+            const path = filePathToPagePath(file.trim())
+            if (path) trackedPaths.push(path)
+            apply('A', file)
+          }
+          // An empty/misconfigured remote must never erase the entire wiki.
+          if (trackedPaths.length) handlers.reconcile?.(trackedPaths)
+        } else if (marker && marker !== head) {
           const diff = await git('diff', '--name-status', '-M', `${marker}..HEAD`, '--', 'content')
           for (const line of diff.text().split('\n')) {
             if (!line.trim()) continue
@@ -302,15 +318,6 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
           for (const file of files.text().split('\n')) {
             if (file.trim()) apply('A', file)
           }
-        }
-
-        if (config.sourceOfTruth && !synchronized) {
-          const files = await git('ls-files', 'content')
-          const trackedPaths = files.text()
-            .split('\n')
-            .map((file) => filePathToPagePath(file.trim()))
-            .filter((path): path is string => Boolean(path))
-          handlers.reconcile?.(trackedPaths)
         }
 
         writeMarker(head)

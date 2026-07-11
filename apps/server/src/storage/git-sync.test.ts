@@ -64,6 +64,24 @@ describe('git sync runtime wiring', () => {
     db.$client.close()
   })
 
+  test('authoritative imports restore archived paths and publish Git-reviewed pages', () => {
+    const db = createDb(':memory:')
+    const services = createServices(db)
+    services.pages.create({ path: 'docs/restored', title: 'Old', content: 'old' }, admin)
+    services.pages.remove('docs/restored', admin)
+    const handlers = createGitSyncHandlers({ services, bus: createEventBus(), systemPrincipal: admin, authoritative: true })
+
+    handlers.upsert('docs/restored', { title: 'Restored', description: '', content: 'from git' })
+    handlers.upsert('docs/new', { title: 'New', description: '', content: 'from git' })
+
+    const restored = services.pages.getByPath('docs/restored')
+    const created = services.pages.getByPath('docs/new')
+    expect(restored.ok && restored.value.title).toBe('Restored')
+    expect(restored.ok && restored.value.status).toBe('verified')
+    expect(created.ok && created.value.status).toBe('verified')
+    db.$client.close()
+  })
+
   test('scheduler is inert unless git sync is enabled with a remote interval', () => {
     let syncCalls = 0
     const git = {

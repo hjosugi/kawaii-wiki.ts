@@ -162,6 +162,33 @@ describe('git storage', () => {
     rmSync(cfg.root, { recursive: true, force: true })
   }, GIT_TEST_TIMEOUT_MS)
 
+  test('source-of-truth startup imports every tracked page even when marker already matches HEAD', async () => {
+    const cfg = mkConfig()
+    const first = createGitStorage({ ...cfg, sourceOfTruth: true })
+    await first.init()
+    await first.savePage({ path: 'docs/kept', title: 'Kept', description: '', content: 'x' })
+
+    const restarted = createGitStorage({ ...cfg, sourceOfTruth: true })
+    await restarted.init()
+    const imported: string[] = []
+    await restarted.sync({ upsert: (path) => imported.push(path), remove: () => {}, reconcile: () => {} })
+
+    expect(imported).toEqual(['docs/kept'])
+    rmSync(cfg.root, { recursive: true, force: true })
+  }, GIT_TEST_TIMEOUT_MS)
+
+  test('source-of-truth startup does not reconcile an empty repository', async () => {
+    const cfg = mkConfig()
+    const git = createGitStorage({ ...cfg, sourceOfTruth: true })
+    await git.init()
+    let reconciled = false
+
+    await git.sync({ upsert: () => {}, remove: () => {}, reconcile: () => { reconciled = true } })
+
+    expect(reconciled).toBe(false)
+    rmSync(cfg.root, { recursive: true, force: true })
+  }, GIT_TEST_TIMEOUT_MS)
+
   test('our own push is NOT re-imported (no loop)', async () => {
     const cfg = mkConfig()
     const git = createGitStorage(cfg)

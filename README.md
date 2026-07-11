@@ -8,6 +8,7 @@ small, dependable foundation that people, developers, and AI can improve
 together.
 
 [Official documentation](https://kawaii-wiki-ts-docs.up.railway.app/docs/home) ·
+[Documentation source](https://github.com/hjosugi/kawaii-wiki.ts-doc) ·
 [Releases](https://github.com/hjosugi/kawaii-wiki.ts/releases) ·
 [Issues](https://github.com/hjosugi/kawaii-wiki.ts/issues)
 
@@ -43,12 +44,14 @@ docker compose up -d
 ```
 
 The `:1` image follows compatible 1.x releases. Production installations that
-require approval before every update should set `KAWAII_WIKI_VERSION=1.0.3` (or
+require approval before every update should set `KAWAII_WIKI_VERSION=1.0.8` (or
 another exact release) before running Compose.
 
 Detailed installation, configuration, backup, restore, Railway, Git mirror,
 API, administration, and development guides live in the
 [official documentation](https://kawaii-wiki-ts-docs.up.railway.app/docs/home).
+Their Markdown source is maintained in
+[`hjosugi/kawaii-wiki.ts-doc`](https://github.com/hjosugi/kawaii-wiki.ts-doc).
 
 ## Develop
 
