@@ -270,15 +270,15 @@ export const createPageRoutes = ({
     )
     .get(
       '/api/page/share',
-      ({ query, services, principal }) => ({
-        share: unwrap(services.shares.activeForPath(query.path, principal)),
+      async ({ query, services, principal }) => ({
+        share: unwrap(await services.shares.activeForPath(query.path, principal)),
       }),
       { query: t.Object({ path: t.String() }) },
     )
     .post(
       '/api/page/share',
-      ({ body, services, principal }) => {
-        const share = unwrap(services.shares.create(body, principal))
+      async ({ body, services, principal }) => {
+        const share = unwrap(await services.shares.create(body, principal))
         audit(logger, 'page.share.create', { userId: principal?.id ?? null, path: share.path, shareId: shareTokenAuditId(share.token) })
         return { share }
       },
@@ -291,8 +291,8 @@ export const createPageRoutes = ({
     )
     .delete(
       '/api/page/share/:token',
-      ({ params, services, principal }) => {
-        const share = unwrap(services.shares.revoke(params.token, principal))
+      async ({ params, services, principal }) => {
+        const share = unwrap(await services.shares.revoke(params.token, principal))
         audit(logger, 'page.share.revoke', { userId: principal?.id ?? null, path: share.path, shareId: shareTokenAuditId(share.token) })
         return { share }
       },
@@ -300,7 +300,7 @@ export const createPageRoutes = ({
     )
     .get(
       '/api/shared/:token',
-      ({ params, services }) => unwrap(services.shares.resolve(params.token)),
+      async ({ params, services }) => unwrap(await services.shares.resolve(params.token)),
       { params: t.Object({ token: t.String({ minLength: 16 }) }) },
     )
     .get(

@@ -132,7 +132,7 @@ export const createStaticRoutes = ({
 
   const shellResponse = async (pathname: string, principal: Principal | null): Promise<Response> => {
     const shareToken = shareTokenForShellRequest(pathname)
-    const shared = shareToken ? services.shares.resolve(shareToken) : null
+    const shared = shareToken ? await services.shares.resolve(shareToken) : null
     const pagePath = shared?.ok ? null : pagePathForShellRequest(pathname, services.settings.public().homePath)
     const resolved = pagePath && (principal || !privateWiki()) && await canReadPage(principal, pagePath)
       ? services.pages.resolveByPath(pagePath)

@@ -3,6 +3,22 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.17] - 2026-07-12
+
+### Changed
+
+- Introduced a driver-neutral page record contract and moved page-share lookup,
+  creation, expiry checks, and revocation behind an asynchronous repository.
+- Removed database/schema imports from the page-share service and converted
+  share administration, public share resolution, and static SEO rendering to
+  await remote-capable persistence.
+- Made share revocation idempotent in the adapter.
+
+### Tests
+
+- Added shared SQLite and libSQL page-share contract coverage for active page
+  lookup, expiration, duplicate-token normalization, and revocation.
+
 ## [1.0.16] - 2026-07-12
 
 ### Changed
