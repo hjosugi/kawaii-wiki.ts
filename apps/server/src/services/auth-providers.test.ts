@@ -50,7 +50,7 @@ describe('auth provider service', () => {
         repositories.authAccounts,
         repositories.users,
         authEnv(),
-        createAuthzService(db),
+        createAuthzService(repositories.authz),
         [fakeSamlProvider()],
       )
 
@@ -100,7 +100,7 @@ describe('auth provider service', () => {
         repositories.authAccounts,
         repositories.users,
         authEnv('off'),
-        createAuthzService(db),
+        createAuthzService(repositories.authz),
         [fakeSamlProvider()],
       )
       const result = await service.callback('saml-main', {})

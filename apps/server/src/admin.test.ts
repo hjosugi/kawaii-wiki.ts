@@ -7,12 +7,12 @@ const admin: Principal = { id: 'admin-1', role: 'admin' }
 const viewer: Principal = { id: 'viewer-1', role: 'viewer' }
 
 describe('admin service (in-memory db)', () => {
-  test('non-admins are forbidden', () => {
+  test('non-admins are forbidden', async () => {
     const { admin: a } = createServices(createDb(':memory:'))
     expect(a.stats(viewer).ok).toBe(false)
     expect(a.listPages(viewer).ok).toBe(false)
     expect(a.listUsers(null).ok).toBe(false)
-    expect(a.setUserRole(viewer, 'x', 'admin').ok).toBe(false)
+    expect((await a.setUserRole(viewer, 'x', 'admin')).ok).toBe(false)
   })
 
   test('stats counts users, pages, revisions', async () => {
@@ -54,7 +54,7 @@ describe('admin service (in-memory db)', () => {
     const s = createServices(createDb(':memory:'))
     const u = await s.users.create({ email: 'e@x.com', name: 'E', password: 'password', role: 'editor' })
     if (!u.ok) throw new Error('seed failed')
-    const r = s.admin.setUserRole(admin, u.value.id, 'viewer')
+    const r = await s.admin.setUserRole(admin, u.value.id, 'viewer')
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.value.role).toBe('viewer')
   })
@@ -103,14 +103,14 @@ describe('admin service (in-memory db)', () => {
     const s = createServices(createDb(':memory:'))
     const u = await s.users.create({ email: 'admin@x.com', name: 'Ad', password: 'password', role: 'admin' })
     if (!u.ok) throw new Error('seed failed')
-    const r = s.admin.setUserRole(admin, u.value.id, 'viewer')
+    const r = await s.admin.setUserRole(admin, u.value.id, 'viewer')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.kind).toBe('conflict')
   })
 
-  test('unknown user → not_found', () => {
+  test('unknown user → not_found', async () => {
     const s = createServices(createDb(':memory:'))
-    const r = s.admin.setUserRole(admin, 'nope', 'editor')
+    const r = await s.admin.setUserRole(admin, 'nope', 'editor')
     expect(r.ok).toBe(false)
     if (!r.ok) expect(r.error.kind).toBe('not_found')
   })

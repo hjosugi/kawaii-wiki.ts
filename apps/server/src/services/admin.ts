@@ -117,12 +117,13 @@ export interface AdminService {
   listPages(principal: Principal | null, input?: AdminPageListInput): Result<AdminPageList, AppError>
   listAudit(principal: Principal | null, input?: AdminAuditListInput): Result<AdminAuditList, AppError>
   listUsers(principal: Principal | null): Result<AdminUserView[], AppError>
-  setUserRole(principal: Principal | null, userId: string, role: Role): Result<AdminUserView, AppError>
+  setUserRole(principal: Principal | null, userId: string, role: Role): Promise<Result<AdminUserView, AppError>>
   setUserPassword(principal: Principal | null, userId: string, password: string): Promise<Result<AdminUserView, AppError>>
   deactivateUser(principal: Principal | null, userId: string): Result<AdminUserView, AppError>
 }
 
 const ROLES: readonly Role[] = ['admin', 'editor', 'viewer']
+const roleGroup = (role: Role): string => role === 'admin' ? 'admins' : role === 'editor' ? 'editors' : 'viewers'
 
 export const createAdminService = (db: DB, authz?: AuthzService): AdminService => {
   const countOf = (table: typeof users | typeof pages | typeof pageRevisions): number =>
@@ -143,7 +144,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
     email: u.email,
     name: u.name,
     role: u.role,
-    groups: groupKeys ?? authz?.principalForUser(u).groups ?? [],
+    groups: groupKeys ?? [roleGroup(u.role)],
     disabledAt: u.disabledAt,
     tokenInvalidBefore: u.tokenInvalidBefore,
     createdAt: u.createdAt,
@@ -348,7 +349,7 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
       return ok(rows.map((user) => toView(user, [...new Set([user.role === 'admin' ? 'admins' : user.role === 'editor' ? 'editors' : 'viewers', ...(keysByUser.get(user.id) ?? [])])])))
     },
 
-    setUserRole(principal, userId, role) {
+    async setUserRole(principal, userId, role) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed
       if (!ROLES.includes(role)) return err(validationError('Unknown role', 'role'))
@@ -360,8 +361,8 @@ export const createAdminService = (db: DB, authz?: AuthzService): AdminService =
       if (!guarded.ok) return guarded
 
       db.update(users).set({ role }).where(eq(users.id, userId)).run()
-      authz?.syncRoleGroup(userId, role)
-      return ok({ ...toView(target), role })
+      if (authz) await authz.syncRoleGroup(userId, role)
+      return ok(toView({ ...target, role }))
     },
 
     async setUserPassword(principal, userId, password) {

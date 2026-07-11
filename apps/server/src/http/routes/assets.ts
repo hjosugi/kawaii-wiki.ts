@@ -86,7 +86,7 @@ export interface AssetRoutesContext {
   readonly assetStorage: AssetStorage
   readonly assetPolicy: () => { readonly maxBytes: number }
   readonly privateWiki: () => boolean
-  readonly canReadPage: (principal: Principal | null, path?: string) => boolean
+  readonly canReadPage: (principal: Principal | null, path?: string) => Promise<boolean>
   readonly enforceAssetUploadLimit: (
     request: Request,
     server: RequestIpServer | null | undefined,
@@ -328,7 +328,7 @@ export const createAssetRoutes = ({
         const storageName = safeAssetRequestPath(params['*'])
         if (!storageName) return new Response('Not found', { status: 404 })
         const accessPaths = services.assets.accessPaths(storageName)
-        if (accessPaths.length > 0 && !accessPaths.some((path) => canReadPage(principal, path))) {
+        if (accessPaths.length > 0 && !(await Promise.all(accessPaths.map((path) => canReadPage(principal, path)))).some(Boolean)) {
           return new Response('Not found', { status: 404 })
         }
         const thumbnail = query.size === 'thumb'

@@ -205,7 +205,7 @@ export const createAuthRoutes = ({
 	            role,
 	            emailVerifiedAt: verificationRequired ? null : undefined,
 	          }))
-	          services.authz.syncRoleGroup(user.id, user.role)
+	          await services.authz.syncRoleGroup(user.id, user.role)
 	          audit(logger, 'auth.register', { userId: user.id, role: user.role })
 	          await publishAutomation({ type: 'user.created', actorId: user.id, data: { user: publicUser(user) } })
 	          if (verificationRequired) {

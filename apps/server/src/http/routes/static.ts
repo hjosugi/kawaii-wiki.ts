@@ -113,7 +113,7 @@ export interface StaticRoutesContext {
   readonly hasWebDist: boolean
   readonly webIndex: string
   readonly privateWiki: () => boolean
-  readonly canReadPage: (principal: Principal | null, path?: string) => boolean
+  readonly canReadPage: (principal: Principal | null, path?: string) => Promise<boolean>
 }
 
 export const createStaticRoutes = ({
@@ -134,7 +134,7 @@ export const createStaticRoutes = ({
     const shareToken = shareTokenForShellRequest(pathname)
     const shared = shareToken ? services.shares.resolve(shareToken) : null
     const pagePath = shared?.ok ? null : pagePathForShellRequest(pathname, services.settings.public().homePath)
-    const resolved = pagePath && (principal || !privateWiki()) && canReadPage(principal, pagePath)
+    const resolved = pagePath && (principal || !privateWiki()) && await canReadPage(principal, pagePath)
       ? services.pages.resolveByPath(pagePath)
       : null
     const page = shared?.ok ? shared.value.page : resolved?.ok ? resolved.value.page : null

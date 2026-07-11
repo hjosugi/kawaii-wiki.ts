@@ -5,6 +5,7 @@ import type { AuthEnv } from '../env.ts'
 import { createDb, type DB } from '../db/client.ts'
 import { authAccounts, oauthStates, users } from '../db/schema.ts'
 import { createAuthzService } from './authz.ts'
+import { createSqliteAuthzRepository } from '../db/repositories/authz.ts'
 import { createOidcService } from './oidc.ts'
 
 const NOW = 1_700_000_000_000
@@ -137,7 +138,7 @@ describe('OIDC service', () => {
   test('exposes OIDC providers through the generic public auth provider shape', () => {
     const db = createDb(':memory:')
     try {
-      const service = createOidcService(db, authEnv(), createAuthzService(db))
+      const service = createOidcService(db, authEnv(), createAuthzService(createSqliteAuthzRepository(db)))
       expect(service.publicProviders()).toEqual([{
         id: 'oidc',
         label: 'OIDC',
@@ -177,7 +178,7 @@ describe('OIDC service', () => {
         },
       ]).run()
 
-      const service = createOidcService(db, authEnv(), createAuthzService(db), { now: () => now })
+      const service = createOidcService(db, authEnv(), createAuthzService(createSqliteAuthzRepository(db)), { now: () => now })
       const started = await service.start('oidc', '/after-login')
 
       expect(started.ok).toBe(true)
@@ -216,7 +217,7 @@ describe('OIDC service', () => {
         createdAt: now - 600_000,
       }).run()
 
-      const service = createOidcService(db, authEnv(), createAuthzService(db), { now: () => now })
+      const service = createOidcService(db, authEnv(), createAuthzService(createSqliteAuthzRepository(db)), { now: () => now })
       const result = await service.callback('oidc', 'code', 'expired')
 
       expect(result.ok).toBe(false)
@@ -240,7 +241,7 @@ describe('OIDC service', () => {
     try {
       insertOauthState(db)
 
-      const service = createOidcService(db, authEnv(), createAuthzService(db), { now: () => NOW })
+      const service = createOidcService(db, authEnv(), createAuthzService(createSqliteAuthzRepository(db)), { now: () => NOW })
       const result = await service.callback('oidc', 'auth-code', 'state-1')
 
       expect(result.ok).toBe(true)
@@ -284,7 +285,7 @@ describe('OIDC service', () => {
     try {
       insertOauthState(db)
 
-      const service = createOidcService(db, authEnv(), createAuthzService(db), { now: () => NOW })
+      const service = createOidcService(db, authEnv(), createAuthzService(createSqliteAuthzRepository(db)), { now: () => NOW })
       const result = await service.callback('oidc', 'auth-code', 'state-1')
 
       expect(result.ok).toBe(false)
@@ -341,7 +342,7 @@ describe('OIDC service', () => {
         const service = createOidcService(
           db,
           authEnv(scenario.provider),
-          createAuthzService(db),
+          createAuthzService(createSqliteAuthzRepository(db)),
           { now: () => NOW },
         )
         const result = await service.callback('oidc', 'auth-code', 'state-1')
@@ -390,7 +391,7 @@ describe('OIDC service', () => {
       const service = createOidcService(
         db,
         authEnv({ allowRegistration: false }),
-        createAuthzService(db),
+        createAuthzService(createSqliteAuthzRepository(db)),
         { now: () => NOW },
       )
       const result = await service.callback('oidc', 'auth-code', 'state-1')

@@ -3,6 +3,26 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.12] - 2026-07-11
+
+### Changed
+
+- Moved authorization groups, memberships, grants, and page rules behind an
+  asynchronous, driver-neutral repository contract.
+- Converted principal assembly, role-group synchronization, anonymous page
+  policy checks, and admin authorization routes to await remote-capable
+  persistence.
+- Kept default policy initialization and exclusive role-group membership
+  updates atomic inside the SQLite/libSQL adapter.
+
+### Tests
+
+- Added shared SQLite and libSQL authorization repository coverage for
+  idempotent defaults, group membership counts, role synchronization, duplicate
+  normalization, and page-rule persistence.
+- Re-ran authorization-sensitive HTTP coverage for pages, search, feeds,
+  assets, OIDC, registration, setup, realtime, and admin role changes.
+
 ## [1.0.11] - 2026-07-11
 
 ### Changed

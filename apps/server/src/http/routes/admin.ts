@@ -219,8 +219,8 @@ export const createAdminRoutes = ({
       },
       { body: t.Object({ userId: t.String() }) },
     )
-    .get('/api/admin/groups', ({ services, principal }) => ({
-      groups: unwrap(services.authz.listGroups(principal)),
+    .get('/api/admin/groups', async ({ services, principal }) => ({
+      groups: unwrap(await services.authz.listGroups(principal)),
     }))
     .get('/api/admin/api-keys', ({ services, principal }) => ({
       apiKeys: unwrap(services.apiKeys.list(principal)),
@@ -259,7 +259,7 @@ export const createAdminRoutes = ({
     )
     .post(
       '/api/admin/groups',
-      ({ body, services, principal }) => ({ group: unwrap(services.authz.createGroup(principal, body)) }),
+      async ({ body, services, principal }) => ({ group: unwrap(await services.authz.createGroup(principal, body)) }),
       {
         body: t.Object({
           key: t.String(),
@@ -270,20 +270,20 @@ export const createAdminRoutes = ({
     )
     .post(
       '/api/admin/groups/members',
-      ({ body, services, principal }) => unwrap(services.authz.addUserToGroup(principal, body.userId, body.groupKey)),
+      async ({ body, services, principal }) => unwrap(await services.authz.addUserToGroup(principal, body.userId, body.groupKey)),
       { body: t.Object({ userId: t.String(), groupKey: t.String() }) },
     )
     .delete(
       '/api/admin/groups/members',
-      ({ query, services, principal }) => unwrap(services.authz.removeUserFromGroup(principal, query.userId, query.groupKey)),
+      async ({ query, services, principal }) => unwrap(await services.authz.removeUserFromGroup(principal, query.userId, query.groupKey)),
       { query: t.Object({ userId: t.String(), groupKey: t.String() }) },
     )
-    .get('/api/admin/page-rules', ({ services, principal }) => ({
-      rules: unwrap(services.authz.listPageRules(principal)),
+    .get('/api/admin/page-rules', async ({ services, principal }) => ({
+      rules: unwrap(await services.authz.listPageRules(principal)),
     }))
     .post(
       '/api/admin/page-rules',
-      ({ body, services, principal }) => ({ rule: unwrap(services.authz.createPageRule(principal, body)) }),
+      async ({ body, services, principal }) => ({ rule: unwrap(await services.authz.createPageRule(principal, body)) }),
       {
         body: t.Object({
           subjectType: t.Union([t.Literal('user'), t.Literal('group'), t.Literal('anonymous')]),
@@ -313,7 +313,7 @@ export const createAdminRoutes = ({
     )
     .delete(
       '/api/admin/page-rules/:id',
-      ({ params, services, principal }) => unwrap(services.authz.deletePageRule(principal, params.id)),
+      async ({ params, services, principal }) => unwrap(await services.authz.deletePageRule(principal, params.id)),
       { params: t.Object({ id: t.String() }) },
     )
     .get('/api/admin/search-index', ({ services, principal }) => ({
@@ -440,7 +440,7 @@ export const createAdminRoutes = ({
     .put(
       '/api/admin/users/role',
       async ({ body, services, principal }) => {
-        const user = unwrap(services.admin.setUserRole(principal, body.userId, body.role))
+        const user = unwrap(await services.admin.setUserRole(principal, body.userId, body.role))
         audit(logger, 'admin.user_role.update', {
           userId: principal?.id ?? null,
           targetUserId: body.userId,

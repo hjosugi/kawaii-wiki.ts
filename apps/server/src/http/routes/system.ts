@@ -93,8 +93,8 @@ export interface SystemRoutesContext {
   readonly services: Services
   readonly publicSettings: () => PublicSettings
   readonly feedCache: Map<string, { createdAt: number; xml: string }>
-  readonly requirePageRead: (principal: Principal | null, path?: string) => void
-  readonly canReadPage: (principal: Principal | null, path?: string) => boolean
+  readonly requirePageRead: (principal: Principal | null, path?: string) => Promise<void>
+  readonly canReadPage: (principal: Principal | null, path?: string) => Promise<boolean>
   readonly enforceUnfurlLimit: (
     request: Request,
     server: RequestIpServer | null | undefined,
@@ -112,8 +112,8 @@ export const createSystemRoutes = ({
   canReadPage,
   enforceUnfurlLimit,
 }: SystemRoutesContext) => (app: BaseApp) => {
-  const feedResponse = (principal: Principal | null): Response => {
-    requirePageRead(principal)
+  const feedResponse = async (principal: Principal | null): Promise<Response> => {
+    await requirePageRead(principal)
     const cacheKey = principal ? `user:${principal.id}` : 'anonymous'
     const cached = feedCache.get(cacheKey)
     const now = Date.now()
@@ -126,9 +126,10 @@ export const createSystemRoutes = ({
       })
     }
 
-    const changes = services.pages
-      .recentChanges(50)
-      .filter((change) => canReadPage(principal, change.path))
+    const recentChanges = services.pages.recentChanges(50)
+    const changes = (await Promise.all(recentChanges.map(async (change) =>
+      await canReadPage(principal, change.path) ? change : null
+    ))).filter((change): change is RecentChange => change !== null)
     const xml = atomFeedXml({
       changes,
       origin: env.auth.publicOrigin,
@@ -143,11 +144,12 @@ export const createSystemRoutes = ({
     })
   }
 
-  const sitemapResponse = (): Response => {
+  const sitemapResponse = async (): Promise<Response> => {
     if (publicSettings().privateWiki) return new Response('Not found', { status: 404 })
-    const publicPages = services.pages
-      .list()
-      .filter((page) => canReadPage(null, page.path))
+    const pages = services.pages.list()
+    const publicPages = (await Promise.all(pages.map(async (page) =>
+      await canReadPage(null, page.path) ? page : null
+    ))).filter((page): page is PageSummary => page !== null)
     return new Response(sitemapXml(publicPages, env.auth.publicOrigin), {
       headers: {
         'content-type': 'application/xml; charset=utf-8',
@@ -181,7 +183,7 @@ export const createSystemRoutes = ({
     .get(
       '/api/youtube/latest',
       async ({ query, services, principal }) => {
-        requirePageRead(principal)
+        await requirePageRead(principal)
         return {
           channel: unwrap(await services.linkPreviews.youtubeLatest(principal, query.channelId, query.limit)),
         }
