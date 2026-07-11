@@ -82,14 +82,19 @@ Multi-instance realtime uses `KAWAII_WIKI_EVENT_BUS`,
 Git mirroring uses `KAWAII_WIKI_GIT_ENABLED`, `KAWAII_WIKI_GIT_DIR`,
 `KAWAII_WIKI_GIT_BRANCH`, `KAWAII_WIKI_GIT_REMOTE`,
 `KAWAII_WIKI_GIT_REMOTE_URL`,
+`KAWAII_WIKI_GIT_SOURCE_OF_TRUTH`,
 `KAWAII_WIKI_GIT_AUTHOR_NAME`, `KAWAII_WIKI_GIT_AUTHOR_EMAIL`, and
-`KAWAII_WIKI_GIT_SYNC_INTERVAL_MS`. Git is a content mirror, not a database
-backup.
+`KAWAII_WIKI_GIT_SYNC_INTERVAL_MS`. By default Git is a content mirror. Set
+`KAWAII_WIKI_GIT_SOURCE_OF_TRUTH=true` when the remote repository must be the
+authoritative page set: startup then waits for Git, imports tracked Markdown,
+and removes active database pages that are absent from the repository. Git is
+still not a database backup.
 
 Example for a public content repository:
 
 ```env
 KAWAII_WIKI_GIT_ENABLED=true
+KAWAII_WIKI_GIT_SOURCE_OF_TRUTH=false
 KAWAII_WIKI_GIT_REMOTE_URL=https://github.com/OWNER/wiki-content.git
 KAWAII_WIKI_GIT_BRANCH=main
 KAWAII_WIKI_GIT_AUTHOR_NAME=Wiki Editor

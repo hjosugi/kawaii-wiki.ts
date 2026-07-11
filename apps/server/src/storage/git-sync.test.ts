@@ -46,6 +46,24 @@ describe('git sync runtime wiring', () => {
     db.$client.close()
   })
 
+  test('authoritative reconciliation removes database pages absent from Git', () => {
+    const db = createDb(':memory:')
+    const services = createServices(db)
+    services.pages.create({ path: 'docs/tracked', title: 'Tracked', content: 'x' }, admin)
+    services.pages.create({ path: 'docs/db-only', title: 'DB only', content: 'x' }, admin)
+    const events: WikiEvent[] = []
+    const bus = createEventBus()
+    bus.subscribe((event) => events.push(event))
+    const handlers = createGitSyncHandlers({ services, bus, systemPrincipal: admin, authoritative: true })
+
+    handlers.reconcile?.(['docs/tracked'])
+
+    expect(services.pages.getByPath('docs/tracked').ok).toBe(true)
+    expect(services.pages.getByPath('docs/db-only').ok).toBe(false)
+    expect(events).toContainEqual({ type: 'page:changed', action: 'deleted', path: 'docs/db-only' })
+    db.$client.close()
+  })
+
   test('scheduler is inert unless git sync is enabled with a remote interval', () => {
     let syncCalls = 0
     const git = {
@@ -60,6 +78,7 @@ describe('git sync runtime wiring', () => {
       git,
       {
         enabled: true,
+        sourceOfTruth: false,
         dir: 'repo',
         branch: 'main',
         remote: null,

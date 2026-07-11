@@ -4,6 +4,7 @@ import { ref } from 'vue'
 import { Api, type Page } from '@/lib/api'
 import { usePages } from '@/stores/pages'
 import { useI18n } from '@/lib/i18n'
+import FileInput from '@/components/FileInput.vue'
 
 const pagesStore = usePages()
 const { t } = useI18n()
@@ -143,7 +144,7 @@ async function installOfficialDocs(): Promise<void> {
           <button class="btn-primary" type="button" :disabled="loading" @click="exportSite">{{ t('downloadJson') }}</button>
           <button class="btn-ghost" type="button" :disabled="loading" @click="exportZip">{{ t('downloadMarkdownZip') }}</button>
         </div>
-        <label class="mt-4 grid gap-1 text-sm"><span>{{ t('restoreJsonBackup') }}</span><input type="file" accept="application/json,.json" :disabled="importing" @change="importBackup(($event.target as HTMLInputElement).files)" /></label>
+        <label class="mt-4 grid gap-1 text-sm"><span>{{ t('restoreJsonBackup') }}</span><FileInput accept="application/json,.json" :disabled="importing" @change="importBackup($event)" /></label>
       </section>
       <form class="card p-4 space-y-3" @submit.prevent="importMarkdown">
         <h3 class="font-semibold">{{ t('markdownImport') }}</h3>
@@ -156,7 +157,7 @@ async function installOfficialDocs(): Promise<void> {
       <section class="admin-full-row card p-4">
         <h3 class="font-semibold">{{ t('bulkMarkdownImport') }}</h3>
         <p class="mt-1 text-sm text-[var(--c-text-muted)]">{{ t('bulkMarkdownImportHint') }}</p>
-        <input class="mt-3" type="file" accept="text/markdown,.md,application/zip,.zip" multiple :disabled="importing" @change="importBulk(($event.target as HTMLInputElement).files)" />
+        <FileInput class="mt-3" accept="text/markdown,.md,application/zip,.zip" multiple :disabled="importing" @change="importBulk($event)" />
       </section>
     </div>
   </section>

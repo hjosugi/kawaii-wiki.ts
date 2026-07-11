@@ -89,6 +89,7 @@ const testEnv = (dataDir: string, cors: Env['cors'] = { origins: null }): Env =>
   },
   git: {
     enabled: false,
+    sourceOfTruth: false,
     dir: join(dataDir, 'repo'),
     branch: 'main',
     remote: null,
@@ -2805,6 +2806,32 @@ describe('http app realtime', () => {
 })
 
 describe('http app page utilities', () => {
+  test('page comment policies support hidden and rate-limited anonymous posting', async () => {
+    const { app } = createFixture()
+    const { token } = await register(app, 'admin@example.com')
+    expect((await app.handle(jsonRequest('/api/pages', {
+      path: 'docs/open-comments',
+      title: 'Open comments',
+      content: 'hello',
+      status: 'verified',
+      labels: ['kawaii-wiki-comments-open'],
+    }, token))).status).toBe(200)
+
+    const posted = await app.handle(jsonRequest('/api/page/comments', {
+      path: 'docs/open-comments',
+      body: 'Anonymous feedback',
+    }))
+    expect(posted.status).toBe(200)
+    expect((await posted.json()).comment.authorId).toBeNull()
+
+    const listed = await app.handle(new Request('http://localhost/api/page/comments?path=docs/open-comments'))
+    expect(listed.status).toBe(200)
+    expect(await listed.json()).toMatchObject({
+      policy: { mode: 'open', visible: true, writable: true },
+      comments: [{ body: 'Anonymous feedback', authorId: null }],
+    })
+  }, HTTP_TEST_TIMEOUT_MS)
+
   test('exposes history, backlinks, and event index routes', async () => {
     const { app } = createFixture()
     const { token } = await register(app, 'admin@example.com')

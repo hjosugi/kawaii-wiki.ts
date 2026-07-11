@@ -21,6 +21,7 @@ import {
 import { commentSnapshot } from '../representations.ts'
 import { publicUserProfile } from '../representations.ts'
 import type { BaseApp } from '../base.ts'
+import type { RequestIpServer } from '../rate-limit.ts'
 
 const pageOf = <T>(items: T[], limit = 100, offset = 0) => {
   const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 1_000)
@@ -44,6 +45,7 @@ export interface PageRoutesContext {
   readonly emitPageChanged: (action: PageChangedAction, path: string, from?: string) => void
   readonly pageWriteEffects: (input: PageWriteEffectsInput) => Promise<void>
   readonly publishAutomation: (event: AutomationEvent) => Promise<void>
+  readonly enforceCommentLimit: (request: Request, server: RequestIpServer | null | undefined, principal: Principal | null) => void
 }
 
 export const createPageRoutes = ({
@@ -53,6 +55,7 @@ export const createPageRoutes = ({
   emitPageChanged,
   pageWriteEffects,
   publishAutomation,
+  enforceCommentLimit,
 }: PageRoutesContext) => (app: BaseApp) =>
   app
     .get('/api/pages', ({ query, services, principal }) => {
@@ -317,13 +320,15 @@ export const createPageRoutes = ({
       '/api/page/comments',
       ({ query, services, principal }) => {
         requirePageRead(principal, query.path)
-        return { comments: unwrap(services.comments.list(query.path)) }
+        const policy = unwrap(services.comments.policy(query.path, principal))
+        return { comments: policy.visible ? unwrap(services.comments.list(query.path)) : [], policy }
       },
       { query: t.Object({ path: t.String() }) },
     )
     .post(
       '/api/page/comments',
-      async ({ body, services, principal }) => {
+      async ({ body, services, principal, request, server }) => {
+        enforceCommentLimit(request, server, principal)
         const comment = unwrap(services.comments.create(body.path, body.body, principal))
         services.notifications.notifyComment(comment)
         emitPageChanged('updated', comment.path)

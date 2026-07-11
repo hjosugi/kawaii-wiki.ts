@@ -17,6 +17,7 @@ import FormField from '@/components/FormField.vue'
 import SegmentedControl from '@/components/SegmentedControl.vue'
 import PageMetaBar from '@/components/PageMetaBar.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import FileInput from '@/components/FileInput.vue'
 import { usePageEditor } from '@/composables/usePageEditor'
 import {
   browserTimeZone,
@@ -90,6 +91,43 @@ const builtInTemplates = computed(() => builtInPageTemplates(browserTimeZone(), 
 const customTemplates = ref<PageTemplateOption[]>([])
 const templateOptions = computed(() => [...builtInTemplates.value, ...customTemplates.value])
 const templateQuery = ref('')
+type CommentMode = 'off' | 'read-only' | 'authenticated' | 'group' | 'open'
+const COMMENT_LABEL_PREFIX = 'kawaii-wiki-comments-'
+const rawLabels = (): string[] => labelsText.value.split(',').map((label) => label.trim()).filter(Boolean)
+const commentMode = computed<CommentMode>({
+  get: () => {
+    const values = rawLabels()
+    if (values.includes(`${COMMENT_LABEL_PREFIX}off`)) return 'off'
+    if (values.includes(`${COMMENT_LABEL_PREFIX}read-only`)) return 'read-only'
+    if (values.includes(`${COMMENT_LABEL_PREFIX}open`)) return 'open'
+    if (values.some((label) => label.startsWith(`${COMMENT_LABEL_PREFIX}group-`))) return 'group'
+    return 'authenticated'
+  },
+  set: (mode) => {
+    const labels = rawLabels().filter((label) => !label.startsWith(COMMENT_LABEL_PREFIX))
+    if (mode === 'off') labels.push(`${COMMENT_LABEL_PREFIX}off`)
+    if (mode === 'read-only') labels.push(`${COMMENT_LABEL_PREFIX}read-only`)
+    if (mode === 'open') labels.push(`${COMMENT_LABEL_PREFIX}open`)
+    if (mode === 'group') labels.push(`${COMMENT_LABEL_PREFIX}group-viewers`)
+    labelsText.value = labels.join(', ')
+  },
+})
+const commentGroup = computed({
+  get: () => rawLabels().find((label) => label.startsWith(`${COMMENT_LABEL_PREFIX}group-`))?.slice(`${COMMENT_LABEL_PREFIX}group-`.length) ?? 'viewers',
+  set: (groupKey: string) => {
+    const labels = rawLabels().filter((label) => !label.startsWith(`${COMMENT_LABEL_PREFIX}group-`))
+    labels.push(`${COMMENT_LABEL_PREFIX}group-${normalizePath(groupKey).replaceAll('/', '-') || 'viewers'}`)
+    labelsText.value = labels.join(', ')
+  },
+})
+const userLabelsText = computed({
+  get: () => rawLabels().filter((label) => !label.startsWith(COMMENT_LABEL_PREFIX)).join(', '),
+  set: (value: string) => {
+    const systemLabels = rawLabels().filter((label) => label.startsWith(COMMENT_LABEL_PREFIX))
+    const userLabels = value.split(',').map((label) => label.trim()).filter(Boolean)
+    labelsText.value = [...userLabels, ...systemLabels].join(', ')
+  },
+})
 const builtInTemplateKeys: Record<string, MessageKey> = {
   'builtin:blank': 'templateBlank',
   'builtin:decision': 'templateDecision',
@@ -148,6 +186,7 @@ function switchEditorView(view: EditorView): void {
   }
   void router.replace({ query: { ...route.query, view } })
 }
+const attachmentUploading = ref(false)
 
 const saveStatus = computed(() => {
   if (saving.value) return t('saving')
@@ -348,6 +387,26 @@ async function uploadCover(files: FileList | null): Promise<void> {
   }
 }
 
+async function uploadAttachments(files: FileList | null): Promise<void> {
+  if (!files?.length) return
+  attachmentUploading.value = true
+  error.value = null
+  try {
+    const uploaded: AssetView[] = []
+    for (const file of Array.from(files)) uploaded.push(await Api.uploadAsset(file, assetFolder.value))
+    const links = uploaded.map((asset) => asset.mime.startsWith('image/')
+      ? `![${asset.filename}](${asset.url})`
+      : `[${asset.filename}](${asset.url})`)
+    content.value = `${content.value.trimEnd()}\n\n${links.join('\n')}\n`
+    attachments.value = [...attachments.value, ...uploaded.filter((asset) => !attachments.value.some((item) => item.id === asset.id))]
+    attachmentsLoaded.value = true
+  } catch (e) {
+    error.value = friendlyError(e)
+  } finally {
+    attachmentUploading.value = false
+  }
+}
+
 // Announce "editing" presence so readers of this page see "… is editing".
 usePresence(originalPath, 'editing')
 
@@ -530,7 +589,7 @@ async function remove(): Promise<void> {
 
 async function archive(): Promise<void> {
   const targetPath = originalPath.value
-  if (!await dialogs.confirm({ message: t('archivePageConfirm', { title: title.value, path: targetPath }) })) return
+  if (!await dialogs.confirm({ message: t('archivePageConfirm', { title: title.value, path: targetPath }), confirmLabel: t('archive') })) return
   try {
     await Api.archivePage(targetPath)
     await pagesStore.refresh()
@@ -664,8 +723,27 @@ async function archive(): Promise<void> {
       </form>
     </section>
     <FormField class="mb-3" :label="t('labels')" for-id="page-labels" :hint="t('labelsHint')">
-      <input id="page-labels" v-model="labelsText" class="input" :placeholder="t('labelsPlaceholder')" />
+      <input id="page-labels" v-model="userLabelsText" class="input" :placeholder="t('labelsPlaceholder')" />
     </FormField>
+    <section class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
+      <div class="grid gap-3 sm:grid-cols-2 sm:items-end">
+        <label class="grid gap-1 text-sm">
+          <span class="font-medium">{{ t('commentSettings') }}</span>
+          <select v-model="commentMode" class="input">
+            <option value="off">{{ t('commentsHidden') }}</option>
+            <option value="read-only">{{ t('commentsReadOnly') }}</option>
+            <option value="authenticated">{{ t('commentsAuthenticated') }}</option>
+            <option value="group">{{ t('commentsGroup') }}</option>
+            <option value="open">{{ t('commentsOpen') }}</option>
+          </select>
+        </label>
+        <label v-if="commentMode === 'group'" class="grid gap-1 text-sm">
+          <span class="font-medium">{{ t('commentGroupKey') }}</span>
+          <input v-model.trim="commentGroup" class="input font-mono" placeholder="viewers" />
+        </label>
+      </div>
+      <p class="mt-2 text-xs text-[var(--c-text-muted)]">{{ t('commentSettingsHint') }}</p>
+    </section>
     <div class="mb-4 flex justify-end border-t border-[var(--c-border)] pt-4">
       <button class="btn-primary" type="button" :disabled="!title.trim()" @click="switchEditorView('content')">
         {{ isEdit ? t('backToEditor') : t('startWriting') }}
@@ -715,6 +793,19 @@ async function archive(): Promise<void> {
         aria-label="Conflict draft content"
         readonly
       ></textarea>
+    </section>
+    <section class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
+      <h2 class="font-semibold">{{ t('attachments') }}</h2>
+      <p class="mt-1 text-sm text-[var(--c-text-muted)]">{{ t('attachmentUploadHint') }}</p>
+      <FileInput
+        class="mt-3"
+        accept="image/*,.pdf,.txt,.md,.csv,.json,.zip,.docx,.xlsx,.pptx,.odt,.ods,.odp"
+        multiple
+        :disabled="attachmentUploading"
+        :aria-label="t('addAttachments')"
+        @change="uploadAttachments"
+      />
+      <p v-if="attachmentUploading" class="mt-2 text-xs text-[var(--c-text-muted)]">{{ t('uploading') }}</p>
     </section>
     <PageAttachments
       v-if="isEdit && (attachmentsLoading || attachmentsLoaded)"

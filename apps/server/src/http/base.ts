@@ -31,6 +31,7 @@ export interface BaseAppDeps {
   ) => void
   readonly logUnhandledError: (error: unknown) => void
   readonly markRequestStarted: (request: Request) => void
+  readonly waitUntilReady?: () => Promise<void>
 }
 
 const bearerToken = (authorization: string | undefined): string | null =>
@@ -46,6 +47,7 @@ export const createBaseApp = ({
   logRequest,
   logUnhandledError,
   markRequestStarted,
+  waitUntilReady = async () => {},
 }: BaseAppDeps) =>
   new Elysia()
     .use(cors({ origin: corsOrigin }))
@@ -57,7 +59,8 @@ export const createBaseApp = ({
     .resolve(async ({ jwt, headers }): Promise<{ principal: Principal | null }> => ({
       principal: await principalForToken(jwt, bearerToken(headers.authorization)),
     }))
-    .onBeforeHandle(({ request, server, principal }) => {
+    .onBeforeHandle(async ({ request, server, principal }) => {
+      await waitUntilReady()
       enforcePrivateAnonymousReadLimit(request, server, principal)
       requireAdminRoute(request, principal)
     })

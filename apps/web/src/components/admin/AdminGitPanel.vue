@@ -14,9 +14,11 @@ const repositoryUrl = ref('https://github.com/OWNER/wiki-content.git')
 const branch = ref('main')
 const authorName = ref('Wiki Editor')
 const authorEmail = ref('wiki@example.com')
+const sourceOfTruth = ref(false)
 const copied = ref(false)
 const configuration = computed(() => [
   'KAWAII_WIKI_GIT_ENABLED=true',
+  `KAWAII_WIKI_GIT_SOURCE_OF_TRUTH=${sourceOfTruth.value}`,
   `KAWAII_WIKI_GIT_REMOTE_URL=${repositoryUrl.value.trim()}`,
   `KAWAII_WIKI_GIT_BRANCH=${branch.value.trim() || 'main'}`,
   `KAWAII_WIKI_GIT_AUTHOR_NAME=${authorName.value.trim() || 'Wiki Editor'}`,
@@ -59,6 +61,7 @@ const status = (): GitStatus | undefined => state.data.value
     <Skeleton v-if="state.loading.value" label="Loading Git status" :lines="4" />
     <div v-else-if="status()?.enabled" class="card grid gap-3 p-4 text-sm sm:grid-cols-2">
       <div><span class="text-[var(--c-text-muted)]">{{ t('state') }}</span><div class="font-medium text-emerald-700 dark:text-emerald-300">{{ t('enabled') }}</div></div>
+      <div><span class="text-[var(--c-text-muted)]">{{ t('gitMode') }}</span><div class="font-medium">{{ status()?.sourceOfTruth ? t('gitSourceOfTruth') : t('gitContentMirror') }}</div></div>
       <div><span class="text-[var(--c-text-muted)]">{{ t('branch') }}</span><div class="font-mono">{{ status()?.branch }}</div></div>
       <div><span class="text-[var(--c-text-muted)]">{{ t('remote') }}</span><div class="break-all font-mono">{{ safeRemoteUrl || status()?.remote || t('none') }}</div></div>
       <div><span class="text-[var(--c-text-muted)]">HEAD</span><div class="break-all font-mono">{{ status()?.head || t('none') }}</div></div>
@@ -78,6 +81,10 @@ const status = (): GitStatus | undefined => state.data.value
           <li>{{ t('gitSetupStepRedeploy') }}</li>
         </ol>
         <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          <label class="sm:col-span-2 flex items-start gap-2 rounded-md border border-[var(--c-border)] p-3">
+            <input v-model="sourceOfTruth" class="mt-1" type="checkbox" />
+            <span><span class="block text-sm font-medium">{{ t('gitSourceOfTruth') }}</span><span class="block text-xs text-[var(--c-text-muted)]">{{ t('gitContentMirror') }}</span></span>
+          </label>
           <label class="sm:col-span-2"><span class="mb-1 block text-sm font-medium">{{ t('repositoryUrl') }}</span><input v-model="repositoryUrl" class="input font-mono text-sm" /></label>
           <label><span class="mb-1 block text-sm font-medium">{{ t('branch') }}</span><input v-model="branch" class="input font-mono text-sm" /></label>
           <span></span>

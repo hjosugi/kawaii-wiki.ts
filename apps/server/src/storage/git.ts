@@ -26,6 +26,7 @@ import {
 
 export interface GitConfig {
   readonly enabled: boolean
+  readonly sourceOfTruth?: boolean
   readonly dir: string
   readonly branch: string
   /** Git remote name used for pull/push, e.g. origin. */
@@ -54,6 +55,8 @@ export type GitAuthor = { name: string; email: string } | null
 export interface GitSyncHandlers {
   upsert(path: string, file: PageFileData): void
   remove(path: string): void
+  /** Reconcile an existing DB against all paths tracked by Git on initial sync. */
+  reconcile?(trackedPaths: readonly string[]): void
 }
 
 export interface SyncResult {
@@ -67,6 +70,7 @@ export interface SyncResult {
 
 export interface GitStatus {
   readonly enabled: boolean
+  readonly sourceOfTruth: boolean
   readonly dir: string
   readonly branch: string
   readonly remote: string | null
@@ -95,6 +99,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
   let lastSuccessAt: number | null = null
   let lastErrorAt: number | null = null
   let lastError: string | null = null
+  let synchronized = false
   const failure = (operation: string, message: string): void => {
     lastErrorAt = Date.now()
     lastError = message || `${operation} failed`
@@ -181,7 +186,11 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         if (!existsSync(join(config.dir, '.git')) && remoteUrl) {
           const r = await $`git clone --origin ${remoteName ?? 'origin'} ${remoteUrl} ${config.dir}`.quiet().nothrow()
           cloned = r.exitCode === 0
-          if (!cloned) failure('clone', r.stderr.toString().trim())
+          if (!cloned) {
+            const message = r.stderr.toString().trim()
+            failure('clone', message)
+            if (config.sourceOfTruth) throw new Error(`Git source-of-truth clone failed: ${message}`)
+          }
         }
         if (!existsSync(join(config.dir, '.git'))) {
           await git('init', '-b', config.branch)
@@ -235,6 +244,11 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         if (remoteName) {
           const r = await git('pull', '--no-edit', '--no-rebase', remoteName, config.branch)
           pulled = r.exitCode === 0
+          if (!pulled && config.sourceOfTruth) {
+            const message = r.stderr.toString().trim()
+            failure('pull', message)
+            throw new Error(`Git source-of-truth pull failed: ${message}`)
+          }
         }
 
         const head = await headSha()
@@ -290,6 +304,15 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
           }
         }
 
+        if (config.sourceOfTruth && !synchronized) {
+          const files = await git('ls-files', 'content')
+          const trackedPaths = files.text()
+            .split('\n')
+            .map((file) => filePathToPagePath(file.trim()))
+            .filter((path): path is string => Boolean(path))
+          handlers.reconcile?.(trackedPaths)
+        }
+
         writeMarker(head)
 
         // Push local commits back to the remote (DB → Git → remote). Best-effort:
@@ -300,9 +323,13 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
           const r = await git('push', remoteName, `HEAD:${config.branch}`)
           pushed = r.exitCode === 0
           if (!pushed) failure('push', r.stderr.toString().trim())
+          if (!pushed && config.sourceOfTruth) {
+            throw new Error(`Git source-of-truth push failed: ${r.stderr.toString().trim()}`)
+          }
         }
 
         if (!remoteName || pushed) success()
+        synchronized = true
 
         return { enabled: true, pulled, pushed, upserted, deleted }
       }),
@@ -312,6 +339,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         if (!config.enabled) {
           return {
             enabled: false,
+            sourceOfTruth: Boolean(config.sourceOfTruth),
             dir: config.dir,
             branch: config.branch,
             remote: remoteName,
@@ -327,6 +355,7 @@ export const createGitStorage = (config: GitConfig): GitStorage => {
         const st = await git('status', '--porcelain')
         return {
           enabled: true,
+          sourceOfTruth: Boolean(config.sourceOfTruth),
           dir: config.dir,
           branch: config.branch,
           remote: remoteName,

@@ -36,6 +36,8 @@ const withKawaiiWikiAliases = (input: EnvSource): EnvSource => {
 
 export interface GitEnv {
   readonly enabled: boolean
+  /** Git content is authoritative; startup waits for an initial pull/import. */
+  readonly sourceOfTruth: boolean
   readonly dir: string
   readonly branch: string
   readonly remote: string | null
@@ -536,6 +538,14 @@ export const loadEnv = (input: EnvSource = process.env): Env => {
   const configuredCorsOrigins = parseCorsOrigins(source.TS_WIKI_CORS_ORIGINS)
   const remoteUrl = source.TS_WIKI_GIT_REMOTE_URL?.trim() || null
   const remote = source.TS_WIKI_GIT_REMOTE?.trim() || (remoteUrl ? 'origin' : null)
+  const gitEnabled = source.TS_WIKI_GIT_ENABLED === 'true' || source.TS_WIKI_GIT_ENABLED === '1'
+  const gitSourceOfTruth = parseBoolean(source.TS_WIKI_GIT_SOURCE_OF_TRUTH)
+  if (gitSourceOfTruth && !gitEnabled) {
+    throw new Error('KAWAII_WIKI_GIT_SOURCE_OF_TRUTH requires KAWAII_WIKI_GIT_ENABLED=true.')
+  }
+  if (gitSourceOfTruth && !remoteUrl) {
+    throw new Error('KAWAII_WIKI_GIT_SOURCE_OF_TRUTH requires KAWAII_WIKI_GIT_REMOTE_URL.')
+  }
   const auth = loadAuthEnv(source)
   return {
     port: Number(source.PORT ?? 4000),
@@ -574,7 +584,8 @@ export const loadEnv = (input: EnvSource = process.env): Env => {
     git: {
       // NB: namespaced TS_WIKI_GIT_* — plain GIT_DIR / GIT_AUTHOR_* are reserved
       // Git env vars and would hijack every git command we run.
-      enabled: source.TS_WIKI_GIT_ENABLED === 'true' || source.TS_WIKI_GIT_ENABLED === '1',
+      enabled: gitEnabled,
+      sourceOfTruth: gitSourceOfTruth,
       dir: source.TS_WIKI_GIT_DIR ?? join(dataDir, 'repo'),
       branch: source.TS_WIKI_GIT_BRANCH ?? 'main',
       remote,

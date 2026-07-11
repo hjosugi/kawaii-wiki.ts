@@ -24,6 +24,7 @@ export type AppIconName =
   | 'sparkles'
   | 'star'
   | 'sun'
+  | 'upload'
 
 withDefaults(defineProps<{ name: AppIconName; size?: number }>(), { size: 20 })
 </script>
@@ -115,6 +116,10 @@ withDefaults(defineProps<{ name: AppIconName; size?: number }>(), { size: 20 })
     <template v-else-if="name === 'eye'">
       <path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />
       <circle cx="12" cy="12" r="2.5" />
+    </template>
+    <template v-else-if="name === 'upload'">
+      <path d="M12 16V4M7 9l5-5 5 5" />
+      <path d="M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4" />
     </template>
     <template v-else-if="name === 'sliders'">
       <path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5" />

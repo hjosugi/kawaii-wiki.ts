@@ -55,4 +55,20 @@ describe('comment service', () => {
     expect(removed.ok).toBe(true)
     expect(indexed).toEqual([page.value.id, page.value.id, page.value.id])
   })
+
+  test('supports hidden, anonymous-open, and group-only page policies', () => {
+    const db = createDb(':memory:')
+    const services = createServices(db)
+    services.pages.create({ path: 'hidden', title: 'Hidden', content: '', labels: ['kawaii-wiki-comments-off'] }, admin)
+    services.pages.create({ path: 'open', title: 'Open', content: '', labels: ['kawaii-wiki-comments-open'] }, admin)
+    services.pages.create({ path: 'team', title: 'Team', content: '', labels: ['kawaii-wiki-comments-group-reviewers'] }, admin)
+
+    expect(services.comments.policy('hidden', null)).toEqual(expect.objectContaining({ ok: true, value: expect.objectContaining({ visible: false, writable: false }) }))
+    const anonymous = services.comments.create('open', 'Anonymous feedback', null)
+    expect(anonymous.ok).toBe(true)
+    if (anonymous.ok) expect(anonymous.value.authorId).toBeNull()
+    expect(services.comments.create('team', 'No membership', { id: 'u1', role: 'viewer', groups: ['viewers'] }).ok).toBe(false)
+    expect(services.comments.create('team', 'Member feedback', { id: 'u2', role: 'viewer', groups: ['viewers', 'reviewers'] }).ok).toBe(true)
+    db.$client.close()
+  })
 })
