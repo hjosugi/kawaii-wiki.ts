@@ -12,6 +12,10 @@ import {
 } from '@kawaii-wiki/core'
 import type { AuthEnv, OidcProviderEnv } from '../env.ts'
 import type { DB } from '../db/client.ts'
+import { createSqliteAuthAccountRepository } from '../db/repositories/auth-accounts.ts'
+import { createSqliteUserRepository } from '../db/repositories/users.ts'
+import type { AuthAccountRepository } from '../repositories/auth-accounts.ts'
+import type { UserRepository } from '../repositories/users.ts'
 import { oauthStates } from '../db/schema.ts'
 import {
   createAuthProviderService,
@@ -36,6 +40,8 @@ export interface OidcService {
 
 export interface OidcServiceOptions {
   readonly now?: () => number
+  readonly authAccounts?: AuthAccountRepository
+  readonly users?: UserRepository
 }
 
 interface OidcDiscovery {
@@ -261,7 +267,13 @@ export const createOidcService = (
   authz: AuthzService,
   options: OidcServiceOptions = {},
 ): OidcService => {
-  const service = createAuthProviderService(db, auth, authz, createOidcAuthProviders(db, auth, options))
+  const service = createAuthProviderService(
+    options.authAccounts ?? createSqliteAuthAccountRepository(db),
+    options.users ?? createSqliteUserRepository(db),
+    auth,
+    authz,
+    createOidcAuthProviders(db, auth, options),
+  )
   return {
     publicProviders: () => service.publicProviders(),
     start: (providerId, redirectAfter = null): Promise<Result<OidcStart, AppError>> =>

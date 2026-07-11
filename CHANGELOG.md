@@ -3,6 +3,23 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.11] - 2026-07-11
+
+### Changed
+
+- Moved external authentication accounts and password/email recovery tokens
+  behind asynchronous, driver-neutral repository contracts.
+- Made external-user creation plus account linking atomic, and made recovery
+  token validation, user mutation, and one-time consumption atomic.
+- Converted email verification and all related service/HTTP call chains to
+  await remote-capable persistence.
+
+### Tests
+
+- Added shared SQLite and libSQL contract coverage for external account
+  creation/relinking, password resets, email verification, one-time token
+  consumption, expiry cleanup, and user updates.
+
 ## [1.0.10] - 2026-07-11
 
 ### Changed

@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto'
-import { and, eq } from 'drizzle-orm'
 import {
   type AppError,
   type AuthProviderKind,
   type PublicAuthProvider,
   type Result,
   type Role,
+  conflict,
   err,
   forbidden,
   ok,
@@ -13,8 +13,12 @@ import {
   validationError,
 } from '@kawaii-wiki/core'
 import type { AuthEnv } from '../env.ts'
-import type { DB } from '../db/client.ts'
-import { authAccounts, users, type User } from '../db/schema.ts'
+import type { AuthAccountRepository, AuthAccountRecord } from '../repositories/auth-accounts.ts'
+import {
+  DuplicateUserEmailError,
+  type UserRecord,
+  type UserRepository,
+} from '../repositories/users.ts'
 import { hashPassword } from './auth.ts'
 import type { AuthzService } from './authz.ts'
 import { isUserActive } from './users.ts'
@@ -46,7 +50,7 @@ export interface AuthProvider {
 }
 
 export interface AuthProviderCallbackResult {
-  readonly user: User
+  readonly user: UserRecord
   readonly isNewUser: boolean
   readonly identity: ExternalIdentity
 }
@@ -82,7 +86,8 @@ const publicProvider = (provider: AuthProvider): PublicAuthProvider => ({
 })
 
 export const createAuthProviderService = (
-  db: DB,
+  authAccounts: AuthAccountRepository,
+  users: UserRepository,
   auth: AuthEnv,
   authz: AuthzService,
   providers: readonly AuthProvider[],
@@ -90,52 +95,24 @@ export const createAuthProviderService = (
 ): AuthProviderService => {
   const byId = new Map(providers.map((provider) => [provider.id, provider]))
 
-  const findUserByEmail = (email: string): User | undefined =>
-    db.select().from(users).where(eq(users.email, email)).get()
+  const accountFor = (user: UserRecord, identity: ExternalIdentity, now = Date.now()): AuthAccountRecord => ({
+    id: crypto.randomUUID(),
+    userId: user.id,
+    provider: identity.providerId,
+    providerSubject: identity.subject,
+    email: identity.email,
+    createdAt: now,
+    updatedAt: now,
+  })
 
-  const findAccount = (provider: string, providerSubject: string): User | undefined => {
-    const row = db
-      .select({ user: users })
-      .from(authAccounts)
-      .innerJoin(users, eq(users.id, authAccounts.userId))
-      .where(and(eq(authAccounts.provider, provider), eq(authAccounts.providerSubject, providerSubject)))
-      .get()
-    return row?.user
+  const linkAccount = async (user: UserRecord, identity: ExternalIdentity): Promise<void> => {
+    const now = Date.now()
+    await authAccounts.link(accountFor(user, identity, now))
   }
 
-  const linkAccount = (user: User, identity: ExternalIdentity): void => {
-    const existing = db
-      .select()
-      .from(authAccounts)
-      .where(and(
-        eq(authAccounts.provider, identity.providerId),
-        eq(authAccounts.providerSubject, identity.subject),
-      ))
-      .get()
+  const createExternalUser = async (identity: ExternalIdentity): Promise<UserRecord> => {
     const now = Date.now()
-    if (existing) {
-      db.update(authAccounts)
-        .set({ email: identity.email, userId: user.id, updatedAt: now })
-        .where(eq(authAccounts.id, existing.id))
-        .run()
-      return
-    }
-    db.insert(authAccounts)
-      .values({
-        id: crypto.randomUUID(),
-        userId: user.id,
-        provider: identity.providerId,
-        providerSubject: identity.subject,
-        email: identity.email,
-        createdAt: now,
-        updatedAt: now,
-      })
-      .run()
-  }
-
-  const createExternalUser = async (identity: ExternalIdentity): Promise<User> => {
-    const now = Date.now()
-    const user: User = {
+    const user: UserRecord = {
       id: crypto.randomUUID(),
       email: identity.email,
       name: identity.name,
@@ -152,7 +129,7 @@ export const createAuthProviderService = (
       profileFavoritePages: '[]',
       createdAt: now,
     }
-    db.insert(users).values(user).run()
+    await authAccounts.createUserWithAccount(user, accountFor(user, identity, now))
     authz.syncRoleGroup(user.id, user.role)
     return user
   }
@@ -167,17 +144,17 @@ export const createAuthProviderService = (
     if (!identity.email) return err(unauthorized('External email missing'))
     if (!identity.emailVerified) return err(unauthorized('External email is not verified'))
 
-    const existingByAccount = findAccount(identity.providerId, identity.subject)
+    const existingByAccount = await authAccounts.findLinkedUser(identity.providerId, identity.subject)
     if (existingByAccount) {
       if (!isUserActive(existingByAccount)) return err(unauthorized('Account is deactivated'))
-      linkAccount(existingByAccount, identity)
+      await linkAccount(existingByAccount, identity)
       return ok({ user: existingByAccount, isNewUser: false, identity })
     }
 
-    const existingByEmail = findUserByEmail(identity.email)
+    const existingByEmail = await users.findByEmail(identity.email)
     if (existingByEmail) {
       if (!isUserActive(existingByEmail)) return err(unauthorized('Account is deactivated'))
-      linkAccount(existingByEmail, identity)
+      await linkAccount(existingByEmail, identity)
       return ok({ user: existingByEmail, isNewUser: false, identity })
     }
 
@@ -185,9 +162,16 @@ export const createAuthProviderService = (
       return err(forbidden('External self-registration is disabled'))
     }
 
-    const user = await createExternalUser(identity)
-    linkAccount(user, identity)
-    return ok({ user, isNewUser: true, identity })
+    try {
+      const user = await createExternalUser(identity)
+      return ok({ user, isNewUser: true, identity })
+    } catch (error) {
+      if (!(error instanceof DuplicateUserEmailError)) throw error
+      const racedUser = await users.findByEmail(identity.email)
+      if (!isUserActive(racedUser)) return err(conflict('External account registration conflicted'))
+      await linkAccount(racedUser, identity)
+      return ok({ user: racedUser, isNewUser: false, identity })
+    }
   }
 
   return {
