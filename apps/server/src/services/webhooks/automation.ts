@@ -118,7 +118,7 @@ export const createAutomationRules = (repository: WebhookAutomationRepository, {
     return true
   }
 
-  const applyPageActions = (current: PageRecord | null, actions: AutomationRuleActions): PageRecord | null => {
+  const applyPageActions = async (current: PageRecord | null, actions: AutomationRuleActions): Promise<PageRecord | null> => {
     if (!current || current.lifecycle !== 'active' || !pageService) return current
     let next = current
     const labels = parseLabels(next.labels)
@@ -131,7 +131,7 @@ export const createAutomationRules = (repository: WebhookAutomationRepository, {
       next.status !== nextStatus ||
       next.reviewAt !== nextReviewAt
     ) {
-      const updated = pageService.update(next.path, {
+      const updated = await pageService.update(next.path, {
         description: next.description,
         labels: nextLabels,
         status: nextStatus,
@@ -144,7 +144,7 @@ export const createAutomationRules = (repository: WebhookAutomationRepository, {
       const targetParent = actions.moveToPath.replace(/\/+$/, '')
       const targetPath = normalizePath(`${targetParent}/${pageLeaf(next.path)}`)
       if (targetPath && targetPath !== next.path) {
-        const moved = pageService.move(next.path, targetPath, automationPrincipal)
+        const moved = await pageService.move(next.path, targetPath, automationPrincipal)
         if (moved.ok) next = moved.value
       }
     }
@@ -152,14 +152,14 @@ export const createAutomationRules = (repository: WebhookAutomationRepository, {
     return next
   }
 
-  const applyRule = (
+  const applyRule = async (
     event: AutomationEvent,
     current: PageRecord | null,
     config: EventAutomationRuleConfig,
     data: Record<string, unknown>,
     extraEvents: AutomationEvent[],
-  ): { page: PageRecord | null; data: Record<string, unknown> } => {
-    const page = applyPageActions(current, config.actions)
+  ): Promise<{ page: PageRecord | null; data: Record<string, unknown> }> => {
+    const page = await applyPageActions(current, config.actions)
     const nextData = page ? { ...data, page: pageSnapshot(page) } : data
     if (config.actions.fireWebhookEvent) {
       extraEvents.push({
@@ -183,7 +183,7 @@ export const createAutomationRules = (repository: WebhookAutomationRepository, {
         if (config.trigger !== event.type) continue
         const context = contextFor(event, current)
         if (!conditionsMatch(config.conditions ?? {}, context)) continue
-        const applied = applyRule(event, current, config, data, extraEvents)
+        const applied = await applyRule(event, current, config, data, extraEvents)
         current = applied.page
         data = applied.data
         if (rule.stopOnMatch) break

@@ -5,7 +5,7 @@ import { runMigrations } from './migrate.ts'
 import { createServices } from '../services/index.ts'
 
 describe('createDb', () => {
-  test('email verification backfill runs only when the column is first added', () => {
+  test('email verification backfill runs only when the column is first added', async () => {
     const sqlite = new BunDatabase(':memory:')
     sqlite.exec(`
       CREATE TABLE users (
@@ -52,7 +52,7 @@ describe('createDb', () => {
       if (!created.ok) return
 
       const principal = await services.authz.principalForUser(created.value)
-      const page = services.pages.create({
+      const page = await services.pages.create({
         path: 'docs/libsql',
         title: 'libSQL runtime',
         content: 'Hello from Turso search',

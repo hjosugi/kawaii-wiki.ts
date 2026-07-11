@@ -32,7 +32,7 @@ describe('comment service', () => {
     })
     if (!user.ok) throw new Error('user seed failed')
     const principal: Principal = { id: user.value.id, role: user.value.role }
-    const page = services.pages.create({ path: 'docs/comments', title: 'Comments', content: 'Body' }, admin)
+    const page = await services.pages.create({ path: 'docs/comments', title: 'Comments', content: 'Body' }, admin)
     if (!page.ok) throw new Error('page seed failed')
     const indexed: string[] = []
     const comments = createCommentService(createSqliteCommentRepository(db), fakeIndexer(indexed))
@@ -60,9 +60,9 @@ describe('comment service', () => {
   test('supports hidden, anonymous-open, and group-only page policies', async () => {
     const db = createDb(':memory:')
     const services = createServices(db)
-    services.pages.create({ path: 'hidden', title: 'Hidden', content: '', labels: ['kawaii-wiki-comments-off'] }, admin)
-    services.pages.create({ path: 'open', title: 'Open', content: '', labels: ['kawaii-wiki-comments-open'] }, admin)
-    services.pages.create({ path: 'team', title: 'Team', content: '', labels: ['kawaii-wiki-comments-group-reviewers'] }, admin)
+    await services.pages.create({ path: 'hidden', title: 'Hidden', content: '', labels: ['kawaii-wiki-comments-off'] }, admin)
+    await services.pages.create({ path: 'open', title: 'Open', content: '', labels: ['kawaii-wiki-comments-open'] }, admin)
+    await services.pages.create({ path: 'team', title: 'Team', content: '', labels: ['kawaii-wiki-comments-group-reviewers'] }, admin)
 
     expect(await services.comments.policy('hidden', null)).toEqual(expect.objectContaining({ ok: true, value: expect.objectContaining({ visible: false, writable: false }) }))
     const anonymous = await services.comments.create('open', 'Anonymous feedback', null)

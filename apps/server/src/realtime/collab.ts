@@ -48,7 +48,7 @@ export interface CollabOptions {
     text: string,
     expectedUpdatedAt: number | null,
     principal: Principal | null,
-  ) => number | null | void
+  ) => number | null | void | Promise<number | null | void>
   /** Idle delay before saving (ms). */
   debounceMs?: number
   /** Hard cap on how long unsaved edits can sit (ms). */
@@ -86,7 +86,11 @@ export const createCollabHub = (options: CollabOptions = {}): CollabHub => {
       room.seededUpdatedAt,
       room.lastPrincipal,
     )
-    if (typeof updatedAt === 'number') room.seededUpdatedAt = updatedAt
+    if (updatedAt instanceof Promise) {
+      void updatedAt.then((value) => {
+        if (typeof value === 'number') room.seededUpdatedAt = value
+      })
+    } else if (typeof updatedAt === 'number') room.seededUpdatedAt = updatedAt
   }
   const scheduleSave = (room: Room, principal: Principal | null): void => {
     if (!persist) return

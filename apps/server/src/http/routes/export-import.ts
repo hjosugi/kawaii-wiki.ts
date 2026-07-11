@@ -32,7 +32,7 @@ export const createExportImportRoutes = ({
       '/api/export/page',
       async ({ query, services, principal }) => {
         await requirePageRead(principal, query.path)
-        const page = unwrap(services.pages.getByPath(query.path))
+        const page = unwrap(await services.pages.getByPath(query.path))
         const htmlFormat = query.format === 'html' || query.format === 'print'
         const filename = `${page.path.split('/').at(-1) || 'page'}.${htmlFormat ? 'html' : 'md'}`
         if (htmlFormat) {
@@ -127,12 +127,12 @@ export const createExportImportRoutes = ({
       const results: Array<{ path: string; ok: boolean; error?: string }> = []
       for (const source of body.pages) {
         try {
-          const existing = services.pages.getByPath(source.path)
+          const existing = await services.pages.getByPath(source.path)
           if (body.conflictPolicy === 'skip' && existing.ok) {
             results.push({ path: source.path, ok: true })
             continue
           }
-          const result = unwrap(services.pages.upsertFromFile(source.path, parsePageFile(source.content), {
+          const result = unwrap(await services.pages.upsertFromFile(source.path, parsePageFile(source.content), {
             title: source.title,
             description: source.description,
             icon: source.icon,
@@ -170,7 +170,7 @@ export const createExportImportRoutes = ({
       requireHttpPermission(principal, 'admin:access')
       const results: Array<{ path: string; created: boolean }> = []
       for (const source of officialDocumentationPages) {
-        const result = unwrap(services.pages.upsertFromFile(source.path, {
+        const result = unwrap(await services.pages.upsertFromFile(source.path, {
           title: source.title,
           description: source.description,
           content: source.content,
@@ -208,7 +208,7 @@ export const createExportImportRoutes = ({
         const path = normalizePath(source.name.replace(/^content\//, '').replace(/\.md$/i, ''))
         try {
           const parsed = parsePageFile(source.content)
-          const result = unwrap(services.pages.upsertFromFile(path, parsed, {}, principal))
+          const result = unwrap(await services.pages.upsertFromFile(path, parsed, {}, principal))
           await runPageWrite(pageWriteEffects, {
             action: result.created ? 'created' : 'updated', page: result.page, principal,
             auditAction: 'page.import_bulk', automationType: result.created ? 'page.created' : 'page.updated',
@@ -226,7 +226,7 @@ export const createExportImportRoutes = ({
       async ({ body, services, principal }) => {
         requireHttpPermission(principal, 'page:write', { path: body.path })
         const parsed = parsePageFile(body.content)
-        const result = unwrap(services.pages.upsertFromFile(body.path, parsed, {
+        const result = unwrap(await services.pages.upsertFromFile(body.path, parsed, {
           title: body.title,
           description: body.description,
           icon: body.icon,

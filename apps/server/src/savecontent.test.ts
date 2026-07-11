@@ -10,13 +10,13 @@ const revisions = (db: DB): number =>
   db.select({ c: sql<number>`count(*)` }).from(pageRevisions).get()?.c ?? 0
 
 describe('saveContent (collab autosave)', () => {
-  test('refreshes content + search index but adds NO revision', () => {
+  test('refreshes content + search index but adds NO revision', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'p', title: 'P', content: 'original kiwi' }, admin)
+    await pages.create({ path: 'p', title: 'P', content: 'original kiwi' }, admin)
     const before = revisions(db) // 1 (the 'created' snapshot)
 
-    const r = pages.saveContent('p', 'autosaved papaya', admin)
+    const r = await pages.saveContent('p', 'autosaved papaya', admin)
     expect(r.ok).toBe(true)
     if (r.ok) expect(r.value.content).toBe('autosaved papaya')
 
@@ -25,33 +25,33 @@ describe('saveContent (collab autosave)', () => {
     expect(search.search('kiwi').hits.length).toBe(0)
   })
 
-  test('forbidden for anonymous, not_found for a missing page', () => {
+  test('forbidden for anonymous, not_found for a missing page', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    expect(pages.saveContent('p', 'x', null).ok).toBe(false)
-    expect(pages.saveContent('missing', 'x', admin).ok).toBe(false)
+    expect((await pages.saveContent('p', 'x', null)).ok).toBe(false)
+    expect((await pages.saveContent('missing', 'x', admin)).ok).toBe(false)
   })
 
   test('rejects stale collaborative autosaves after an external write', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    const created = pages.create({ path: 'p', title: 'P', content: 'seed' }, admin)
+    const created = await pages.create({ path: 'p', title: 'P', content: 'seed' }, admin)
     if (!created.ok) throw new Error('seed failed')
     const collabSeedUpdatedAt = created.value.updatedAt
 
     await Bun.sleep(2)
-    const external = pages.update('p', { content: 'external update' }, admin)
+    const external = await pages.update('p', { content: 'external update' }, admin)
     expect(external.ok).toBe(true)
 
-    const stale = pages.saveContent('p', 'stale collab text', admin, collabSeedUpdatedAt)
+    const stale = await pages.saveContent('p', 'stale collab text', admin, collabSeedUpdatedAt)
     expect(stale.ok).toBe(false)
     if (!stale.ok) expect(stale.error.kind).toBe('conflict')
-    const current = pages.getByPath('p')
+    const current = await pages.getByPath('p')
     expect(current.ok).toBe(true)
     if (current.ok) expect(current.value.content).toBe('external update')
   })
 
-  test('runs the normal page validator before autosaving', () => {
+  test('runs the normal page validator before autosaving', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
     const now = Date.now()
@@ -78,11 +78,11 @@ describe('saveContent (collab autosave)', () => {
       })
       .run()
 
-    const result = pages.saveContent('bad', 'autosaved anyway', admin)
+    const result = await pages.saveContent('bad', 'autosaved anyway', admin)
 
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.kind).toBe('validation')
-    const current = pages.getByPath('bad')
+    const current = await pages.getByPath('bad')
     expect(current.ok).toBe(true)
     if (current.ok) expect(current.value.content).toBe('seed')
   })

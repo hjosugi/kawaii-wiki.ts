@@ -135,7 +135,7 @@ export const createStaticRoutes = ({
     const shared = shareToken ? await services.shares.resolve(shareToken) : null
     const pagePath = shared?.ok ? null : pagePathForShellRequest(pathname, services.settings.public().homePath)
     const resolved = pagePath && (principal || !privateWiki()) && await canReadPage(principal, pagePath)
-      ? services.pages.resolveByPath(pagePath)
+      ? await services.pages.resolveByPath(pagePath)
       : null
     const page = shared?.ok ? shared.value.page : resolved?.ok ? resolved.value.page : null
     const html = injectSeoIntoHtml(

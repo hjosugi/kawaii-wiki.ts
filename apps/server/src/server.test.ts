@@ -3,7 +3,6 @@ import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from './db/client.ts'
 import { pageRedirects } from './db/schema.ts'
 import { createServices } from './services/index.ts'
-import { rewriteLinksForMove } from './services/pages.ts'
 
 const admin: Principal = { id: 'admin-1', role: 'admin' }
 const viewer: Principal = { id: 'viewer-1', role: 'viewer' }
@@ -13,11 +12,11 @@ const tableCount = (db: ReturnType<typeof createDb>, table: string): number =>
   (db.$client.prepare(`SELECT count(*) AS count FROM ${table}`).get() as { count: number }).count
 
 describe('page + search slice (in-memory db)', () => {
-  test('create renders, indexes, and is immediately findable', () => {
+  test('create renders, indexes, and is immediately findable', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
 
-    const created = pages.create(
+    const created = await pages.create(
       { path: 'Docs/Intro', title: 'Intro', content: '# Hello\n\nA searchable banana paragraph.' },
       admin,
     )
@@ -28,7 +27,7 @@ describe('page + search slice (in-memory db)', () => {
     }
 
     // Readable immediately (render is part of the write, not fire-and-forget).
-    const fetched = pages.getByPath('docs/intro')
+    const fetched = await pages.getByPath('docs/intro')
     expect(fetched.ok).toBe(true)
 
     // Searchable immediately.
@@ -38,12 +37,12 @@ describe('page + search slice (in-memory db)', () => {
     expect(result.hits[0]?.snippet).toContain('<mark>')
   })
 
-  test('search omits pages the principal cannot read (page:read ACL)', () => {
+  test('search omits pages the principal cannot read (page:read ACL)', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
 
-    pages.create({ path: 'public/a', title: 'Alpha', content: 'a shared banana note' }, admin)
-    pages.create({ path: 'secret/b', title: 'Beta', content: 'a secret banana note' }, admin)
+    await pages.create({ path: 'public/a', title: 'Alpha', content: 'a shared banana note' }, admin)
+    await pages.create({ path: 'secret/b', title: 'Beta', content: 'a secret banana note' }, admin)
 
     // Without a read predicate, both match.
     expect(search.search('banana').hits.length).toBe(2)
@@ -55,11 +54,11 @@ describe('page + search slice (in-memory db)', () => {
     expect(filtered.hits[0]?.path).toBe('public/a')
   })
 
-  test('snippets carry no live markup from page content', () => {
+  test('snippets carry no live markup from page content', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
 
-    pages.create({ path: 'p', title: 'P', content: 'banana <script>alert(1)</script>' }, admin)
+    await pages.create({ path: 'p', title: 'P', content: 'banana <script>alert(1)</script>' }, admin)
     const snippet = search.search('banana').hits[0]?.snippet ?? ''
     expect(snippet).toContain('<mark>')
     // Raw HTML is disabled at render time and content is stored tag-stripped, so
@@ -67,26 +66,26 @@ describe('page + search slice (in-memory db)', () => {
     expect(snippet).not.toContain('<script>')
   })
 
-  test('anonymous users cannot create pages', () => {
+  test('anonymous users cannot create pages', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    const result = pages.create({ path: 'x', title: 'X', content: 'y' }, anon)
+    const result = await pages.create({ path: 'x', title: 'X', content: 'y' }, anon)
     expect(result.ok).toBe(false)
     if (!result.ok) expect(result.error.kind).toBe('forbidden')
   })
 
-  test('duplicate paths conflict', () => {
+  test('duplicate paths conflict', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'dup', title: 'A', content: 'a' }, admin)
-    const second = pages.create({ path: 'dup', title: 'B', content: 'b' }, admin)
+    await pages.create({ path: 'dup', title: 'A', content: 'a' }, admin)
+    const second = await pages.create({ path: 'dup', title: 'B', content: 'b' }, admin)
     expect(second.ok).toBe(false)
     if (!second.ok) expect(second.error.kind).toBe('conflict')
   })
 
-  test('copies a page as a new draft without carrying publication dates', () => {
+  test('copies a page as a new draft without carrying publication dates', async () => {
     const { pages } = createServices(createDb(':memory:'))
-    const source = pages.create({
+    const source = await pages.create({
       path: 'docs/source-copy',
       title: 'Source',
       content: '# Source',
@@ -96,7 +95,7 @@ describe('page + search slice (in-memory db)', () => {
     }, admin)
     if (!source.ok) throw new Error('source seed failed')
 
-    const copied = pages.copy(source.value.path, 'docs/copied', admin)
+    const copied = await pages.copy(source.value.path, 'docs/copied', admin)
     expect(copied.ok).toBe(true)
     if (!copied.ok) throw new Error('copy failed')
     expect(copied.value).toMatchObject({
@@ -109,13 +108,13 @@ describe('page + search slice (in-memory db)', () => {
     expect(JSON.parse(copied.value.labels)).toEqual(['guide'])
   })
 
-  test('create reports a distinct conflict when trash holds the path', () => {
+  test('create reports a distinct conflict when trash holds the path', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'gone', title: 'Gone', content: 'old' }, admin)
-    pages.remove('gone', admin)
+    await pages.create({ path: 'gone', title: 'Gone', content: 'old' }, admin)
+    await pages.remove('gone', admin)
 
-    const recreated = pages.create({ path: 'gone', title: 'Gone again', content: 'new' }, admin)
+    const recreated = await pages.create({ path: 'gone', title: 'Gone again', content: 'new' }, admin)
 
     expect(recreated.ok).toBe(false)
     if (!recreated.ok) {
@@ -125,11 +124,11 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
-  test('update snapshots history and re-indexes', () => {
+  test('update snapshots history and re-indexes', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'p', title: 'P', content: 'original apple' }, admin)
-    pages.update('p', { content: 'replaced orange' }, admin)
+    await pages.create({ path: 'p', title: 'P', content: 'original apple' }, admin)
+    await pages.update('p', { content: 'replaced orange' }, admin)
 
     expect(search.search('apple').hits.length).toBe(0)
     expect(search.search('orange').hits.length).toBe(1)
@@ -138,27 +137,27 @@ describe('page + search slice (in-memory db)', () => {
   test('update rejects stale expectedUpdatedAt', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    const created = pages.create({ path: 'docs/conflict', title: 'Original', content: 'one' }, admin)
+    const created = await pages.create({ path: 'docs/conflict', title: 'Original', content: 'one' }, admin)
     expect(created.ok).toBe(true)
     if (!created.ok) return
     await Bun.sleep(2)
 
-    const first = pages.update('docs/conflict', { title: 'First', expectedUpdatedAt: created.value.updatedAt }, admin)
-    const second = pages.update('docs/conflict', { title: 'Second', expectedUpdatedAt: created.value.updatedAt }, admin)
+    const first = await pages.update('docs/conflict', { title: 'First', expectedUpdatedAt: created.value.updatedAt }, admin)
+    const second = await pages.update('docs/conflict', { title: 'Second', expectedUpdatedAt: created.value.updatedAt }, admin)
 
     expect(first.ok).toBe(true)
     expect(second.ok).toBe(false)
     if (!second.ok) expect(second.error.kind).toBe('conflict')
-    const current = pages.getByPath('docs/conflict')
+    const current = await pages.getByPath('docs/conflict')
     expect(current.ok).toBe(true)
     if (current.ok) expect(current.value.title).toBe('First')
   })
 
-  test('upsertFromFile centralizes markdown import create/update fallback', () => {
+  test('upsertFromFile centralizes markdown import create/update fallback', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
 
-    const created = pages.upsertFromFile('docs/imported', {
+    const created = await pages.upsertFromFile('docs/imported', {
       title: '',
       description: 'from file',
       content: '# Imported\n\nBody',
@@ -170,7 +169,7 @@ describe('page + search slice (in-memory db)', () => {
       expect(created.value.page.description).toBe('from file')
     }
 
-    const updated = pages.upsertFromFile('docs/imported', {
+    const updated = await pages.upsertFromFile('docs/imported', {
       title: 'Updated',
       description: '',
       content: 'Updated body',
@@ -185,15 +184,15 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
-  test('saveContent and explicit save share validation and derived descriptions', () => {
+  test('saveContent and explicit save share validation and derived descriptions', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/collab', title: 'Collab', content: 'initial' }, admin)
+    await pages.create({ path: 'docs/collab', title: 'Collab', content: 'initial' }, admin)
 
-    const autosaved = pages.saveContent('docs/collab', 'A shared description body for autosave.', admin)
+    const autosaved = await pages.saveContent('docs/collab', 'A shared description body for autosave.', admin)
     expect(autosaved.ok).toBe(true)
     expect(tableCount(db, 'page_revisions')).toBe(1)
-    const explicit = pages.update('docs/collab', { content: 'A shared description body for autosave.' }, admin)
+    const explicit = await pages.update('docs/collab', { content: 'A shared description body for autosave.' }, admin)
     expect(explicit.ok).toBe(true)
     expect(tableCount(db, 'page_revisions')).toBe(2)
     if (autosaved.ok && explicit.ok) {
@@ -202,19 +201,19 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
-  test('trigram tokenizer finds Japanese mid-run terms', () => {
+  test('trigram tokenizer finds Japanese mid-run terms', async () => {
     const db = createDb(':memory:', { ftsTokenizer: 'trigram' })
     const { pages, search } = createServices(db)
-    pages.create({ path: 'jp/search', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
+    await pages.create({ path: 'jp/search', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
 
     expect(search.search('テスト').hits[0]?.path).toBe('jp/search')
     expect(search.search('天ぷら').hits[0]?.path).toBe('jp/search')
   })
 
-  test('trigram tokenizer falls back for one- and two-character CJK queries', () => {
+  test('trigram tokenizer falls back for one- and two-character CJK queries', async () => {
     const db = createDb(':memory:', { ftsTokenizer: 'trigram' })
     const { pages, search } = createServices(db)
-    pages.create({ path: 'jp/short', title: '検索', description: '日本語', content: '短い語でも見つかります。' }, admin)
+    await pages.create({ path: 'jp/short', title: '検索', description: '日本語', content: '短い語でも見つかります。' }, admin)
 
     const twoChars = search.search('検索')
     expect(twoChars.hits[0]?.path).toBe('jp/short')
@@ -227,10 +226,10 @@ describe('page + search slice (in-memory db)', () => {
     expect(oneChar.truncatedTerms).toEqual(['語'])
   })
 
-  test('unicode tokenizer flags CJK queries and reports index status', () => {
+  test('unicode tokenizer flags CJK queries and reports index status', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'jp/search', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
+    await pages.create({ path: 'jp/search', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
 
     const result = search.search('日本語')
     expect(result.tokenizerHint).toMatchObject({
@@ -248,10 +247,10 @@ describe('page + search slice (in-memory db)', () => {
     expect(status.value.cjkCharacterRatio).toBeGreaterThan(0)
   })
 
-  test('admin rebuilds the search index with trigram for CJK matching', () => {
+  test('admin rebuilds the search index with trigram for CJK matching', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'jp/reindex', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
+    await pages.create({ path: 'jp/reindex', title: '日本語検索', content: 'これはテストです。天ぷら本文もあります。' }, admin)
 
     const rebuilt = search.rebuildIndex(admin, { tokenizer: 'trigram' })
     expect(rebuilt.ok).toBe(true)
@@ -267,7 +266,7 @@ describe('page + search slice (in-memory db)', () => {
     const { pages, search } = createServices(db)
     const reviewAt = Date.UTC(2026, 6, 10)
 
-    const created = pages.create(
+    const created = await pages.create(
       {
         path: 'Docs/Runbook',
         title: 'Runbook',
@@ -307,32 +306,32 @@ describe('page + search slice (in-memory db)', () => {
     expect(await pages.spaces()).toContainEqual(expect.objectContaining({ key: 'docs', pages: 1 }))
   })
 
-  test('search ranks exact titles first and can sort equal hits by recency', () => {
+  test('search ranks exact titles first and can sort equal hits by recency', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'docs/body', title: 'Body mention', content: 'banana appears in the body' }, admin)
-    pages.create({ path: 'docs/title', title: 'Banana', content: 'plain body' }, admin)
+    await pages.create({ path: 'docs/body', title: 'Body mention', content: 'banana appears in the body' }, admin)
+    await pages.create({ path: 'docs/title', title: 'Banana', content: 'plain body' }, admin)
 
     expect(search.search('banana').hits[0]?.path).toBe('docs/title')
 
-    pages.create({ path: 'docs/old', title: 'Old', content: 'kiwi same body' }, admin)
-    pages.create({ path: 'docs/fresh', title: 'Fresh', content: 'kiwi same body' }, admin)
+    await pages.create({ path: 'docs/old', title: 'Old', content: 'kiwi same body' }, admin)
+    await pages.create({ path: 'docs/fresh', title: 'Fresh', content: 'kiwi same body' }, admin)
     db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(1, 'docs/old')
     db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(9_000_000_000_000, 'docs/fresh')
 
     expect(search.search('kiwi', { sort: 'recent' }).hits[0]?.path).toBe('docs/fresh')
   })
 
-  test('search snippets use the matching title or description column', () => {
+  test('search snippets use the matching title or description column', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({
+    await pages.create({
       path: 'docs/title-snippet',
       title: 'Needle Atlas',
       description: '',
       content: 'unrelated body text',
     }, admin)
-    pages.create({
+    await pages.create({
       path: 'docs/description-snippet',
       title: 'Summary',
       description: 'Needle appears in the summary',
@@ -343,16 +342,16 @@ describe('page + search slice (in-memory db)', () => {
     expect(search.search('appears').hits[0]?.snippet).toContain('<mark>appears</mark>')
   })
 
-  test('search paginates with total count and supports phrase, exclusion, and title scope', () => {
+  test('search paginates with total count and supports phrase, exclusion, and title scope', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
     for (let i = 0; i < 25; i += 1) {
-      pages.create({ path: `bulk/${i}`, title: `Bulk ${i}`, content: 'bulkterm body' }, admin)
+      await pages.create({ path: `bulk/${i}`, title: `Bulk ${i}`, content: 'bulkterm body' }, admin)
     }
-    pages.create({ path: 'phrases/exact', title: 'Exact', content: 'error code 42 appears together' }, admin)
-    pages.create({ path: 'phrases/split', title: 'Split', content: 'error appears before some words and code 42 later' }, admin)
-    pages.create({ path: 'titles/banana', title: 'Banana guide', content: 'no fruit body' }, admin)
-    pages.create({ path: 'titles/body', title: 'Body guide', content: 'banana body only' }, admin)
+    await pages.create({ path: 'phrases/exact', title: 'Exact', content: 'error code 42 appears together' }, admin)
+    await pages.create({ path: 'phrases/split', title: 'Split', content: 'error appears before some words and code 42 later' }, admin)
+    await pages.create({ path: 'titles/banana', title: 'Banana guide', content: 'no fruit body' }, admin)
+    await pages.create({ path: 'titles/body', title: 'Body guide', content: 'banana body only' }, admin)
 
     const secondPage = search.search('bulkterm', { limit: 10, offset: 10 })
     expect(secondPage.total).toBe(25)
@@ -364,11 +363,11 @@ describe('page + search slice (in-memory db)', () => {
     expect(search.search('banana', { scope: 'title' }).hits.map((hit) => hit.path)).toEqual(['titles/banana'])
   })
 
-  test('search filters by author and updated date', () => {
+  test('search filters by author and updated date', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'filters/admin', title: 'Admin', content: 'filterterm' }, admin)
-    pages.create({ path: 'filters/viewer', title: 'Viewer', content: 'filterterm' }, admin)
+    await pages.create({ path: 'filters/admin', title: 'Admin', content: 'filterterm' }, admin)
+    await pages.create({ path: 'filters/viewer', title: 'Viewer', content: 'filterterm' }, admin)
     db.$client.prepare('UPDATE pages SET author_id = ? WHERE path = ?').run(viewer.id, 'filters/viewer')
     db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(1_000, 'filters/admin')
     db.$client.prepare('UPDATE pages SET updated_at = ? WHERE path = ?').run(9_000, 'filters/viewer')
@@ -381,7 +380,7 @@ describe('page + search slice (in-memory db)', () => {
   test('search indexes page comments and referenced asset filenames', async () => {
     const db = createDb(':memory:')
     const { pages, comments, assets, search } = createServices(db)
-    pages.create({
+    await pages.create({
       path: 'docs/context',
       title: 'Context',
       content: 'See ![diagram](/assets/assets/a/diagram.png)',
@@ -412,21 +411,21 @@ describe('page + search slice (in-memory db)', () => {
   test('move changes the page path and preserves search index', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'old/path', title: 'Movable', content: 'portable pear' }, admin)
-    pages.create({
+    await pages.create({ path: 'old/path', title: 'Movable', content: 'portable pear' }, admin)
+    await pages.create({
       path: 'home',
       title: 'Home',
       content: 'See [[Old/Path|old page]] and [legacy](/old/path#details).',
     }, admin)
 
-    const moved = pages.move('old/path', 'New/Path', admin)
+    const moved = await pages.move('old/path', 'New/Path', admin)
 
     expect(moved.ok).toBe(true)
     if (moved.ok) expect(moved.value.path).toBe('new/path')
-    expect(pages.getByPath('old/path').ok).toBe(false)
-    expect(pages.getByPath('new/path').ok).toBe(true)
+    expect((await pages.getByPath('old/path')).ok).toBe(false)
+    expect((await pages.getByPath('new/path')).ok).toBe(true)
     expect(search.search('pear').hits[0]?.path).toBe('new/path')
-    const home = pages.getByPath('home')
+    const home = await pages.getByPath('home')
     expect(home.ok).toBe(true)
     if (home.ok) {
       expect(home.value.content).toContain('[[new/path|old page]]')
@@ -438,43 +437,35 @@ describe('page + search slice (in-memory db)', () => {
     ])
   })
 
-  test('rewriteLinksForMove rewrites wiki and markdown page links in active pages', async () => {
+  test('move rewrites wiki and markdown page links in active pages', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    const source = pages.create({
+    const source = await pages.create({
       path: 'docs/source',
       title: 'Source',
       content: 'See [[Docs/Old|old]] and [Old](/docs/old#top).',
     }, admin)
     expect(source.ok).toBe(true)
-    pages.create({
+    await pages.create({ path: 'docs/old', title: 'Old', content: 'Movable' }, admin)
+    await pages.create({
       path: 'docs/archived',
       title: 'Archived',
       content: 'Keep [[Docs/Old]] and [Old](/docs/old).',
     }, admin)
-    expect(pages.archive('docs/archived', admin).ok).toBe(true)
+    expect((await pages.archive('docs/archived', admin)).ok).toBe(true)
 
-    const reindexed: Array<{ id: string; content: string }> = []
-    const now = 9_000_000_000_000
-    const rewritten = db.transaction((tx) => rewriteLinksForMove(tx, 'docs/old', 'docs/new', {
-      principal: admin,
-      now,
-      reindex: (page, content) => reindexed.push({ id: page.id, content }),
-    }))
-
-    expect(rewritten).toBe(1)
-    const updated = pages.getByPath('docs/source')
+    expect((await pages.move('docs/old', 'docs/new', admin)).ok).toBe(true)
+    const updated = await pages.getByPath('docs/source')
     expect(updated.ok).toBe(true)
     if (updated.ok) {
       expect(updated.value.content).toBe('See [[docs/new|old]] and [Old](/docs/new#top).')
       expect(updated.value.renderedHtml).toContain('data-wiki-link="docs/new"')
       expect(updated.value.renderedHtml).toContain('href="/docs/new#top"')
-      expect(reindexed).toEqual([{ id: updated.value.id, content: updated.value.content }])
     }
     const history = await pages.history('docs/source')
     expect(history.ok).toBe(true)
     if (history.ok) {
-      expect(history.value).toContainEqual(expect.objectContaining({ action: 'updated', createdAt: now }))
+      expect(history.value).toContainEqual(expect.objectContaining({ action: 'updated' }))
     }
     const archived = db.$client
       .prepare('SELECT content FROM pages WHERE path = ?')
@@ -482,22 +473,22 @@ describe('page + search slice (in-memory db)', () => {
     expect(archived.content).toBe('Keep [[Docs/Old]] and [Old](/docs/old).')
   })
 
-  test('move records redirects and resolves old paths after chained moves', () => {
+  test('move records redirects and resolves old paths after chained moves', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/old', title: 'Old', content: 'content' }, admin)
+    await pages.create({ path: 'docs/old', title: 'Old', content: 'content' }, admin)
 
-    expect(pages.move('docs/old', 'docs/middle', admin).ok).toBe(true)
-    expect(pages.move('docs/middle', 'docs/new', admin).ok).toBe(true)
+    expect((await pages.move('docs/old', 'docs/middle', admin)).ok).toBe(true)
+    expect((await pages.move('docs/middle', 'docs/new', admin)).ok).toBe(true)
 
-    const old = pages.resolveByPath('docs/old')
+    const old = await pages.resolveByPath('docs/old')
     expect(old.ok).toBe(true)
     if (old.ok) {
       expect(old.value.page.path).toBe('docs/new')
       expect(old.value.redirectedFrom).toEqual(['docs/old'])
     }
 
-    const middle = pages.resolveByPath('docs/middle')
+    const middle = await pages.resolveByPath('docs/middle')
     expect(middle.ok).toBe(true)
     if (middle.ok) {
       expect(middle.value.page.path).toBe('docs/new')
@@ -505,36 +496,36 @@ describe('page + search slice (in-memory db)', () => {
     }
   })
 
-  test('redirect resolution detects loops', () => {
+  test('redirect resolution detects loops', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
     db.insert(pageRedirects).values({ fromPath: 'a', toPath: 'b', createdAt: Date.now() }).run()
     db.insert(pageRedirects).values({ fromPath: 'b', toPath: 'a', createdAt: Date.now() }).run()
 
-    const resolved = pages.resolveByPath('a')
+    const resolved = await pages.resolveByPath('a')
 
     expect(resolved.ok).toBe(false)
     if (!resolved.ok) expect(resolved.error.kind).toBe('conflict')
   })
 
-  test('move refuses to overwrite an existing page', () => {
+  test('move refuses to overwrite an existing page', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'one', title: 'One', content: 'one' }, admin)
-    pages.create({ path: 'two', title: 'Two', content: 'two' }, admin)
+    await pages.create({ path: 'one', title: 'One', content: 'one' }, admin)
+    await pages.create({ path: 'two', title: 'Two', content: 'two' }, admin)
 
-    const moved = pages.move('one', 'two', admin)
+    const moved = await pages.move('one', 'two', admin)
 
     expect(moved.ok).toBe(false)
     if (!moved.ok) expect(moved.error.kind).toBe('conflict')
-    expect(pages.getByPath('one').ok).toBe(true)
+    expect((await pages.getByPath('one')).ok).toBe(true)
   })
 
   test('graph exposes resolved and missing page links', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'home', title: 'Home', content: 'See [[Docs/Intro]] and [Missing](/missing).' }, admin)
-    pages.create({ path: 'docs/intro', title: 'Intro', content: 'Back to [Home](/home).' }, admin)
+    await pages.create({ path: 'home', title: 'Home', content: 'See [[Docs/Intro]] and [Missing](/missing).' }, admin)
+    await pages.create({ path: 'docs/intro', title: 'Intro', content: 'Back to [Home](/home).' }, admin)
 
     const graph = await pages.graph()
 
@@ -549,8 +540,8 @@ describe('page + search slice (in-memory db)', () => {
   test('backlinks expose incoming page mentions', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'home', title: 'Home', content: 'See [[Docs/Intro|intro]].' }, admin)
-    pages.create({ path: 'docs/intro', title: 'Intro', content: 'Hello.' }, admin)
+    await pages.create({ path: 'home', title: 'Home', content: 'See [[Docs/Intro|intro]].' }, admin)
+    await pages.create({ path: 'docs/intro', title: 'Intro', content: 'Hello.' }, admin)
 
     expect(await pages.backlinks('docs/intro')).toEqual([
       { path: 'home', title: 'Home', label: 'intro', kind: 'wikilink' },
@@ -560,8 +551,8 @@ describe('page + search slice (in-memory db)', () => {
   test('history returns stored revisions newest first', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
-    pages.update('docs/history', { content: 'two' }, admin)
+    await pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
+    await pages.update('docs/history', { content: 'two' }, admin)
 
     const history = await pages.history('docs/history')
 
@@ -586,8 +577,8 @@ describe('page + search slice (in-memory db)', () => {
     if (!created.ok) return
     const alice: Principal = { id: created.value.id, role: 'editor' }
 
-    pages.create({ path: 'docs/a', title: 'A', content: 'one' }, alice)
-    pages.update('docs/a', { content: 'two' }, alice)
+    await pages.create({ path: 'docs/a', title: 'A', content: 'one' }, alice)
+    await pages.update('docs/a', { content: 'two' }, alice)
     const history = await pages.history('docs/a')
     expect(history.ok).toBe(true)
     if (history.ok) expect(history.value[0]?.authorName).toBe('Alice')
@@ -607,8 +598,8 @@ describe('page + search slice (in-memory db)', () => {
   test('labels() aggregates distinct labels with counts', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'a', title: 'A', content: 'x', labels: ['guide', 'api'] }, admin)
-    pages.create({ path: 'b', title: 'B', content: 'y', labels: ['guide'] }, admin)
+    await pages.create({ path: 'a', title: 'A', content: 'x', labels: ['guide', 'api'] }, admin)
+    await pages.create({ path: 'b', title: 'B', content: 'y', labels: ['guide'] }, admin)
 
     const labels = await pages.labels()
     expect(labels.find((l) => l.label === 'guide')?.count).toBe(2)
@@ -620,8 +611,8 @@ describe('page + search slice (in-memory db)', () => {
   test('brokenLinks() reports links to non-existent pages', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/start', title: 'Start', content: 'see [[Docs/Intro]] and [[Docs/Ghost]]' }, admin)
-    pages.create({ path: 'docs/intro', title: 'Intro', content: 'hi' }, admin)
+    await pages.create({ path: 'docs/start', title: 'Start', content: 'see [[Docs/Intro]] and [[Docs/Ghost]]' }, admin)
+    await pages.create({ path: 'docs/intro', title: 'Intro', content: 'hi' }, admin)
 
     const broken = await pages.brokenLinks()
     expect(broken.length).toBe(1)
@@ -634,9 +625,9 @@ describe('page + search slice (in-memory db)', () => {
   test('recentChanges() returns revisions across pages, newest first, capped', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'a', title: 'A', content: 'one' }, admin)
-    pages.create({ path: 'b', title: 'B', content: 'two' }, admin)
-    pages.update('a', { content: 'one!' }, admin)
+    await pages.create({ path: 'a', title: 'A', content: 'one' }, admin)
+    await pages.create({ path: 'b', title: 'B', content: 'two' }, admin)
+    await pages.update('a', { content: 'one!' }, admin)
 
     const changes = await pages.recentChanges()
     expect(changes.length).toBeGreaterThanOrEqual(3)
@@ -652,8 +643,8 @@ describe('page + search slice (in-memory db)', () => {
   test('history stays newest-first even when revisions share a timestamp', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
-    pages.update('docs/history', { content: 'two' }, admin)
+    await pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
+    await pages.update('docs/history', { content: 'two' }, admin)
     // Force both revisions onto the same created_at so ordering can't rely on
     // the clock — the rowid tie-break must still put the newer one first.
     db.$client.prepare('UPDATE page_revisions SET created_at = 1000').run()
@@ -670,13 +661,13 @@ describe('page + search slice (in-memory db)', () => {
   test('restoreRevision applies an old revision as a new update', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
-    pages.update('docs/history', { content: 'two' }, admin)
+    await pages.create({ path: 'docs/history', title: 'History', content: 'one' }, admin)
+    await pages.update('docs/history', { content: 'two' }, admin)
     const history = await pages.history('docs/history')
     expect(history.ok).toBe(true)
     if (!history.ok) return
 
-    const restored = pages.restoreRevision('docs/history', history.value[0]!.id, admin)
+    const restored = await pages.restoreRevision('docs/history', history.value[0]!.id, admin)
 
     expect(restored.ok).toBe(true)
     if (restored.ok) expect(restored.value.content).toBe('one')
@@ -688,7 +679,7 @@ describe('page + search slice (in-memory db)', () => {
   test('events index extracts calendar fences across pages', async () => {
     const db = createDb(':memory:')
     const { pages } = createServices(db)
-    pages.create({
+    await pages.create({
       path: 'calendar/sync',
       title: 'Sync',
       content: '```event\ntitle: Sync\nstart: 2026-07-05 10:00\n```',
@@ -708,7 +699,7 @@ describe('page + search slice (in-memory db)', () => {
   test('comments attach to active pages and expose mentions', async () => {
     const db = createDb(':memory:')
     const { pages, comments } = createServices(db)
-    pages.create({ path: 'docs/comments', title: 'Comments', content: 'hello' }, admin)
+    await pages.create({ path: 'docs/comments', title: 'Comments', content: 'hello' }, admin)
 
     const created = await comments.create('docs/comments', 'Please review @Ada and @ops-team', viewer)
 
@@ -770,34 +761,34 @@ describe('page + search slice (in-memory db)', () => {
   test('delete removes from search', async () => {
     const db = createDb(':memory:')
     const { pages, search } = createServices(db)
-    pages.create({ path: 'gone', title: 'Gone', content: 'ephemeral mango' }, admin)
+    await pages.create({ path: 'gone', title: 'Gone', content: 'ephemeral mango' }, admin)
     expect(search.search('mango').hits.length).toBe(1)
-    pages.remove('gone', admin)
+    await pages.remove('gone', admin)
     expect(search.search('mango').hits.length).toBe(0)
-    expect(pages.getByPath('gone').ok).toBe(false)
+    expect((await pages.getByPath('gone')).ok).toBe(false)
     expect(await pages.trash()).toContainEqual(expect.objectContaining({ path: 'gone', lifecycle: 'deleted' }))
   })
 
   test('archive, restore, and purge control recoverable page lifecycle', async () => {
     const db = createDb(':memory:')
     const { pages, search, comments, analytics } = createServices(db)
-    pages.create({ path: 'docs/archive-me', title: 'Archive me', content: 'durable kiwi' }, admin)
+    await pages.create({ path: 'docs/archive-me', title: 'Archive me', content: 'durable kiwi' }, admin)
     await comments.create('docs/archive-me', 'sensitive note', admin)
     analytics.recordPageView('docs/archive-me', admin)
     await analytics.flush()
 
-    const archived = pages.archive('docs/archive-me', admin)
+    const archived = await pages.archive('docs/archive-me', admin)
     expect(archived.ok).toBe(true)
     expect((await pages.list()).some((page) => page.path === 'docs/archive-me')).toBe(false)
     expect(await pages.trash()).toContainEqual(expect.objectContaining({ path: 'docs/archive-me', lifecycle: 'archived' }))
     expect(search.search('kiwi').hits.length).toBe(0)
 
-    const restored = pages.restore('docs/archive-me', admin)
+    const restored = await pages.restore('docs/archive-me', admin)
     expect(restored.ok).toBe(true)
-    expect(pages.getByPath('docs/archive-me').ok).toBe(true)
+    expect((await pages.getByPath('docs/archive-me')).ok).toBe(true)
     expect(search.search('kiwi').hits.length).toBe(1)
 
-    const purged = pages.purge('docs/archive-me', admin)
+    const purged = await pages.purge('docs/archive-me', admin)
     expect(purged.ok).toBe(true)
     expect((await pages.history('docs/archive-me')).ok).toBe(false)
     expect(tableCount(db, 'page_revisions')).toBe(0)

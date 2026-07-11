@@ -35,9 +35,9 @@ export const createGitSyncHandlers = ({
     // the remote was empty or incomplete. Bring it back before applying Git so
     // imports cannot silently conflict with the trash entry forever.
     if (authoritative && (await services.pages.trash()).some((page) => page.path === path)) {
-      services.pages.restore(path, systemPrincipal)
+      await services.pages.restore(path, systemPrincipal)
     }
-    const result = services.pages.upsertFromFile(
+    const result = await services.pages.upsertFromFile(
       path,
       file,
       authoritative ? { status: 'verified' } : {},
@@ -49,8 +49,8 @@ export const createGitSyncHandlers = ({
       else bus.emit({ type: 'page:changed', action, path: result.value.page.path })
     }
   },
-  remove: (path) => {
-    if (services.pages.remove(path, systemPrincipal).ok) {
+  remove: async (path) => {
+    if ((await services.pages.remove(path, systemPrincipal)).ok) {
       if (onPageWrite) onPageWrite({ action: 'deleted', path, principal: systemPrincipal })
       else bus.emit({ type: 'page:changed', action: 'deleted', path })
     }
@@ -60,7 +60,7 @@ export const createGitSyncHandlers = ({
         const tracked = new Set(trackedPaths)
         for (const page of await services.pages.allActive()) {
           if (!tracked.has(page.path)) {
-            const result = services.pages.remove(page.path, systemPrincipal)
+            const result = await services.pages.remove(page.path, systemPrincipal)
             if (result.ok) {
               if (onPageWrite) onPageWrite({ action: 'deleted', path: page.path, principal: systemPrincipal })
               else bus.emit({ type: 'page:changed', action: 'deleted', path: page.path })

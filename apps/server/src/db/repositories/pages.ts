@@ -1,7 +1,14 @@
 import { asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import type { DB } from '../client.ts'
-import { pageRedirects, pageRevisions, pages, users } from '../schema.ts'
-import type { PageReadRepository } from '../../repositories/pages.ts'
+import { pageAnalytics, pageAssetRefs, pageComments, pageRedirects, pageRevisions, pages, users } from '../schema.ts'
+import { isUniqueConstraintError } from '../errors.ts'
+import type { SearchIndexer } from '../../services/search.ts'
+import {
+  DuplicatePagePathError,
+  type PageReadRepository,
+  type PageRevisionRecord,
+  type PageWriteRepository,
+} from '../../repositories/pages.ts'
 
 export const createSqlitePageReadRepository = (db: DB): PageReadRepository => ({
   async listActive() {
@@ -66,5 +73,122 @@ export const createSqlitePageReadRepository = (db: DB): PageReadRepository => ({
         revisions: Number(row.revisions),
         lastContributionAt: Number(row.lastContributionAt),
       }))
+  },
+})
+
+const insertRevision = (tx: { insert: DB['insert'] }, revision: PageRevisionRecord): void => {
+  tx.insert(pageRevisions).values(revision).run()
+}
+
+export const createSqlitePageWriteRepository = (db: DB, searchIndexer: SearchIndexer): PageWriteRepository => ({
+  async findByPath(path) {
+    return db.select().from(pages).where(eq(pages.path, path)).get()
+  },
+  async findById(id) {
+    return db.select().from(pages).where(eq(pages.id, id)).get()
+  },
+  async findRevision(id) {
+    return db.select().from(pageRevisions).where(eq(pageRevisions.id, id)).get()
+  },
+  async findRedirect(path) {
+    return db.select().from(pageRedirects).where(eq(pageRedirects.fromPath, path)).get()?.toPath ?? null
+  },
+  async writeExisting(input) {
+    return db.transaction((tx) => {
+      if (input.revision) insertRevision(tx, input.revision)
+      tx.update(pages).set(input.changes).where(eq(pages.id, input.pageId)).run()
+      searchIndexer.indexPageById(input.pageId)
+      return tx.select().from(pages).where(eq(pages.id, input.pageId)).get()
+    })
+  },
+  async create(page, revision) {
+    try {
+      return db.transaction((tx) => {
+        tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, page.path)).run()
+        tx.insert(pages).values(page).run()
+        insertRevision(tx, revision)
+        searchIndexer.indexPageById(page.id)
+        return tx.select().from(pages).where(eq(pages.id, page.id)).get()
+      })
+    } catch (error) {
+      if (isUniqueConstraintError(error)) throw new DuplicatePagePathError()
+      throw error
+    }
+  },
+  async createRedirect(record) {
+    db.insert(pageRedirects).values(record).run()
+  },
+  async deleteRedirect(fromPath) {
+    db.delete(pageRedirects).where(eq(pageRedirects.fromPath, fromPath)).run()
+  },
+  async setLifecycle(input) {
+    return db.transaction((tx) => {
+      insertRevision(tx, input.revision)
+      tx.update(pages).set({ lifecycle: input.lifecycle, updatedAt: input.updatedAt })
+        .where(eq(pages.id, input.pageId)).run()
+      if (input.index) searchIndexer.indexPageById(input.pageId)
+      else searchIndexer.removePage(input.pageId)
+      return tx.select().from(pages).where(eq(pages.id, input.pageId)).get()
+    })
+  },
+  async move(input) {
+    return db.transaction((tx) => {
+      insertRevision(tx, input.revision)
+      tx.update(pages).set({ path: input.newPath, spaceKey: input.spaceKey, updatedAt: input.updatedAt })
+        .where(eq(pages.id, input.pageId)).run()
+      tx.update(pageComments).set({ path: input.newPath, updatedAt: input.updatedAt })
+        .where(eq(pageComments.pageId, input.pageId)).run()
+      tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, input.newPath)).run()
+      tx.update(pageRedirects).set({ toPath: input.newPath }).where(eq(pageRedirects.toPath, input.oldPath)).run()
+      tx.insert(pageRedirects).values({ fromPath: input.oldPath, toPath: input.newPath, createdAt: input.updatedAt })
+        .onConflictDoUpdate({
+          target: pageRedirects.fromPath,
+          set: { toPath: input.newPath, createdAt: input.updatedAt },
+        }).run()
+      for (const rewritten of input.rewrittenPages) {
+        insertRevision(tx, rewritten.revision)
+        tx.update(pages).set({
+          content: rewritten.content,
+          renderedHtml: rewritten.renderedHtml,
+          toc: rewritten.toc,
+          updatedAt: rewritten.updatedAt,
+        }).where(eq(pages.id, rewritten.pageId)).run()
+        searchIndexer.indexPageById(rewritten.pageId)
+      }
+      searchIndexer.indexPageById(input.pageId)
+      return tx.select().from(pages).where(eq(pages.id, input.pageId)).get()
+    })
+  },
+  async remove(input) {
+    return db.transaction((tx) => {
+      insertRevision(tx, input.revision)
+      tx.update(pages).set({ lifecycle: 'deleted', updatedAt: input.updatedAt })
+        .where(eq(pages.id, input.pageId)).run()
+      tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, input.path)).run()
+      tx.delete(pageRedirects).where(eq(pageRedirects.toPath, input.path)).run()
+      searchIndexer.removePage(input.pageId)
+      return tx.select().from(pages).where(eq(pages.id, input.pageId)).get()
+    })
+  },
+  async purge(pageId, path) {
+    db.transaction((tx) => {
+      const paths = new Set<string>([path])
+      for (const row of tx.select({ path: pageRevisions.path }).from(pageRevisions).where(eq(pageRevisions.pageId, pageId)).all()) {
+        paths.add(row.path)
+      }
+      for (const row of tx.select({ path: pageComments.path }).from(pageComments).where(eq(pageComments.pageId, pageId)).all()) {
+        paths.add(row.path)
+      }
+      for (const pagePath of paths) {
+        tx.delete(pageAnalytics).where(eq(pageAnalytics.path, pagePath)).run()
+        tx.delete(pageRedirects).where(eq(pageRedirects.fromPath, pagePath)).run()
+        tx.delete(pageRedirects).where(eq(pageRedirects.toPath, pagePath)).run()
+      }
+      tx.delete(pageAssetRefs).where(eq(pageAssetRefs.pageId, pageId)).run()
+      tx.delete(pageComments).where(eq(pageComments.pageId, pageId)).run()
+      tx.delete(pageRevisions).where(eq(pageRevisions.pageId, pageId)).run()
+      tx.delete(pages).where(eq(pages.id, pageId)).run()
+      searchIndexer.removePage(pageId)
+    })
   },
 })

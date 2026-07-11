@@ -73,11 +73,11 @@ export const runSeed = async (): Promise<void> => {
     const principal: Principal | null = admin ? { id: admin.id, role: admin.role } : null
 
     for (const page of sampleSeedPages()) {
-      if (services.pages.getByPath(page.path).ok) {
+      if ((await services.pages.getByPath(page.path)).ok) {
         console.log(`· skip   ${page.path} (exists)`)
         continue
       }
-      const result = services.pages.create(page, principal)
+      const result = await services.pages.create(page, principal)
       console.log(result.ok ? `✓ page   ${page.path}` : `! page   ${page.path}: ${result.error.message}`)
     }
 

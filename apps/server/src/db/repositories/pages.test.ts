@@ -2,7 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import type { DB } from '../client.ts'
 import { createLibsqlDb, createSqliteDb } from '../client.ts'
 import { pageRedirects, pageRevisions, pages, users } from '../schema.ts'
-import { createSqlitePageReadRepository } from './pages.ts'
+import { DuplicatePagePathError, type PageRecord, type PageRevisionRecord } from '../../repositories/pages.ts'
+import { createFtsSearchIndexer } from './search.ts'
+import { createSqlitePageReadRepository, createSqlitePageWriteRepository } from './pages.ts'
 
 const databases: DB[] = []
 
@@ -23,6 +25,27 @@ const seedPage = (db: DB, id: string, lifecycle: 'active' | 'archived', updatedA
     spaceKey: 'docs', locale: 'ja', authorId: 'user-1', createdAt: 1, updatedAt,
   }).run()
 }
+
+const pageRecord = (id: string, path = `docs/${id}`, content = id): PageRecord => ({
+  id, path, title: id, description: '', icon: '', coverUrl: '', coverPosition: 'center',
+  content, renderedHtml: `<p>${content}</p>`, toc: '[]', contentType: 'markdown', lifecycle: 'active',
+  status: 'verified', labels: '[]', ownerId: null, reviewAt: null, publishAt: null, navOrder: null,
+  pinned: false, spaceKey: path.split('/')[0] || 'main', locale: 'ja', authorId: null,
+  createdAt: 1, updatedAt: 1,
+})
+
+const revisionRecord = (
+  page: PageRecord,
+  id: string,
+  action: PageRevisionRecord['action'],
+  createdAt: number,
+): PageRevisionRecord => ({
+  id, pageId: page.id, path: page.path, title: page.title, description: page.description,
+  content: page.content, authorId: null, action, createdAt,
+})
+
+const ftsCount = (db: DB, term: string): number =>
+  Number((db.$client.prepare('SELECT count(*) AS count FROM pages_fts WHERE pages_fts MATCH ?').get(term) as { count: number }).count)
 
 describe.each(drivers)('%s page read repository contract', (_driver, create) => {
   test('orders lifecycle, revision, redirect, and contributor reads deterministically', async () => {
@@ -56,5 +79,88 @@ describe.each(drivers)('%s page read repository contract', (_driver, create) => 
     expect(await repository.revisionContributors('a')).toEqual([{
       authorId: 'user-1', authorName: 'Author', revisions: 2, lastContributionAt: 100,
     }])
+  })
+})
+
+describe.each(drivers)('%s page write repository contract', (_driver, create) => {
+  test('keeps page, revision, redirect, lifecycle, and FTS mutations consistent', async () => {
+    const db = create()
+    databases.push(db)
+    const search = createFtsSearchIndexer(db, { configuredTokenizer: 'unicode61' })
+    const repository = createSqlitePageWriteRepository(db, search)
+    const original = pageRecord('page-1', 'docs/old', 'searchable banana')
+
+    expect(await repository.create(original, revisionRecord(original, 'revision-created', 'created', 1))).toEqual(original)
+    expect(await repository.findRevision('revision-created')).toMatchObject({ pageId: original.id, action: 'created' })
+    expect(ftsCount(db, 'banana')).toBe(1)
+
+    const updated = await repository.writeExisting({
+      pageId: original.id,
+      revision: revisionRecord(original, 'revision-updated', 'updated', 2),
+      changes: { content: 'searchable orange', renderedHtml: '<p>searchable orange</p>', updatedAt: 2 },
+    })
+    expect(updated).toMatchObject({ content: 'searchable orange', updatedAt: 2 })
+    expect(ftsCount(db, 'banana')).toBe(0)
+    expect(ftsCount(db, 'orange')).toBe(1)
+
+    const reference = pageRecord('page-2', 'docs/reference', 'See [[docs/old]].')
+    await repository.create(reference, revisionRecord(reference, 'reference-created', 'created', 3))
+    const current = (await repository.findById(original.id))!
+    const moved = await repository.move({
+      pageId: current.id,
+      oldPath: current.path,
+      newPath: 'docs/new',
+      spaceKey: 'docs',
+      updatedAt: 4,
+      revision: revisionRecord(current, 'revision-moved', 'moved', 4),
+      rewrittenPages: [{
+        pageId: reference.id,
+        content: 'See [[docs/new]].',
+        renderedHtml: '<p>See docs/new.</p>',
+        toc: '[]',
+        updatedAt: 4,
+        revision: revisionRecord(reference, 'reference-updated', 'updated', 4),
+      }],
+    })
+    expect(moved).toMatchObject({ path: 'docs/new' })
+    expect(await repository.findRedirect('docs/old')).toBe('docs/new')
+    expect(await repository.findById(reference.id)).toMatchObject({ content: 'See [[docs/new]].' })
+
+    const archived = await repository.setLifecycle({
+      pageId: current.id, lifecycle: 'archived', updatedAt: 5,
+      revision: revisionRecord(moved!, 'revision-archived', 'archived', 5), index: false,
+    })
+    expect(archived?.lifecycle).toBe('archived')
+    expect(ftsCount(db, 'orange')).toBe(0)
+    const restored = await repository.setLifecycle({
+      pageId: current.id, lifecycle: 'active', updatedAt: 6,
+      revision: revisionRecord(archived!, 'revision-restored', 'restored', 6), index: true,
+    })
+    expect(restored?.lifecycle).toBe('active')
+    expect(ftsCount(db, 'orange')).toBe(1)
+
+    const removed = await repository.remove({
+      pageId: current.id, path: 'docs/new', updatedAt: 7,
+      revision: revisionRecord(restored!, 'revision-deleted', 'deleted', 7),
+    })
+    expect(removed?.lifecycle).toBe('deleted')
+    expect(await repository.findRedirect('docs/old')).toBeNull()
+    await repository.purge(current.id, 'docs/new')
+    expect(await repository.findById(current.id)).toBeUndefined()
+    expect(await repository.findRevision('revision-created')).toBeUndefined()
+  })
+
+  test('normalizes duplicate page paths at the repository boundary', async () => {
+    const db = create()
+    databases.push(db)
+    const repository = createSqlitePageWriteRepository(
+      db,
+      createFtsSearchIndexer(db, { configuredTokenizer: 'unicode61' }),
+    )
+    const first = pageRecord('first', 'docs/same')
+    const second = pageRecord('second', 'docs/same')
+    await repository.create(first, revisionRecord(first, 'first-created', 'created', 1))
+    expect(repository.create(second, revisionRecord(second, 'second-created', 'created', 2)))
+      .rejects.toBeInstanceOf(DuplicatePagePathError)
   })
 })
