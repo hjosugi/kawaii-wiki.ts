@@ -3,6 +3,14 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.9] - 2026-07-11
+
+### Fixed
+
+- Made authoritative Git startup re-import every tracked Markdown page, restore
+  matching archived paths, publish Git-reviewed pages, and refuse to reconcile
+  an empty repository so a partial first sync cannot hide an entire wiki.
+
 ## [1.0.8] - 2026-07-11
 
 ### Changed
