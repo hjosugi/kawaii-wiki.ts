@@ -3,6 +3,21 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.19] - 2026-07-12
+
+### Changed
+
+- Moved link-preview and YouTube RSS cache lookup/upsert persistence behind an
+  asynchronous driver-neutral repository.
+- Removed database, schema, and Drizzle imports from the link-preview service
+  while keeping URL validation, SSRF protection, fetching, and parsing in the
+  service layer.
+
+### Tests
+
+- Added shared SQLite and libSQL link-preview repository coverage for cache
+  misses, inserts, and complete conflict-update replacement.
+
 ## [1.0.18] - 2026-07-12
 
 ### Changed
