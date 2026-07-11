@@ -76,4 +76,17 @@ describe('built-in page templates', () => {
     expect(templates['builtin:event-announcement']?.content).toContain('```links')
     expect(templates['builtin:event-announcement']?.content).toContain('```embed')
   })
+
+  test('localizes built-in template content for the Japanese interface', () => {
+    const templates = Object.fromEntries(
+      builtInPageTemplates('Asia/Tokyo', 'ja').map((template) => [template.key, template]),
+    )
+
+    expect(templates['builtin:blank']?.content).toContain('ここから本文を書き始めます')
+    expect(templates['builtin:decision']?.content).toContain('## 背景')
+    expect(templates['builtin:meeting']?.content).toContain('## 参加者')
+    expect(templates['builtin:journal']?.content).toContain('## フォローアップ')
+    expect(templates['builtin:spec']?.content).toContain('## 対象外')
+    expect(templates['builtin:talent-profile']?.description).toContain('VTuber')
+  })
 })

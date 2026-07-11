@@ -147,6 +147,13 @@ function pathInput(wrapper: VueWrapper) {
   return input!
 }
 
+async function openSettings(wrapper: VueWrapper): Promise<void> {
+  const button = wrapper.findAll('button').find((item) => item.text() === 'Page settings')
+  expect(button).toBeTruthy()
+  await button!.trigger('click')
+  await settle()
+}
+
 describe('PageEdit', () => {
   const wrappers: VueWrapper[] = []
 
@@ -178,6 +185,7 @@ describe('PageEdit', () => {
     const mounted = await mountEdit()
     wrappers.push(mounted.wrapper)
 
+    await openSettings(mounted.wrapper)
     await mounted.wrapper.find('input[aria-label="Page title"]').setValue('Updated source')
     await saveButton(mounted.wrapper).trigger('click')
     await settle()
@@ -202,16 +210,18 @@ describe('PageEdit', () => {
     const mounted = await mountEdit()
     wrappers.push(mounted.wrapper)
 
+    await openSettings(mounted.wrapper)
     await mounted.wrapper.find('input[aria-label="Page title"]').setValue('Draft source')
     await saveButton(mounted.wrapper).trigger('click')
     await settle()
 
     expect(mounted.wrapper.text()).toContain('Unsaved draft kept')
-    expect((mounted.wrapper.find('input[aria-label="Page title"]').element as HTMLInputElement).value).toBe('Latest source')
+    expect(mounted.wrapper.text()).toContain('Latest source')
 
     const restore = mounted.wrapper.findAll('button').find((item) => item.text() === 'Restore my draft')
     expect(restore).toBeTruthy()
     await restore!.trigger('click')
+    await openSettings(mounted.wrapper)
     expect((mounted.wrapper.find('input[aria-label="Page title"]').element as HTMLInputElement).value).toBe('Draft source')
   })
 
@@ -222,6 +232,7 @@ describe('PageEdit', () => {
     const mounted = await mountEdit()
     wrappers.push(mounted.wrapper)
 
+    await openSettings(mounted.wrapper)
     await pathInput(mounted.wrapper).setValue('docs/moved')
     await saveButton(mounted.wrapper).trigger('click')
     await settle()
@@ -235,10 +246,31 @@ describe('PageEdit', () => {
     const mounted = await mountEdit()
     wrappers.push(mounted.wrapper)
 
+    await openSettings(mounted.wrapper)
     await mounted.wrapper.find('input[aria-label="Page title"]').setValue('Dirty source')
     const event = new Event('beforeunload', { cancelable: true })
     window.dispatchEvent(event)
 
     expect(event.defaultPrevented).toBe(true)
+  })
+
+  test('separates page settings from writing and keeps templates collapsed by default', async () => {
+    const mounted = await mountEdit('/_new')
+    wrappers.push(mounted.wrapper)
+
+    const templateSummary = mounted.wrapper.findAll('summary').find((item) => item.text().startsWith('Template:'))
+    expect(templateSummary).toBeTruthy()
+    expect((templateSummary!.element.parentElement as HTMLDetailsElement).open).toBe(false)
+    expect(mounted.wrapper.find('textarea[aria-label="Editor content"]').exists()).toBe(false)
+
+    await mounted.wrapper.find('input[aria-label="Page title"]').setValue('Focused page')
+    const start = mounted.wrapper.findAll('button').find((item) => item.text() === 'Start writing')
+    expect(start).toBeTruthy()
+    await start!.trigger('click')
+    await settle()
+
+    expect(mounted.wrapper.text()).toContain('Content editor')
+    expect(mounted.wrapper.find('textarea[aria-label="Editor content"]').exists()).toBe(true)
+    expect(mounted.wrapper.find('input[aria-label="Page title"]').exists()).toBe(false)
   })
 })

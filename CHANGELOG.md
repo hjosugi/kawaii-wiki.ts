@@ -13,6 +13,12 @@ Versioning; API compatibility details are in `docs/API.md`.
   branded UI states around the configurable accent instead of hardcoded violet.
 - Reworked the active page treatment from a heavy left stripe to a subtle
   outlined surface.
+- Split page creation and editing into focused settings and content views,
+  collapsed page appearance/path/template controls by default, and replaced
+  full template previews with a compact picker.
+- Added Japanese built-in template content, localized page status badges, a
+  Japanese Core package guide, and explicit language labels for English
+  repository-source documentation.
 
 ### Fixed
 
