@@ -30,13 +30,13 @@ describe('notification service', () => {
     }, actor)
     if (!page.ok) throw new Error('page seed failed')
 
-    expect(services.notifications.watch(watcher, page.value.path, true)).toEqual({
+    expect(await services.notifications.watch(watcher, page.value.path, true)).toEqual({
       ok: true,
       value: { path: page.value.path, watching: true },
     })
-    services.notifications.pageChanged('updated', page.value.path, undefined, actor.id)
+    await services.notifications.pageChanged('updated', page.value.path, undefined, actor.id)
 
-    const listed = services.notifications.list(watcher)
+    const listed = await services.notifications.list(watcher)
     expect(listed.ok).toBe(true)
     if (!listed.ok) throw new Error('notification list failed')
     expect(listed.value.unread).toBe(1)
@@ -47,8 +47,8 @@ describe('notification service', () => {
       readAt: null,
     })
 
-    services.notifications.markRead(watcher, listed.value.notifications[0]!.id)
-    const read = services.notifications.list(watcher)
+    await services.notifications.markRead(watcher, listed.value.notifications[0]!.id)
+    const read = await services.notifications.list(watcher)
     expect(read.ok && read.value.unread).toBe(0)
   })
 
@@ -73,8 +73,8 @@ describe('notification service', () => {
       publishAt: Date.now() + 60_000,
     }, editor).ok).toBe(true)
 
-    const draft = services.notifications.watch(viewer, 'docs/draft', true)
-    const future = services.notifications.watch(viewer, 'docs/future', true)
+    const draft = await services.notifications.watch(viewer, 'docs/draft', true)
+    const future = await services.notifications.watch(viewer, 'docs/future', true)
     expect(!draft.ok && draft.error.kind).toBe('not_found')
     expect(!future.ok && future.error.kind).toBe('not_found')
   })
@@ -93,13 +93,13 @@ describe('notification service', () => {
     expect(services.pages.create({ path: 'docs/old', title: 'Old', content: 'Old', status: 'verified' }, watcher).ok).toBe(true)
     expect(services.pages.create({ path: 'docs/new', title: 'New', content: 'New', status: 'verified' }, watcher).ok).toBe(true)
 
-    expect(services.notifications.watch(watcher, 'docs/old', true).ok).toBe(true)
-    expect(services.notifications.watch(watcher, 'docs/new', true).ok).toBe(true)
-    expect(() => services.notifications.pageChanged('moved', 'docs/new', 'docs/old', 'actor')).not.toThrow()
-    expect(services.notifications.watching(watcher, 'docs/old')).toEqual({ ok: true, value: { path: 'docs/old', watching: false } })
-    expect(services.notifications.watching(watcher, 'docs/new')).toEqual({ ok: true, value: { path: 'docs/new', watching: true } })
+    expect((await services.notifications.watch(watcher, 'docs/old', true)).ok).toBe(true)
+    expect((await services.notifications.watch(watcher, 'docs/new', true)).ok).toBe(true)
+    await services.notifications.pageChanged('moved', 'docs/new', 'docs/old', 'actor')
+    expect(await services.notifications.watching(watcher, 'docs/old')).toEqual({ ok: true, value: { path: 'docs/old', watching: false } })
+    expect(await services.notifications.watching(watcher, 'docs/new')).toEqual({ ok: true, value: { path: 'docs/new', watching: true } })
 
-    services.notifications.pageChanged('deleted', 'docs/new', undefined, 'actor')
-    expect(services.notifications.watching(watcher, 'docs/new')).toEqual({ ok: true, value: { path: 'docs/new', watching: false } })
+    await services.notifications.pageChanged('deleted', 'docs/new', undefined, 'actor')
+    expect(await services.notifications.watching(watcher, 'docs/new')).toEqual({ ok: true, value: { path: 'docs/new', watching: false } })
   })
 })

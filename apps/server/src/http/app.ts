@@ -445,7 +445,7 @@ export const createApp = ({
     if (!targetPath) return
     feedCache.clear()
     emitPageChanged(action, targetPath, from)
-    services.notifications.pageChanged(action, targetPath, from, principal?.id ?? null)
+    await services.notifications.pageChanged(action, targetPath, from, principal?.id ?? null)
     const author = await gitAuthor(principal?.id)
     const mirrorWrite = mirror === 'save' && page
       ? git.savePage(page, author)

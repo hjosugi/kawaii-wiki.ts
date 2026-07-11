@@ -198,7 +198,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     recovery: createAuthRecoveryService(repositories.authRecovery, auth, mail),
     apiKeys: createApiKeyService(repositories.apiKeys, authz),
     totp: createTotpService(repositories.totp, auth.siteName),
-    notifications: createNotificationService(db),
+    notifications: createNotificationService(repositories.notifications),
     webhooks: createWebhookService(db, {
       fetcher: options.webhookFetcher,
       resolver: options.webhookResolver,
