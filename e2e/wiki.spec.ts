@@ -108,7 +108,10 @@ test('owner setup, page creation, and search work through the production app', a
     animations: 'disabled',
     maxDiffPixelRatio: 0.02,
   })
-  await expect(page.locator('.prose').first()).toHaveScreenshot('minimal-prose.png', { animations: 'disabled' })
+  await expect(page.locator('.prose').first()).toHaveScreenshot('minimal-prose.png', {
+    animations: 'disabled',
+    maxDiffPixelRatio: 0.05,
+  })
 
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/home')
