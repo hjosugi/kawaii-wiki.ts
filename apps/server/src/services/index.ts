@@ -190,7 +190,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     shares: createPageShareService(repositories.pageShares),
     templates: createPageTemplateService(repositories.pageTemplates),
     preferences: createUserPreferenceService(repositories.userPreferences),
-    linkPreviews: createLinkPreviewService(db, {
+    linkPreviews: createLinkPreviewService(repositories.linkPreviews, {
       fetcher: options.webhookFetcher,
       resolver: options.webhookResolver,
     }),

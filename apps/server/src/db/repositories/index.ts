@@ -23,6 +23,8 @@ import type { PageShareRepository } from '../../repositories/page-shares.ts'
 import { createSqlitePageShareRepository } from './page-shares.ts'
 import type { AnalyticsRepository } from '../../repositories/analytics.ts'
 import { createSqliteAnalyticsRepository } from './analytics.ts'
+import type { LinkPreviewRepository } from '../../repositories/link-previews.ts'
+import { createSqliteLinkPreviewRepository } from './link-previews.ts'
 
 /**
  * Repository composition boundary for the active database driver.
@@ -43,6 +45,7 @@ export interface DatabaseRepositories {
   readonly apiKeys: ApiKeyRepository
   readonly pageShares: PageShareRepository
   readonly analytics: AnalyticsRepository
+  readonly linkPreviews: LinkPreviewRepository
 }
 
 export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
@@ -58,4 +61,5 @@ export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
   apiKeys: createSqliteApiKeyRepository(db),
   pageShares: createSqlitePageShareRepository(db),
   analytics: createSqliteAnalyticsRepository(db),
+  linkPreviews: createSqliteLinkPreviewRepository(db),
 })

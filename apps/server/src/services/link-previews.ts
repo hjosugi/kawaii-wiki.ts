@@ -1,4 +1,3 @@
-import { eq } from 'drizzle-orm'
 import {
   err,
   forbidden,
@@ -9,8 +8,7 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { linkPreviews, type LinkPreviewRow } from '../db/schema.ts'
+import type { LinkPreviewRecord, LinkPreviewRepository } from '../repositories/link-previews.ts'
 import type { WebhookFetcher, WebhookHostnameResolver } from './webhooks.ts'
 import {
   defaultFetcher,
@@ -234,7 +232,7 @@ const readLimitedText = async (response: Response, maxBytes: number): Promise<Re
   return ok(new TextDecoder().decode(bytes))
 }
 
-const cachedUnfurl = (row: LinkPreviewRow, now: number): LinkPreviewView | null => {
+const cachedUnfurl = (row: LinkPreviewRecord, now: number): LinkPreviewView | null => {
   if (row.kind !== 'unfurl' || row.expiresAt <= now) return null
   return {
     url: row.url,
@@ -250,7 +248,7 @@ const cachedUnfurl = (row: LinkPreviewRow, now: number): LinkPreviewView | null 
   }
 }
 
-const cachedYoutubeLatest = (row: LinkPreviewRow, channelId: string, limit: number, now: number): YoutubeLatestView | null => {
+const cachedYoutubeLatest = (row: LinkPreviewRecord, channelId: string, limit: number, now: number): YoutubeLatestView | null => {
   if (row.kind !== 'youtube-latest' || row.expiresAt <= now) return null
   const data = parseJson(row.data)
   const videos = Array.isArray(data.videos) ? data.videos : []
@@ -271,7 +269,7 @@ const cachedYoutubeLatest = (row: LinkPreviewRow, channelId: string, limit: numb
   }
 }
 
-export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {}): LinkPreviewService => {
+export const createLinkPreviewService = (repository: LinkPreviewRepository, options: LinkPreviewOptions = {}): LinkPreviewService => {
   const fetcher = options.fetcher ?? defaultFetcher
   const resolver = options.resolver ?? defaultResolver
   const now = options.now ?? (() => Date.now())
@@ -334,28 +332,6 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
     return err(validationError('URL exceeded redirect limit', 'url'))
   }
 
-  const saveRow = (row: LinkPreviewRow): void => {
-    db.insert(linkPreviews)
-      .values(row)
-      .onConflictDoUpdate({
-        target: linkPreviews.url,
-        set: {
-          kind: row.kind,
-          provider: row.provider,
-          title: row.title,
-          description: row.description,
-          image: row.image,
-          author: row.author,
-          siteName: row.siteName,
-          contentType: row.contentType,
-          data: row.data,
-          fetchedAt: row.fetchedAt,
-          expiresAt: row.expiresAt,
-        },
-      })
-      .run()
-  }
-
   const fetchOembed = async (url: string): Promise<Record<string, unknown>> => {
     const fetched = await fetchText(url, MAX_PREVIEW_BYTES)
     if (!fetched.ok) return {}
@@ -401,7 +377,7 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
       fetchedAt,
       expiresAt: fetchedAt + UNFURL_TTL_MS,
     }
-    saveRow({
+    await repository.upsert({
       ...preview,
       kind: 'unfurl',
       data: JSON.stringify({ oembed: Boolean(oembed), finalUrl: baseUrl }),
@@ -439,7 +415,7 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
       if (!allowed.ok) return err(forbidden('Only editors can fetch link previews'))
       const clean = cleanHttpUrl(url)
       if (!clean.ok) return clean
-      const row = db.select().from(linkPreviews).where(eq(linkPreviews.url, clean.value)).get()
+      const row = await repository.findByUrl(clean.value)
       const cached = row ? cachedUnfurl(row, now()) : null
       if (cached) return ok(cached)
       return buildUnfurl(clean.value)
@@ -452,7 +428,7 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
       }
       const limit = Math.max(1, Math.min(Math.trunc(inputLimit), 12))
       const feedUrl = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(cleanChannelId)}`
-      const row = db.select().from(linkPreviews).where(eq(linkPreviews.url, feedUrl)).get()
+      const row = await repository.findByUrl(feedUrl)
       const cached = row ? cachedYoutubeLatest(row, cleanChannelId, limit, now()) : null
       if (cached) return ok(cached)
 
@@ -466,7 +442,7 @@ export const createLinkPreviewService = (db: DB, options: LinkPreviewOptions = {
         fetchedAt,
         expiresAt: fetchedAt + YOUTUBE_LATEST_TTL_MS,
       }
-      saveRow({
+      await repository.upsert({
         url: feedUrl,
         kind: 'youtube-latest',
         provider: 'youtube',

@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
+import { createSqliteLinkPreviewRepository } from '../db/repositories/link-previews.ts'
 import { createLinkPreviewService } from './link-previews.ts'
 import type { WebhookFetcher } from './webhooks.ts'
 
@@ -24,7 +25,7 @@ describe('link preview service', () => {
         headers: { 'content-type': 'text/html; charset=utf-8' },
       })
     }
-    const previews = createLinkPreviewService(createDb(':memory:'), {
+    const previews = createLinkPreviewService(createSqliteLinkPreviewRepository(createDb(':memory:')), {
       fetcher,
       resolver: async () => ['93.184.216.34'],
       now: () => 1_000,
@@ -48,7 +49,7 @@ describe('link preview service', () => {
   })
 
   test('blocks private or reserved resolved hosts', async () => {
-    const previews = createLinkPreviewService(createDb(':memory:'), {
+    const previews = createLinkPreviewService(createSqliteLinkPreviewRepository(createDb(':memory:')), {
       fetcher: async () => new Response('<title>nope</title>'),
       resolver: async () => ['127.0.0.1'],
     })
@@ -58,7 +59,7 @@ describe('link preview service', () => {
   })
 
   test('drops thumbnails when OG rating metadata marks a preview restricted', async () => {
-    const previews = createLinkPreviewService(createDb(':memory:'), {
+    const previews = createLinkPreviewService(createSqliteLinkPreviewRepository(createDb(':memory:')), {
       fetcher: async () => new Response(`<!doctype html>
         <html><head>
           <meta property="og:title" content="Illustration">
@@ -87,7 +88,7 @@ describe('link preview service', () => {
           <media:group><media:thumbnail url="https://i.ytimg.com/vi/abc123/hqdefault.jpg"/></media:group>
         </entry>
       </feed>`
-    const previews = createLinkPreviewService(createDb(':memory:'), {
+    const previews = createLinkPreviewService(createSqliteLinkPreviewRepository(createDb(':memory:')), {
       fetcher: async () => {
         calls += 1
         return new Response(feed, { headers: { 'content-type': 'application/atom+xml' } })
