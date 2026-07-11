@@ -25,6 +25,8 @@ import type { AnalyticsRepository } from '../../repositories/analytics.ts'
 import { createSqliteAnalyticsRepository } from './analytics.ts'
 import type { LinkPreviewRepository } from '../../repositories/link-previews.ts'
 import { createSqliteLinkPreviewRepository } from './link-previews.ts'
+import type { NotificationRepository } from '../../repositories/notifications.ts'
+import { createSqliteNotificationRepository } from './notifications.ts'
 
 /**
  * Repository composition boundary for the active database driver.
@@ -46,6 +48,7 @@ export interface DatabaseRepositories {
   readonly pageShares: PageShareRepository
   readonly analytics: AnalyticsRepository
   readonly linkPreviews: LinkPreviewRepository
+  readonly notifications: NotificationRepository
 }
 
 export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
@@ -62,4 +65,5 @@ export const createDatabaseRepositories = (db: DB): DatabaseRepositories => ({
   pageShares: createSqlitePageShareRepository(db),
   analytics: createSqliteAnalyticsRepository(db),
   linkPreviews: createSqliteLinkPreviewRepository(db),
+  notifications: createSqliteNotificationRepository(db),
 })

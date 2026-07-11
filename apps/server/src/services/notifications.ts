@@ -1,7 +1,5 @@
-import { and, desc, eq } from 'drizzle-orm'
 import { err, normalizePath, notFound, ok, type AppError, type Principal, type Result, unauthorized, requirePermission } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { notifications, pages, pageWatchers, users } from '../db/schema.ts'
+import type { NotificationRecord, NotificationRepository } from '../repositories/notifications.ts'
 import type { CommentView } from './comments.ts'
 
 export interface NotificationView {
@@ -20,12 +18,12 @@ export interface NotificationList {
 }
 
 export interface NotificationService {
-  list(principal: Principal | null, limit?: number): Result<NotificationList, AppError>
-  markRead(principal: Principal | null, id?: string): Result<{ readAt: number }, AppError>
-  watch(principal: Principal | null, path: string, watching: boolean): Result<{ path: string; watching: boolean }, AppError>
-  watching(principal: Principal | null, path: string): Result<{ path: string; watching: boolean }, AppError>
-  notifyComment(comment: CommentView): void
-  pageChanged(action: string, path: string, from: string | undefined, actorId: string | null): void
+  list(principal: Principal | null, limit?: number): Promise<Result<NotificationList, AppError>>
+  markRead(principal: Principal | null, id?: string): Promise<Result<{ readAt: number }, AppError>>
+  watch(principal: Principal | null, path: string, watching: boolean): Promise<Result<{ path: string; watching: boolean }, AppError>>
+  watching(principal: Principal | null, path: string): Promise<Result<{ path: string; watching: boolean }, AppError>>
+  notifyComment(comment: CommentView): Promise<void>
+  pageChanged(action: string, path: string, from: string | undefined, actorId: string | null): Promise<void>
 }
 
 const parsePayload = (value: string): Record<string, unknown> => {
@@ -37,12 +35,12 @@ const parsePayload = (value: string): Record<string, unknown> => {
   }
 }
 
-export const createNotificationService = (db: DB): NotificationService => {
+export const createNotificationService = (repository: NotificationRepository): NotificationService => {
   const requireUser = (principal: Principal | null): Result<Principal, AppError> =>
     principal ? ok(principal) : err(unauthorized())
 
-  const insert = (userId: string, kind: string, path: string | null, message: string, payload: Record<string, unknown>): void => {
-    db.insert(notifications).values({
+  const insert = async (userId: string, kind: string, path: string | null, message: string, payload: Record<string, unknown>): Promise<void> => {
+    const notification: NotificationRecord = {
       id: crypto.randomUUID(),
       userId,
       kind,
@@ -51,13 +49,14 @@ export const createNotificationService = (db: DB): NotificationService => {
       payload: JSON.stringify(payload),
       readAt: null,
       createdAt: Date.now(),
-    }).run()
+    }
+    await repository.insert(notification)
   }
 
-  const requireVisiblePage = (principal: Principal, path: string): Result<void, AppError> => {
+  const requireVisiblePage = async (principal: Principal, path: string): Promise<Result<void, AppError>> => {
     const allowed = requirePermission(principal, 'page:read', { path })
     if (!allowed.ok) return allowed
-    const page = db.select({ status: pages.status, publishAt: pages.publishAt }).from(pages).where(eq(pages.path, path)).get()
+    const page = await repository.findPage(path)
     if (!page) return err(notFound(`No page at "${path}"`))
     const unpublished = page.status === 'draft' || (page.publishAt !== null && page.publishAt > Date.now())
     if (unpublished && !requirePermission(principal, 'page:update', { path }).ok) {
@@ -67,15 +66,11 @@ export const createNotificationService = (db: DB): NotificationService => {
   }
 
   return {
-    list(principal, limit = 50) {
+    async list(principal, limit = 50) {
       const user = requireUser(principal)
       if (!user.ok) return user
       const capped = Math.min(Math.max(Math.trunc(limit), 1), 100)
-      const rows = db.select().from(notifications)
-        .where(eq(notifications.userId, user.value.id))
-        .orderBy(desc(notifications.createdAt))
-        .limit(capped)
-        .all()
+      const rows = (await repository.listByUser(user.value.id, capped))
         .filter((row) => !row.path || requirePermission(principal, 'page:read', { path: row.path }).ok)
       const unread = rows.filter((row) => row.readAt === null).length
       return ok({
@@ -84,48 +79,39 @@ export const createNotificationService = (db: DB): NotificationService => {
       })
     },
 
-    markRead(principal, id) {
+    async markRead(principal, id) {
       const user = requireUser(principal)
       if (!user.ok) return user
       const readAt = Date.now()
-      const where = id
-        ? and(eq(notifications.userId, user.value.id), eq(notifications.id, id))
-        : eq(notifications.userId, user.value.id)
-      db.update(notifications).set({ readAt }).where(where).run()
+      await repository.markRead(user.value.id, id, readAt)
       return ok({ readAt })
     },
 
-    watch(principal, path, watching) {
+    async watch(principal, path, watching) {
       const user = requireUser(principal)
       if (!user.ok) return user
       const normalized = normalizePath(path)
-      const allowed = requireVisiblePage(user.value, normalized)
+      const allowed = await requireVisiblePage(user.value, normalized)
       if (!allowed.ok) return allowed
-      if (watching) {
-        db.insert(pageWatchers).values({ userId: user.value.id, path: normalized, createdAt: Date.now() })
-          .onConflictDoNothing().run()
-      } else {
-        db.delete(pageWatchers).where(and(eq(pageWatchers.userId, user.value.id), eq(pageWatchers.path, normalized))).run()
-      }
+      await repository.setWatching(user.value.id, normalized, watching, Date.now())
       return ok({ path: normalized, watching })
     },
 
-    watching(principal, path) {
+    async watching(principal, path) {
       const user = requireUser(principal)
       if (!user.ok) return user
       const normalized = normalizePath(path)
-      const allowed = requireVisiblePage(user.value, normalized)
+      const allowed = await requireVisiblePage(user.value, normalized)
       if (!allowed.ok) return allowed
-      const watching = Boolean(db.select().from(pageWatchers)
-        .where(and(eq(pageWatchers.userId, user.value.id), eq(pageWatchers.path, normalized))).get())
+      const watching = await repository.isWatching(user.value.id, normalized)
       return ok({ path: normalized, watching })
     },
 
-    notifyComment(comment) {
-      const page = db.select().from(pages).where(eq(pages.path, comment.path)).get()
+    async notifyComment(comment) {
+      const page = await repository.findPage(comment.path)
       if (!page) return
       const targets = new Set<string>()
-      for (const user of db.select().from(users).all()) {
+      for (const user of await repository.listUsers()) {
         const aliases = [
           user.name.toLowerCase().replace(/\s+/g, '.'),
           user.name.toLowerCase().replace(/\s+/g, ''),
@@ -137,26 +123,22 @@ export const createNotificationService = (db: DB): NotificationService => {
       if (page.authorId) targets.add(page.authorId)
       if (comment.authorId) targets.delete(comment.authorId)
       for (const userId of targets) {
-        insert(userId, 'comment', page.path, `${comment.authorName ?? 'Someone'} commented on ${page.title}`, { commentId: comment.id })
+        await insert(userId, 'comment', page.path, `${comment.authorName ?? 'Someone'} commented on ${page.title}`, { commentId: comment.id })
       }
     },
 
-    pageChanged(action, path, from, actorId) {
+    async pageChanged(action, path, from, actorId) {
       if (from && from !== path) {
-        const movedWatchers = db.select().from(pageWatchers).where(eq(pageWatchers.path, from)).all()
-        for (const watcher of movedWatchers) {
-          db.insert(pageWatchers).values({ ...watcher, path }).onConflictDoNothing().run()
-        }
-        db.delete(pageWatchers).where(eq(pageWatchers.path, from)).run()
+        await repository.moveWatchers(from, path)
       }
-      const page = db.select({ title: pages.title }).from(pages).where(eq(pages.path, path)).get()
+      const page = await repository.findPage(path)
       const title = page?.title ?? path
-      const watchers = db.select().from(pageWatchers).where(eq(pageWatchers.path, path)).all()
+      const watchers = await repository.listWatchers(path)
       for (const watcher of watchers) {
         if (watcher.userId === actorId) continue
-        insert(watcher.userId, 'page', path, `${title} was ${action}`, { action, from: from ?? null })
+        await insert(watcher.userId, 'page', path, `${title} was ${action}`, { action, from: from ?? null })
       }
-      if (action === 'deleted') db.delete(pageWatchers).where(eq(pageWatchers.path, path)).run()
+      if (action === 'deleted') await repository.deleteWatchers(path)
     },
   }
 }

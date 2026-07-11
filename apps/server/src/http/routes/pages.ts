@@ -334,7 +334,7 @@ export const createPageRoutes = ({
       async ({ body, services, principal, request, server }) => {
         enforceCommentLimit(request, server, principal)
         const comment = unwrap(services.comments.create(body.path, body.body, principal))
-        services.notifications.notifyComment(comment)
+        await services.notifications.notifyComment(comment)
         emitPageChanged('updated', comment.path)
         audit(logger, 'comment.create', {
           userId: principal?.id ?? null,

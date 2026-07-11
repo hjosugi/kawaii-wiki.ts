@@ -3,6 +3,23 @@
 All notable changes are documented here. This project follows Semantic
 Versioning; API compatibility details are in `docs/API.md`.
 
+## [1.0.20] - 2026-07-12
+
+### Changed
+
+- Moved notification listing/read state, page visibility context, mention-user
+  lookup, notification insertion, and page watchers behind an asynchronous
+  driver-neutral repository.
+- Converted notification routes and page/comment side effects to await
+  remote-capable persistence.
+- Made watcher path moves atomic while merging conflicting destination watches.
+
+### Tests
+
+- Added shared SQLite and libSQL notification contract coverage for ordering,
+  limits, scoped read state, context lookup, watcher moves, conflicts, and
+  cleanup.
+
 ## [1.0.19] - 2026-07-12
 
 ### Changed
