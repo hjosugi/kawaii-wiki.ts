@@ -3,7 +3,7 @@
 A **modern, lean, FP-leaning** open-source wiki — a deliberate, *finishable* reaction to Wiki.js.
 Bun + Elysia + Drizzle (SQLite/FTS5) server, Vue 3 front end, end-to-end type safety with **zero codegen**.
 
-> **Status: v0.4.22** — a small, complete, runnable wiki: first-run `/setup`,
+> **Status: v0.5.0** — a small, complete, runnable wiki: first-run `/setup`,
 > Markdown pages with visual editing,
 > FTS search, local/OIDC/TOTP/passkey auth with recovery codes,
 > private-wiki mode, groups/page rules,
@@ -115,14 +115,14 @@ persistent volume, or Render Free backed by Turso/libSQL and R2. SQLite under
 Tagged releases publish a Docker image to GHCR:
 
 ```bash
-docker pull ghcr.io/hjosugi/kawaii-wiki.ts:v0.4.22
+docker pull ghcr.io/hjosugi/kawaii-wiki.ts:v0.5.0
 docker volume create kawaii-wiki.ts-data
 export JWT_SECRET="$(openssl rand -hex 32)"
 docker run -d --name kawaii-wiki.ts --restart unless-stopped \
   -p 4000:4000 -v kawaii-wiki.ts-data:/data \
   -e NODE_ENV=production \
   -e JWT_SECRET="$JWT_SECRET" \
-  ghcr.io/hjosugi/kawaii-wiki.ts:v0.4.22
+  ghcr.io/hjosugi/kawaii-wiki.ts:v0.5.0
 ```
 
 Put Caddy, nginx, or a free Cloudflare Tunnel in front of port `4000` for TLS

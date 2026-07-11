@@ -4,8 +4,8 @@ A practical guide for whoever picks this up next (human or AI). The user-facing 
 [../README.md](../README.md); this document is the **developer handoff**: current status, why
 things are the way they are, what bit us, and exactly where to plug in the next features.
 
-- **As of:** 2026-07-10
-- **State:** v0.4.22 — a small but *complete and verified* vertical slice. Everything below marked ✅
+- **As of:** 2026-07-11
+- **State:** v0.5.0 — a small but *complete and verified* vertical slice. Everything below marked ✅
   has been run and confirmed (tests + live HTTP + typed client + build + typecheck).
 - **Stack:** Bun 1.3 · Elysia · Drizzle ORM · SQLite/libSQL + FTS5 · Vue 3 · Vite ·
   UnoCSS · Pinia · CodeMirror 6 · Eden Treaty · SimpleWebAuthn (no codegen).
