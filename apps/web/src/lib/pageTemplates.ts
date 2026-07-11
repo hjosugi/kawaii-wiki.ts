@@ -18,7 +18,11 @@ export const browserTimeZone = (): string => {
   }
 }
 
-export const builtInPageTemplates = (timeZone = browserTimeZone()): PageTemplateOption[] => [
+export const builtInPageTemplates = (
+  timeZone = browserTimeZone(),
+  interfaceLocale: 'en' | 'ja' = 'en',
+): PageTemplateOption[] => {
+  const templates: PageTemplateOption[] = [
   {
     key: 'builtin:blank',
     label: 'Blank',
@@ -302,7 +306,92 @@ description:
     metadata: { title: 'Spec', path: 'specs/new-spec' },
     builtIn: true,
   },
-]
+  ]
+
+  if (interfaceLocale !== 'ja') return templates
+
+  const overrides: Record<string, Partial<PageTemplateOption>> = {
+    'builtin:blank': {
+      content: '# 新しいページ\n\nここから本文を書き始めます。\n',
+    },
+    'builtin:decision': {
+      content: '# 意思決定記録\n\n## 背景\n\n## 選択肢\n\n## 決定\n\n## 影響\n',
+      metadata: { title: '意思決定記録', path: 'decisions/new-decision', locale: 'ja' },
+    },
+    'builtin:how-to': {
+      content: '# 手順書\n\n## 目的\n\n## 手順\n\n1. \n\n## 確認項目\n',
+      metadata: { title: '手順書', path: 'guides/new-guide', locale: 'ja' },
+    },
+    'builtin:talent-profile': {
+      description: 'プロフィール、公式リンク、代表配信をまとめるVTuber向けテンプレート。',
+      icon: '👤',
+    },
+    'builtin:stream-log': {
+      description: '配信日時、アーカイブ、出演者、タイムスタンプを記録します。',
+      icon: '▶️',
+    },
+    'builtin:song-list': {
+      description: 'オリジナル曲、カバー、歌枠、クレジット、配信リンクを整理します。',
+      icon: '🎵',
+      metadata: { title: 'タレント名 楽曲一覧', path: 'songs/new-song-list', labels: ['vtuber', 'music'], locale: 'ja' },
+    },
+    'builtin:glossary': {
+      description: 'VTuber用語、ミーム、タグ、コミュニティ内の表現をまとめます。',
+      icon: '📖',
+    },
+    'builtin:event-announcement': {
+      description: 'ライブ、グッズ、コラボ、キャンペーンをカレンダー情報付きで告知します。',
+      icon: '📅',
+    },
+    'builtin:meeting': {
+      content: `# 会議メモ
+
+\`\`\`event
+title: 会議
+start: 2026-07-04 10:00
+timezone: ${timeZone}
+description:
+\`\`\`
+
+## 参加者
+
+## メモ
+
+## アクション
+`,
+      metadata: { title: '会議メモ', path: 'meetings/new-meeting', locale: 'ja' },
+    },
+    'builtin:journal': {
+      description: 'メモ、意思決定、フォローアップを残すデイリーノート。',
+      icon: '📅',
+      content: '# デイリーノート\n\n## メモ\n\n## 決定\n\n## フォローアップ\n\n## リンク\n',
+      metadata: { title: 'デイリーノート', labels: ['journal'], locale: 'ja' },
+    },
+    'builtin:spec': {
+      content: '# 仕様書\n\n## 課題\n\n## 目標\n\n## 対象外\n\n## 設計\n\n## リリース計画\n',
+      metadata: { title: '仕様書', path: 'specs/new-spec', locale: 'ja' },
+    },
+  }
+
+  return templates.map((template) => {
+    const override = overrides[template.key]
+    if (!override) return template
+    const localized = {
+      ...template,
+      ...override,
+      metadata: { ...template.metadata, ...override.metadata },
+    }
+    if (template.key === 'builtin:song-list') {
+      localized.content = localized.content.replace('Song List', '楽曲一覧')
+    }
+    if (template.key === 'builtin:event-announcement') {
+      localized.content = localized.content
+        .replace('[X announcement]', '[Xの告知]')
+        .replace('[Official page]', '[公式ページ]')
+    }
+    return localized
+  })
+}
 
 export const pageTemplateToOption = (template: PageTemplate): PageTemplateOption => ({
   key: `custom:${template.id}`,

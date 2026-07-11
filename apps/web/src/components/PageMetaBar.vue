@@ -42,33 +42,58 @@ const coverPreviewStyle = computed(() => coverUrl.value
 </script>
 
 <template>
-  <div class="flex flex-wrap items-center gap-3 mb-4">
-    <input v-model="title" class="input flex-1 min-w-50 text-lg font-semibold" :placeholder="t('pageTitle')" :aria-label="t('pageTitle')" />
-    <RouterLink class="btn-ghost" to="/_templates">{{ t('templates') }}</RouterLink>
-    <button class="btn-ghost" type="button" :disabled="props.savingTemplate" @click="emit('saveTemplate')">{{ t('saveAsTemplate') }}</button>
-    <select v-model="status" class="input max-w-40" :aria-label="t('pageStatus')">
-      <option value="draft">{{ t('draft') }}</option>
-      <option value="in-review">{{ t('inReview') }}</option>
-      <option value="verified">{{ t('verified') }}</option>
-      <option value="outdated">{{ t('outdated') }}</option>
-    </select>
-    <input v-model="reviewAtDate" class="input max-w-42" type="date" :title="t('reviewDate')" :aria-label="t('reviewDate')" />
-    <input v-model="publishAtDateTime" class="input max-w-56" type="datetime-local" :title="t('publishAt')" :aria-label="t('publishAt')" />
-    <input v-model="locale" class="input max-w-28" :placeholder="t('locale')" :title="t('locale')" :aria-label="t('locale')" />
-    <label class="inline-flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] px-3 py-2 text-sm">
-      <input v-model="pinned" type="checkbox" />
-      <span>{{ t('pinned') }}</span>
-    </label>
-    <input v-model="navOrderText" class="input max-w-30" inputmode="numeric" :placeholder="t('navOrder')" :title="t('navOrder')" :aria-label="t('navOrder')" />
-    <button class="btn-primary" :disabled="props.saving || !props.canSave" @click="emit('save')">
-      {{ props.saving ? t('saving') : t('save') }}
-    </button>
-    <button v-if="props.isEdit" class="btn-ghost" @click="emit('archive')">{{ t('archive') }}</button>
-    <button v-if="props.isEdit" class="btn-danger" @click="emit('remove')">{{ t('delete') }}</button>
-  </div>
+  <section class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-4">
+    <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <label class="grid gap-1 md:col-span-2">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('pageTitle') }}</span>
+        <input v-model="title" class="input text-lg font-semibold" :placeholder="t('pageTitle')" :aria-label="t('pageTitle')" />
+      </label>
+      <label class="grid gap-1">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('pageStatus') }}</span>
+        <select v-model="status" class="input" :aria-label="t('pageStatus')">
+          <option value="draft">{{ t('draft') }}</option>
+          <option value="in-review">{{ t('inReview') }}</option>
+          <option value="verified">{{ t('verified') }}</option>
+          <option value="outdated">{{ t('outdated') }}</option>
+        </select>
+      </label>
+      <label class="grid gap-1">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('locale') }}</span>
+        <input v-model="locale" class="input" :placeholder="t('locale')" :aria-label="t('locale')" />
+      </label>
+      <label class="grid gap-1">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('reviewDate') }}</span>
+        <input v-model="reviewAtDate" class="input" type="date" :aria-label="t('reviewDate')" />
+      </label>
+      <label class="grid gap-1 md:col-span-2">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('publishAt') }}</span>
+        <input v-model="publishAtDateTime" class="input" type="datetime-local" :aria-label="t('publishAt')" />
+      </label>
+      <label class="grid gap-1">
+        <span class="text-xs font-medium text-[var(--c-text-muted)]">{{ t('navOrder') }}</span>
+        <input v-model="navOrderText" class="input" inputmode="numeric" :placeholder="t('navOrder')" :aria-label="t('navOrder')" />
+      </label>
+      <label class="flex items-center gap-2 self-end rounded-md border border-[var(--c-border)] bg-[var(--c-bg)] px-3 py-2 text-sm">
+        <input v-model="pinned" type="checkbox" />
+        <span>{{ t('pinned') }}</span>
+      </label>
+    </div>
+    <div class="mt-4 flex flex-wrap items-center gap-2 border-t border-[var(--c-border)] pt-3">
+      <button class="btn-primary" :disabled="props.saving || !props.canSave" @click="emit('save')">
+        {{ props.saving ? t('saving') : t('save') }}
+      </button>
+      <RouterLink class="btn-ghost" to="/_templates">{{ t('templates') }}</RouterLink>
+      <button class="btn-ghost" type="button" :disabled="props.savingTemplate" @click="emit('saveTemplate')">{{ t('saveAsTemplate') }}</button>
+      <span class="flex-1"></span>
+      <button v-if="props.isEdit" class="btn-ghost" @click="emit('archive')">{{ t('archive') }}</button>
+      <button v-if="props.isEdit" class="btn-danger" @click="emit('remove')">{{ t('delete') }}</button>
+    </div>
+  </section>
 
-  <section class="mb-4 grid gap-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3 lg:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)]">
-    <div class="space-y-2">
+  <details class="mb-4 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3">
+    <summary class="cursor-pointer text-sm font-medium">{{ t('pageAppearance') }}</summary>
+    <section class="mt-3 grid gap-3 lg:grid-cols-[minmax(12rem,18rem)_minmax(0,1fr)]">
+      <div class="space-y-2">
       <label class="block text-sm font-medium" for="page-icon">{{ t('pageIcon') }}</label>
       <div class="flex gap-2">
         <input id="page-icon" v-model="icon" class="input max-w-24 text-center text-xl" maxlength="16" placeholder="⭐" :aria-label="t('pageIcon')" />
@@ -84,8 +109,8 @@ const coverPreviewStyle = computed(() => coverUrl.value
           @click="icon = option"
         >{{ option }}</button>
       </div>
-    </div>
-    <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
+      </div>
+      <div class="grid gap-3 md:grid-cols-[minmax(0,1fr)_12rem]">
       <div class="space-y-2">
         <label class="block text-sm font-medium" for="cover-url">{{ t('coverImage') }}</label>
         <input id="cover-url" v-model="coverUrl" class="input" placeholder="/assets/cover.jpg" :aria-label="t('coverImageUrl')" />
@@ -101,6 +126,7 @@ const coverPreviewStyle = computed(() => coverUrl.value
       <div class="min-h-28 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)]" :style="coverPreviewStyle" aria-hidden="true">
         <div v-if="!coverUrl" class="grid h-full min-h-28 place-items-center text-xs text-[var(--c-text-muted)]">{{ t('noCover') }}</div>
       </div>
-    </div>
-  </section>
+      </div>
+    </section>
+  </details>
 </template>

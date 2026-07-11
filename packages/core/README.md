@@ -1,39 +1,39 @@
 # kawaii-wiki.ts Core
 
-Pure TypeScript domain package shared by the server and web app.
+サーバーとWebアプリで共有する、純粋TypeScriptのドメインパッケージです。
 
-## What This Teaches
+## このパッケージから学べること
 
-- functional core, imperative shell architecture
-- typed `Result<T, E>` error handling instead of throwing through domain logic
-- validation and normalization before persistence
-- permission checks expressed as a small policy table
-- Markdown rendering and slug generation without HTTP or database dependencies
-- Markdown renderer extension seams for plugins, feature flags, and typed fence blocks
+- 関数型コアと命令型シェルを分離するアーキテクチャ
+- ドメインロジックから例外を投げる代わりに、型付きの `Result<T, E>` で成功と失敗を表す方法
+- 永続化前の入力検証と正規化
+- 小さなポリシーテーブルとして表現した権限チェック
+- HTTPやデータベースに依存しないMarkdownレンダリングとslug生成
+- プラグイン、機能フラグ、型付きfenceブロックに対応するMarkdownレンダラーの拡張ポイント
 
-## Run
+## 実行方法
 
-From the repository root:
+リポジトリのルートから実行します。
 
 ```bash
 bun test packages/core
 bun --filter '@kawaii-wiki/core' typecheck
 ```
 
-## Files To Read First
+## 最初に読むファイル
 
-| File | Why it matters |
+| ファイル | 役割 |
 | --- | --- |
-| `src/result.ts` | success/error values used across the app |
-| `src/errors.ts` | typed application errors |
-| `src/page.ts` | page input validation |
-| `src/permissions.ts` | central authorization policy |
-| `src/markdown.ts` | Markdown to HTML pipeline, feature flags, typed fences, `createRenderer()`, `registerFenceRenderer()` |
-| `src/slug.ts` | Unicode-safe slug behavior |
+| `src/result.ts` | アプリ全体で使う成功・失敗の値 |
+| `src/errors.ts` | 型付きアプリケーションエラー |
+| `src/page.ts` | ページ入力の検証 |
+| `src/permissions.ts` | 中央集約した認可ポリシー |
+| `src/markdown.ts` | MarkdownからHTMLへの変換、機能フラグ、型付きfence、`createRenderer()`、`registerFenceRenderer()` |
+| `src/slug.ts` | Unicodeを安全に扱うslug処理 |
 
-## Exercises
+## 練習課題
 
-1. Add a new permission action and cover it with a test.
-2. Add validation for a new page field without importing server code.
-3. Extend Markdown rendering with `createRenderer({ features, plugins, fences })` and keep it deterministic.
-4. Add a failing test first, then update the pure function.
+1. 新しい権限アクションを追加し、テストで動作を保証する。
+2. サーバーコードをimportせずに、新しいページフィールドの検証を追加する。
+3. `createRenderer({ features, plugins, fences })` でMarkdownレンダリングを拡張し、決定的な出力を保つ。
+4. 先に失敗するテストを追加してから、純粋関数を更新する。

@@ -1724,7 +1724,7 @@ describe('http app settings', () => {
     expect(defaults.status).toBe(200)
     expect(await defaults.json()).toMatchObject({
       siteTitle: 'kawaii-wiki.ts',
-      accentColor: '#7c3aed',
+      accentColor: '#c2185b',
       homePath: 'home',
       dailyNotesPath: 'journal',
       defaultLocale: 'und',
@@ -3149,7 +3149,7 @@ describe('http app page utilities', () => {
     const installed = await app.handle(jsonRequest('/api/import/official-docs', {}, token))
     expect(installed.status).toBe(200)
     const body = await installed.json() as { version: string; results: Array<{ path: string; created: boolean }> }
-    expect(body.version).toBe('1.0.4')
+    expect(body.version).toBe('1.0.5')
     expect(body.results.length).toBeGreaterThanOrEqual(30)
     expect(body.results.every((result) => result.created)).toBe(true)
 

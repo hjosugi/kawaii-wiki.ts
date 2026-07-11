@@ -8,11 +8,9 @@ import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
-import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 import { useDialogs } from '@/composables/useDialogs'
-import { vMarkdownEnhance } from '@/lib/markdownEnhance'
 import { unsupportedVisualMarkdownFeatures } from '@/lib/visualMarkdownCapabilities'
 import Skeleton from '@/components/Skeleton.vue'
 import FormField from '@/components/FormField.vue'
@@ -21,6 +19,7 @@ import PageMetaBar from '@/components/PageMetaBar.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { usePageEditor } from '@/composables/usePageEditor'
 import {
+  browserTimeZone,
   builtInPageTemplates,
   pageTemplateToOption,
   templateMetadataFromPageDraft,
@@ -36,9 +35,8 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
 const pagesStore = usePages()
-const { t } = useI18n()
+const { t, locale: interfaceLocale } = useI18n()
 const dialogs = useDialogs()
-const { markdownFeatures, markdownRenderer } = useMarkdownFeatures()
 
 const isEdit = computed(() => route.name === 'edit')
 const {
@@ -87,9 +85,9 @@ const createParentPath = ref('')
 const attachments = ref<AssetView[]>([])
 const attachmentsLoading = ref(false)
 const attachmentsLoaded = ref(false)
-const builtInTemplates = builtInPageTemplates()
+const builtInTemplates = computed(() => builtInPageTemplates(browserTimeZone(), interfaceLocale.value))
 const customTemplates = ref<PageTemplateOption[]>([])
-const templateOptions = computed(() => [...builtInTemplates, ...customTemplates.value])
+const templateOptions = computed(() => [...builtInTemplates.value, ...customTemplates.value])
 const templateQuery = ref('')
 const builtInTemplateKeys: Record<string, MessageKey> = {
   'builtin:blank': 'templateBlank',
@@ -127,6 +125,28 @@ const templateDescription = ref('')
 const templateIcon = ref('')
 const savingTemplate = ref(false)
 const coverUploading = ref(false)
+type EditorView = 'settings' | 'content'
+const editorView = computed<EditorView>(() => {
+  const requested = queryString(route.query.view)
+  if (requested === 'settings') return 'settings'
+  if (requested === 'content' && (isEdit.value || title.value.trim())) return 'content'
+  return isEdit.value ? 'content' : 'settings'
+})
+const selectedTemplateLabel = computed(() => {
+  const template = templateOptions.value.find((item) => item.key === selectedTemplate.value)
+  return template ? templateDisplayLabel(template) : t('templateBlank')
+})
+
+function switchEditorView(view: EditorView): void {
+  if (view === 'content' && !title.value.trim()) return
+  if (view === 'content' && !isEdit.value && selectedTemplate.value === 'builtin:blank') {
+    const blank = builtInTemplates.value.find((template) => template.key === 'builtin:blank')
+    if (blank && content.value === blank.content) {
+      content.value = blank.content.replace(/^# .*$/m, `# ${title.value.trim()}`)
+    }
+  }
+  void router.replace({ query: { ...route.query, view } })
+}
 
 const saveStatus = computed(() => {
   if (saving.value) return t('saving')
@@ -191,10 +211,6 @@ function seedCreatePathFromRoute(): void {
 
 function queryString(value: unknown): string {
   return Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '')
-}
-
-function templatePreviewHtml(template: PageTemplateOption): string {
-  return markdownRenderer.value.renderMarkdown(template.content).html
 }
 
 function applyTemplate(key: string): void {
@@ -362,7 +378,7 @@ onMounted(async () => {
     }
   } else {
     title.value = ''
-    content.value = builtInTemplates[0]?.content ?? ''
+    content.value = builtInTemplates.value[0]?.content ?? ''
     labelsText.value = ''
     icon.value = ''
     coverUrl.value = ''
@@ -468,6 +484,7 @@ async function save(): Promise<void> {
         applyPage(latest)
         markSaved()
         error.value = `${message} Latest version loaded; merge from your saved draft below, then save again.`
+        switchEditorView('content')
       } catch {
         error.value = message
       }
@@ -521,7 +538,16 @@ async function archive(): Promise<void> {
 
 <template>
   <div class="min-w-0">
-    <p class="mb-2 text-xs font-semibold uppercase tracking-wide text-[var(--c-accent)]">{{ isEdit ? t('editingMode') : t('creatingMode') }}</p>
+    <section v-if="editorView === 'settings'">
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--c-border)] pb-3">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--c-accent-text)]">{{ isEdit ? t('editingMode') : t('creatingMode') }}</p>
+        <h1 class="mt-1 text-xl font-bold">{{ t('pageSettings') }}</h1>
+      </div>
+      <button class="btn-primary" type="button" :disabled="!title.trim()" @click="switchEditorView('content')">
+        {{ isEdit ? t('backToEditor') : t('startWriting') }}
+      </button>
+    </div>
     <PageMetaBar
       v-model:title="title"
       v-model:status="status"
@@ -574,7 +600,11 @@ async function archive(): Promise<void> {
         </div>
       </details>
 
-      <section class="space-y-2">
+      <details class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3">
+        <summary class="cursor-pointer text-sm font-medium">
+          {{ t('templatePickerSummary', { name: selectedTemplateLabel }) }}
+        </summary>
+        <section class="mt-3 space-y-2">
         <div class="flex items-center justify-between gap-3">
           <h2 class="text-sm font-semibold">{{ t('chooseTemplate') }}</h2>
           <Skeleton v-if="templatesLoading" class="w-40" :label="t('loadingTemplates')" :lines="1" />
@@ -591,7 +621,7 @@ async function archive(): Promise<void> {
           <button
             v-for="template in filteredTemplateOptions"
             :key="template.key"
-            class="min-h-56 rounded-md border p-3 text-left transition-colors"
+            class="rounded-md border p-3 text-left transition-colors"
             :class="selectedTemplate === template.key ? 'border-[var(--c-accent)] bg-[var(--c-surface-muted)]' : 'border-[var(--c-border)] bg-[var(--c-surface)] hover:bg-[var(--c-surface-muted)]'"
             type="button"
             @click="selectTemplate(template.key)"
@@ -603,20 +633,16 @@ async function archive(): Promise<void> {
               </span>
               <span v-if="selectedTemplate === template.key" class="text-xs font-semibold text-[var(--c-accent)]">{{ t('selected') }}</span>
             </span>
-            <span
-              class="prose dark:prose-invert block h-36 max-w-none overflow-hidden rounded border border-[var(--c-border)] bg-[var(--c-bg)] p-3 text-xs"
-              v-markdown-enhance="markdownFeatures"
-              v-html="templatePreviewHtml(template)"
-            ></span>
           </button>
         </div>
         <p v-if="!filteredTemplateOptions.length" class="rounded-md border border-dashed border-[var(--c-border)] p-6 text-center text-sm text-[var(--c-text-muted)]">
           {{ t('noMatchingTemplates') }}
         </p>
-      </section>
+        </section>
+      </details>
     </section>
 
-    <details v-else class="mb-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3" open>
+    <details v-else class="mb-3 rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-3">
       <summary class="cursor-pointer text-sm font-medium">{{ t('path') }}</summary>
       <input v-model="path" class="input mt-3 font-mono text-sm max-w-xs" :placeholder="t('pathPlaceholder')" :aria-label="t('pathPlaceholder')" />
     </details>
@@ -634,6 +660,27 @@ async function archive(): Promise<void> {
     <FormField class="mb-3" :label="t('labels')" for-id="page-labels" :hint="t('labelsHint')">
       <input id="page-labels" v-model="labelsText" class="input" :placeholder="t('labelsPlaceholder')" />
     </FormField>
+    <div class="mb-4 flex justify-end border-t border-[var(--c-border)] pt-4">
+      <button class="btn-primary" type="button" :disabled="!title.trim()" @click="switchEditorView('content')">
+        {{ isEdit ? t('backToEditor') : t('startWriting') }}
+      </button>
+    </div>
+    </section>
+
+    <section v-else>
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3 border-b border-[var(--c-border)] pb-3">
+      <div class="min-w-0">
+        <p class="text-xs font-semibold uppercase tracking-wide text-[var(--c-accent-text)]">{{ t('contentEditor') }}</p>
+        <h1 class="mt-1 truncate text-xl font-bold">{{ title }}</h1>
+        <p class="truncate font-mono text-xs text-[var(--c-text-muted)]">/{{ path || createPathPreview }}</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <button class="btn-ghost" type="button" @click="switchEditorView('settings')">{{ t('pageSettings') }}</button>
+        <button class="btn-primary" type="button" :disabled="saving || !title || !(path || createPathPreview)" @click="save">
+          {{ saving ? t('saving') : t('save') }}
+        </button>
+      </div>
+    </div>
     <div class="mb-3 flex flex-wrap items-center gap-3 text-sm">
       <span
         class="font-medium"
@@ -676,5 +723,6 @@ async function archive(): Promise<void> {
       <Skeleton v-else :label="t('loadingEditor')" title :lines="5" />
     </template>
     <MarkdownEditor v-else v-model="content" :asset-folder="assetFolder" />
+    </section>
   </div>
 </template>
