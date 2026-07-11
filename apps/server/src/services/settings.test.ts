@@ -1,30 +1,32 @@
 import { describe, expect, test } from 'bun:test'
 import type { Principal } from '@kawaii-wiki/core'
 import { createDb } from '../db/client.ts'
+import { createSqliteSettingsRepository } from '../db/repositories/settings.ts'
 import { createSettingsService } from './settings.ts'
 
 const admin: Principal = { id: 'admin-1', role: 'admin' }
 const viewer: Principal = { id: 'viewer-1', role: 'viewer' }
 
 describe('settings service', () => {
-  test('rejects non-admin updates and invalid appearance values', () => {
-    const settings = createSettingsService(createDb(':memory:'))
+  test('rejects non-admin updates and invalid appearance values', async () => {
+    const settings = createSettingsService(createSqliteSettingsRepository(createDb(':memory:')))
 
-    expect(settings.update(viewer, { siteTitle: 'Nope' }).ok).toBe(false)
+    expect((await settings.update(viewer, { siteTitle: 'Nope' })).ok).toBe(false)
 
-    const invalidColor = settings.update(admin, { accentColor: 'violet' })
+    const invalidColor = await settings.update(admin, { accentColor: 'violet' })
     expect(invalidColor.ok).toBe(false)
     if (!invalidColor.ok) expect(invalidColor.error.field).toBe('accentColor')
 
-    const invalidZone = settings.update(admin, { timezone: 'Not/A_Zone' })
+    const invalidZone = await settings.update(admin, { timezone: 'Not/A_Zone' })
     expect(invalidZone.ok).toBe(false)
     if (!invalidZone.ok) expect(invalidZone.error.field).toBe('timezone')
   })
 
-  test('sanitizes nav settings and gates trusted head HTML', () => {
+  test('sanitizes nav settings and gates trusted head HTML', async () => {
     const db = createDb(':memory:')
-    const locked = createSettingsService(db, { allowHeadInjection: false })
-    const updated = locked.update(admin, {
+    const repository = createSqliteSettingsRepository(db)
+    const locked = createSettingsService(repository, { allowHeadInjection: false })
+    const updated = await locked.update(admin, {
       siteTitle: 'Custom wiki',
       themePreset: 'pop',
       fontFamily: 'maru',
@@ -53,14 +55,14 @@ describe('settings service', () => {
     ])
     expect(updated.value.navItems.filter((item) => item.key === 'changes')).toHaveLength(1)
 
-    const trusted = createSettingsService(db, { allowHeadInjection: true })
-    const withHead = trusted.update(admin, {
+    const trusted = createSettingsService(repository, { allowHeadInjection: true })
+    const withHead = await trusted.update(admin, {
       customHeadHtml: '<script src="https://analytics.example/script.js"></script>',
     })
     expect(withHead.ok).toBe(true)
     if (withHead.ok) expect(withHead.value.customHeadHtml).toContain('analytics.example')
 
-    const invalidBackground = trusted.update(admin, {
+    const invalidBackground = await trusted.update(admin, {
       background: { type: 'gradient', value: 'url(https://example.com/x)', overlayOpacity: 2 },
     })
     expect(invalidBackground.ok).toBe(true)

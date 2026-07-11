@@ -6,7 +6,7 @@ import { users } from './schema.ts'
 import { createServices } from '../services/index.ts'
 import { OFFICIAL_DOCS_VERSION, officialDocumentationPages } from '../official-docs.ts'
 
-export const runOfficialDocsInstall = (): void => {
+export const runOfficialDocsInstall = async (): Promise<void> => {
   const env = loadEnv()
   const db = createDb(env.database, { ftsTokenizer: env.search.ftsTokenizer })
   try {
@@ -19,6 +19,7 @@ export const runOfficialDocsInstall = (): void => {
       localization: env.localization,
       auth: env.auth,
     })
+    await services.settings.initialize()
 
     for (const source of officialDocumentationPages) {
       const result = services.pages.upsertFromFile(source.path, {
@@ -37,7 +38,7 @@ export const runOfficialDocsInstall = (): void => {
     }
 
     if (process.env.KAWAII_WIKI_DOCS_SET_HOME === 'true') {
-      const updated = services.settings.update(principal, {
+      const updated = await services.settings.update(principal, {
         siteTitle: process.env.KAWAII_WIKI_DOCS_SITE_TITLE?.trim() || 'kawaii-wiki.ts Docs',
         homePath: 'docs/home',
         defaultLocale: 'ja',
@@ -51,4 +52,4 @@ export const runOfficialDocsInstall = (): void => {
   }
 }
 
-if (import.meta.main) runOfficialDocsInstall()
+if (import.meta.main) await runOfficialDocsInstall()
