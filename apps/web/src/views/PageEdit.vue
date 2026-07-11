@@ -3,7 +3,7 @@ import { friendlyError } from '@/lib/friendlyErrors'
 import { ref, computed, defineAsyncComponent, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter, onBeforeRouteLeave } from 'vue-router'
 import { normalizePath } from '@kawaii-wiki/core'
-import { Api, ApiClientError, type AssetView, type Page, type UserPreferenceMap } from '@/lib/api'
+import { Api, ApiClientError, type AssetUpload, type AssetView, type Page, type UserPreferenceMap } from '@/lib/api'
 import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
@@ -392,14 +392,12 @@ async function uploadAttachments(files: FileList | null): Promise<void> {
   attachmentUploading.value = true
   error.value = null
   try {
-    const uploaded: AssetView[] = []
-    for (const file of Array.from(files)) uploaded.push(await Api.uploadAsset(file, assetFolder.value))
-    const links = uploaded.map((asset) => asset.mime.startsWith('image/')
+    const uploaded: Array<{ asset: AssetUpload; file: File }> = []
+    for (const file of Array.from(files)) uploaded.push({ asset: await Api.uploadAsset(file, assetFolder.value), file })
+    const links = uploaded.map(({ asset, file }) => file.type.startsWith('image/')
       ? `![${asset.filename}](${asset.url})`
       : `[${asset.filename}](${asset.url})`)
     content.value = `${content.value.trimEnd()}\n\n${links.join('\n')}\n`
-    attachments.value = [...attachments.value, ...uploaded.filter((asset) => !attachments.value.some((item) => item.id === asset.id))]
-    attachmentsLoaded.value = true
   } catch (e) {
     error.value = friendlyError(e)
   } finally {
@@ -744,11 +742,6 @@ async function archive(): Promise<void> {
       </div>
       <p class="mt-2 text-xs text-[var(--c-text-muted)]">{{ t('commentSettingsHint') }}</p>
     </section>
-    <div class="mb-4 flex justify-end border-t border-[var(--c-border)] pt-4">
-      <button class="btn-primary" type="button" :disabled="!title.trim()" @click="switchEditorView('content')">
-        {{ isEdit ? t('backToEditor') : t('startWriting') }}
-      </button>
-    </div>
     </section>
 
     <section v-else>

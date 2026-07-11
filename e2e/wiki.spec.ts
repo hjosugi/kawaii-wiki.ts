@@ -84,7 +84,7 @@ test('owner setup, page creation, and search work through the production app', a
   await expect(graphButton).toBeVisible()
   await expect(page.locator('.interactive-graph')).toHaveCount(0)
   await graphButton.click()
-  await expect(page.locator('.interactive-graph')).toBeVisible()
+  await expect(page.locator('.interactive-graph:visible')).toBeVisible()
   const visibleGraphHeight = await page.locator('.interactive-graph-canvas').evaluateAll((graphs) =>
     graphs.map((graph) => graph.getBoundingClientRect().height).find((height) => height > 0) ?? 0,
   )
@@ -118,11 +118,13 @@ test('owner setup, page creation, and search work through the production app', a
   await expect(page.getByRole('link', { name: 'Pages', exact: true })).toBeHidden()
 
   await page.goto('/_edit/e2e-release-page')
+  await page.getByRole('button', { name: 'Page settings' }).click()
   await page.getByRole('button', { name: 'Archive' }).click()
   const confirmDialog = page.getByRole('dialog', { name: 'Confirm action' })
   await expect(confirmDialog.getByRole('button', { name: 'Cancel' })).toBeVisible()
   await expect(confirmDialog.getByRole('button', { name: 'Archive' })).toBeVisible()
   await confirmDialog.getByRole('button', { name: 'Cancel' }).click()
+  await page.getByRole('button', { name: 'Back to editor' }).click()
   await expect(page.getByRole('button', { name: 'Choose files' })).toBeVisible()
 
   await page.evaluate(() => localStorage.removeItem('token'))
