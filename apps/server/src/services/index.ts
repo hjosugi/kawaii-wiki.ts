@@ -187,7 +187,7 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     authProviders,
     oidc: createOidcService(repositories.oidcStates, repositories.authAccounts, repositories.users, auth, authz),
     passkeys: createPasskeyService(repositories.passkeys, repositories.users, auth),
-    shares: createPageShareService(db),
+    shares: createPageShareService(repositories.pageShares),
     templates: createPageTemplateService(repositories.pageTemplates),
     preferences: createUserPreferenceService(repositories.userPreferences),
     linkPreviews: createLinkPreviewService(db, {

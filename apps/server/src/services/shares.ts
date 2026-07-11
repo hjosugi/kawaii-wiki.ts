@@ -1,5 +1,4 @@
 import { Buffer } from 'node:buffer'
-import { and, desc, eq, sql } from 'drizzle-orm'
 import {
   type AppError,
   type Principal,
@@ -12,8 +11,8 @@ import {
   requirePermission,
   validationError,
 } from '@kawaii-wiki/core'
-import type { DB } from '../db/client.ts'
-import { pageShares, pages, type Page, type PageShare } from '../db/schema.ts'
+import type { PageShareRecord, PageShareRepository } from '../repositories/page-shares.ts'
+import type { PageRecord } from '../repositories/pages.ts'
 
 export interface PageShareView {
   readonly token: string
@@ -26,7 +25,7 @@ export interface PageShareView {
 
 export interface SharedPage {
   readonly share: PageShareView
-  readonly page: Page
+  readonly page: PageRecord
 }
 
 export interface CreatePageShareInput {
@@ -35,10 +34,10 @@ export interface CreatePageShareInput {
 }
 
 export interface PageShareService {
-  activeForPath(path: string, principal: Principal | null): Result<PageShareView | null, AppError>
-  create(input: CreatePageShareInput, principal: Principal | null): Result<PageShareView, AppError>
-  revoke(token: string, principal: Principal | null): Result<PageShareView, AppError>
-  resolve(token: string): Result<SharedPage, AppError>
+  activeForPath(path: string, principal: Principal | null): Promise<Result<PageShareView | null, AppError>>
+  create(input: CreatePageShareInput, principal: Principal | null): Promise<Result<PageShareView, AppError>>
+  revoke(token: string, principal: Principal | null): Promise<Result<PageShareView, AppError>>
+  resolve(token: string): Promise<Result<SharedPage, AppError>>
 }
 
 const shareToken = (): string => {
@@ -47,7 +46,7 @@ const shareToken = (): string => {
   return Buffer.from(bytes).toString('base64url')
 }
 
-const toView = (share: PageShare): PageShareView => ({
+const toView = (share: PageShareRecord): PageShareView => ({
   token: share.token,
   path: share.path,
   createdBy: share.createdBy,
@@ -56,52 +55,35 @@ const toView = (share: PageShare): PageShareView => ({
   createdAt: share.createdAt,
 })
 
-export const createPageShareService = (db: DB): PageShareService => {
-  const findPage = (path: string): Page | undefined =>
-    db.select().from(pages).where(and(eq(pages.path, normalizePath(path)), eq(pages.lifecycle, 'active'))).get()
-
-  const findToken = (token: string): PageShare | undefined =>
-    db.select().from(pageShares).where(eq(pageShares.token, token.trim())).get()
-
-  const activeWhere = (now: number) =>
-    sql`${pageShares.revokedAt} IS NULL AND (${pageShares.expiresAt} IS NULL OR ${pageShares.expiresAt} > ${now})`
-
-  const activeShareForPath = (path: string, now = Date.now()): PageShare | undefined =>
-    db
-      .select()
-      .from(pageShares)
-      .where(and(eq(pageShares.path, normalizePath(path)), activeWhere(now)))
-      .orderBy(desc(pageShares.createdAt))
-      .get()
-
+export const createPageShareService = (repository: PageShareRepository): PageShareService => {
   const canManageShare = (path: string, principal: Principal | null): principal is Principal =>
     Boolean(principal && requirePermission(principal, 'page:update', { path }).ok)
 
   const ensureManageShare = (path: string, principal: Principal | null): Result<Principal, AppError> =>
     canManageShare(path, principal) ? ok(principal) : err(forbidden())
 
-  const uniqueToken = (): string => {
+  const uniqueToken = async (): Promise<string> => {
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const token = shareToken()
-      if (!findToken(token)) return token
+      if (!await repository.findByToken(token)) return token
     }
     return `${crypto.randomUUID().replace(/-/g, '')}${crypto.randomUUID().replace(/-/g, '')}`
   }
 
   return {
-    activeForPath(path, principal) {
+    async activeForPath(path, principal) {
       const normalized = normalizePath(path)
       const allowed = ensureManageShare(normalized, principal)
       if (!allowed.ok) return allowed
-      const share = activeShareForPath(normalized)
+      const share = await repository.findActiveForPath(normalized, Date.now())
       return ok(share ? toView(share) : null)
     },
 
-    create(input, principal) {
+    async create(input, principal) {
       const path = normalizePath(input.path)
       const allowed = ensureManageShare(path, principal)
       if (!allowed.ok) return allowed
-      if (!findPage(path)) return err(notFound(`No page at "${path}"`))
+      if (!await repository.findActivePage(path)) return err(notFound(`No page at "${path}"`))
 
       const now = Date.now()
       const expiresAt = input.expiresAt ?? null
@@ -109,40 +91,38 @@ export const createPageShareService = (db: DB): PageShareService => {
         return err(validationError('Share expiration must be in the future', 'expiresAt'))
       }
 
-      const existing = activeShareForPath(path, now)
+      const existing = await repository.findActiveForPath(path, now)
       if (existing) return ok(toView(existing))
 
-      const share: PageShare = {
-        token: uniqueToken(),
+      const share: PageShareRecord = {
+        token: await uniqueToken(),
         path,
         createdBy: allowed.value.id,
         expiresAt,
         revokedAt: null,
         createdAt: now,
       }
-      db.insert(pageShares).values(share).run()
+      await repository.insert(share)
       return ok(toView(share))
     },
 
-    revoke(token, principal) {
-      const share = findToken(token)
-      if (!share) return err(notFound('Share link not found'))
-      const allowed = ensureManageShare(share.path, principal)
+    async revoke(token, principal) {
+      const existing = await repository.findByToken(token.trim())
+      if (!existing) return err(notFound('Share link not found'))
+      const allowed = ensureManageShare(existing.path, principal)
       if (!allowed.ok) return allowed
-      const revokedAt = share.revokedAt ?? Date.now()
-      if (share.revokedAt === null) {
-        db.update(pageShares).set({ revokedAt }).where(eq(pageShares.token, share.token)).run()
-      }
-      return ok(toView({ ...share, revokedAt }))
+      const share = await repository.revoke(existing.token, Date.now())
+      if (!share) return err(notFound('Share link not found'))
+      return ok(toView(share))
     },
 
-    resolve(token) {
-      const share = findToken(token)
+    async resolve(token) {
+      const share = await repository.findByToken(token.trim())
       const now = Date.now()
       if (!share || share.revokedAt !== null || (share.expiresAt !== null && share.expiresAt <= now)) {
         return err(notFound('Share link not found'))
       }
-      const page = findPage(share.path)
+      const page = await repository.findActivePage(share.path)
       if (!page) return err(notFound('Shared page not found'))
       return ok({ share: toView(share), page })
     },
