@@ -51,3 +51,9 @@ coverage/
 playwright-report/
 test-results/
 .cache/
+
+# Nix / direnv (flake.nix + flake.lock + .envrc are tracked; caches are not)
+.direnv/
+.direnv.d/
+result
+result-*
