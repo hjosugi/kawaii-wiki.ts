@@ -138,6 +138,21 @@ describe.skipIf(!testPostgresUrl)('postgres authz/admin/page-read contracts', ()
     expect((await repo.findUser('u2'))?.passwordHash).toBe('newhash')
   })
 
+  test('admin: adminExists reports any admin account, including deactivated ones', async () => {
+    const repo = createPostgresAdminRepository(harness.db)
+    expect(await repo.adminExists()).toBe(false)
+
+    await seedUser('v1', { role: 'viewer', createdAt: 1 })
+    expect(await repo.adminExists()).toBe(false)
+
+    await seedUser('a1', { role: 'admin', createdAt: 2 })
+    expect(await repo.adminExists()).toBe(true)
+
+    await repo.deactivateUser('a1', 99)
+    expect(await repo.activeAdminCount()).toBe(0)
+    expect(await repo.adminExists()).toBe(true)
+  })
+
   test('admin: revision candidates and deletion', async () => {
     await seedPage('p1', 'docs/a')
     await seedRevision('rev1', 'p1', { createdAt: 10 })

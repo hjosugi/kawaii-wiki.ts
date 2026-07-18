@@ -1,8 +1,6 @@
-import { eq } from 'drizzle-orm'
 import { t } from 'elysia'
 import { forbidden, type Principal, validationError } from '@kawaii-wiki/core'
-import { users, type User } from '../../db/schema.ts'
-import type { DB } from '../../db/client.ts'
+import { type User } from '../../db/schema.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
 import { HttpError, unwrap } from '../errors.ts'
@@ -16,7 +14,6 @@ interface JwtSigner {
 }
 
 export interface SetupRoutesContext {
-  readonly db: DB
   readonly logger: StructuredLogger
   readonly enforceAuthLimit: (
     request: Request,
@@ -25,13 +22,6 @@ export interface SetupRoutesContext {
   ) => void
   readonly publishAutomation: (event: AutomationEvent) => Promise<void>
 }
-
-const adminExists = (db: DB): boolean =>
-  Boolean(db
-    .select({ id: users.id })
-    .from(users)
-    .where(eq(users.role, 'admin'))
-    .get())
 
 const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>, tokenTtlSeconds: number): Promise<string> => {
   const now = Date.now()
@@ -44,18 +34,17 @@ const signAuthToken = (jwt: JwtSigner, user: Pick<User, 'id' | 'role'>, tokenTtl
 }
 
 export const createSetupRoutes = ({
-  db,
   logger,
   enforceAuthLimit,
   publishAutomation,
 }: SetupRoutesContext) => (app: BaseApp) =>
   app
-    .get('/api/setup/status', () => ({ needsSetup: !adminExists(db) }))
+    .get('/api/setup/status', async ({ services }) => ({ needsSetup: !(await services.admin.adminExists()) }))
     .post(
       '/api/setup/complete',
       async ({ body, services, jwt, request, server, set }) => {
         enforceAuthLimit(request, server, 'setup')
-        if (adminExists(db)) throw new HttpError(forbidden('Setup is already complete'))
+        if (await services.admin.adminExists()) throw new HttpError(forbidden('Setup is already complete'))
 
         const siteTitle = body.siteTitle.trim()
         if (!siteTitle) throw new HttpError(validationError('Site title is required', 'siteTitle'))

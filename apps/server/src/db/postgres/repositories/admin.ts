@@ -114,6 +114,11 @@ export const createPostgresAdminRepository = (db: PostgresDb): AdminRepository =
     return row as AdminUserRecord | undefined
   },
 
+  async adminExists() {
+    const [row] = await db.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).limit(1)
+    return Boolean(row)
+  },
+
   async activeAdminCount() {
     const [row] = await db
       .select({ count: sql<number>`count(*)` })

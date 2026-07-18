@@ -14,6 +14,7 @@ export const createPostgresServices = (client: PostgresClient, options: ServiceO
       repositories: createPostgresDatabaseRepositories(client.db),
       pageWrites: createPostgresPageWriteRepository(client.db, searchIndexer),
       searchIndexer,
+      ping: () => client.ping(),
     },
     options,
   )

@@ -74,6 +74,8 @@ export interface AdminGroupMembershipRecord {
 }
 
 export interface AdminRepository {
+  /** True when any admin account exists (active or not) — backs the setup gate. */
+  adminExists(): Promise<boolean>
   stats(): Promise<AdminStatsRecord>
   historyStats(): Promise<AdminHistoryStatsRecord>
   listRevisionCandidates(): Promise<AdminRevisionRecord[]>

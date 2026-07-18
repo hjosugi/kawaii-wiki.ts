@@ -577,7 +577,6 @@ export const createApp = ({
       exclude: { paths: ['/assets/*', '/ui/*'] },
     }))
     .use(createSystemRoutes({
-      db,
       env,
       services,
       publicSettings,
@@ -587,7 +586,6 @@ export const createApp = ({
       enforceUnfurlLimit,
     }))
     .use(createSetupRoutes({
-      db,
       logger,
       enforceAuthLimit,
       publishAutomation,

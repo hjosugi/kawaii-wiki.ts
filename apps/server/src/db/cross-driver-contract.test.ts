@@ -88,6 +88,10 @@ describe.each(drivers)('%s cross-driver service contract', (driver, create) => {
     db.$client.close()
   })
 
+  test('health: the connectivity probe resolves', async () => {
+    await expect(services.ping()).resolves.toBeUndefined()
+  })
+
   test('authorization: default policy persists and page rules are enforced', async () => {
     const groups = await services.authz.listGroups(admin)
     expect(groups.ok).toBe(true)
