@@ -109,6 +109,8 @@ export interface AdminAuditList {
 }
 
 export interface AdminService {
+  /** Public setup gate: true once any admin account exists. Intentionally unauthenticated. */
+  adminExists(): Promise<boolean>
   stats(principal: Principal | null): Promise<Result<AdminStats, AppError>>
   historyStats(principal: Principal | null): Promise<Result<AdminHistoryStats, AppError>>
   purgeHistory(principal: Principal | null, input: PurgeHistoryInput): Promise<Result<PurgeHistoryResult, AppError>>
@@ -159,6 +161,10 @@ export const createAdminService = (repository: AdminRepository, authz?: AuthzSer
   }
 
   return {
+    adminExists() {
+      return repository.adminExists()
+    },
+
     async stats(principal) {
       const allowed = requirePermission(principal, 'admin:access')
       if (!allowed.ok) return allowed

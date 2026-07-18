@@ -109,6 +109,10 @@ export const createSqliteAdminRepository = (db: DB): AdminRepository => ({
     return db.select(userSelection).from(users).where(eq(users.id, id)).get() as AdminUserRecord | undefined
   },
 
+  async adminExists() {
+    return Boolean(db.select({ id: users.id }).from(users).where(eq(users.role, 'admin')).limit(1).get())
+  },
+
   async activeAdminCount() {
     return db.select({ count: sql<number>`count(*)` }).from(users)
       .where(and(eq(users.role, 'admin'), isNull(users.disabledAt)))

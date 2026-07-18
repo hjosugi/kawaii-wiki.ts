@@ -1,7 +1,6 @@
 import { t } from 'elysia'
 import type { Principal, PublicSettings } from '@kawaii-wiki/core'
 import type { Env } from '../../env.ts'
-import type { DB } from '../../db/client.ts'
 import type { Services } from '../../services/index.ts'
 import { APP_VERSION } from '../../version.ts'
 import type { PageSummary, RecentChange } from '../../services/pages.ts'
@@ -88,7 +87,6 @@ const robotsTxt = (origin: string, privateWiki: boolean): string =>
     : `User-agent: *\nAllow: /\nSitemap: ${origin.replace(/\/+$/, '')}/sitemap.xml\n`
 
 export interface SystemRoutesContext {
-  readonly db: DB
   readonly env: Env
   readonly services: Services
   readonly publicSettings: () => PublicSettings
@@ -103,7 +101,6 @@ export interface SystemRoutesContext {
 }
 
 export const createSystemRoutes = ({
-  db,
   env,
   services,
   publicSettings,
@@ -167,8 +164,8 @@ export const createSystemRoutes = ({
     })
 
   return app
-    .get('/api/health', () => {
-      db.$client.prepare('SELECT 1 AS ready').get()
+    .get('/api/health', async () => {
+      await services.ping()
       return { ok: true as const, name: 'kawaii-wiki.ts', version: APP_VERSION }
     })
     .get('/api/settings/public', () => publicSettings())

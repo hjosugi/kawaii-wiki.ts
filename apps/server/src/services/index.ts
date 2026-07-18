@@ -73,6 +73,8 @@ export interface Services {
   readonly webhooks: WebhookService
   readonly totp: TotpService
   readonly notifications: NotificationService
+  /** Lightweight, schema-free database connectivity probe for health checks. */
+  readonly ping: () => Promise<void>
 }
 
 const defaultAuth: AuthEnv = {
@@ -111,7 +113,7 @@ const defaultLocalization: LocalizationEnv = {
 }
 
 export const createServiceLayer = (
-  data: ServiceDataLayer & { readonly searchIndexer: SearchIndexer },
+  data: ServiceDataLayer & { readonly searchIndexer: SearchIndexer; readonly ping: () => Promise<void> },
   options: ServiceOptions = {},
 ): Services => {
   const { repositories, pageWrites, searchIndexer } = data
@@ -199,6 +201,7 @@ export const createServiceLayer = (
     apiKeys: createApiKeyService(repositories.apiKeys, authz),
     totp: createTotpService(repositories.totp, auth.siteName),
     notifications: createNotificationService(repositories.notifications),
+    ping: data.ping,
     webhooks: createWebhookService(
       repositories.webhookSubscriptions,
       repositories.webhookDeliveries,

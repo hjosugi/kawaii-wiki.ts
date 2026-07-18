@@ -29,6 +29,10 @@ describe.skipIf(!testPostgresUrl)('postgres composed services', () => {
     await harness?.close()
   })
 
+  test('health: the connectivity probe resolves', async () => {
+    await expect(services.ping()).resolves.toBeUndefined()
+  })
+
   test('authorization: default policy, page rules, and user principals', async () => {
     const groups = await services.authz.listGroups(admin)
     expect(groups.ok).toBe(true)

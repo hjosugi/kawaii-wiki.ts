@@ -12,5 +12,6 @@ export const createServices = (db: DB, options: ServiceOptions = {}): Services =
     repositories: createDatabaseRepositories(db),
     pageWrites: createSqlitePageWriteRepository(db, searchIndexer),
     searchIndexer,
+    ping: async () => { db.$client.prepare('SELECT 1 AS ready').get() },
   }, options)
 }

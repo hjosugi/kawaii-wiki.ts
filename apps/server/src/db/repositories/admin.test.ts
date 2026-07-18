@@ -127,4 +127,24 @@ describe.each(drivers)('%s admin repository contract', (_driver, create) => {
       tokenInvalidBefore: 60,
     })
   })
+
+  test('adminExists reports any admin account, including deactivated ones', async () => {
+    const db = create()
+    databases.push(db)
+    const repository = createSqliteAdminRepository(db)
+
+    expect(await repository.adminExists()).toBe(false)
+
+    insertUser(db, 'viewer-1', 'viewer', 1)
+    expect(await repository.adminExists()).toBe(false)
+
+    insertUser(db, 'admin-1', 'admin', 2)
+    expect(await repository.adminExists()).toBe(true)
+
+    // Unlike activeAdminCount, the setup gate stays closed once an admin has
+    // ever existed — a deactivated admin still counts.
+    await repository.deactivateUser('admin-1', 100)
+    expect(await repository.activeAdminCount()).toBe(0)
+    expect(await repository.adminExists()).toBe(true)
+  })
 })
