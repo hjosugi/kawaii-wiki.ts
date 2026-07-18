@@ -5,18 +5,21 @@
  * (provisioned by scripts/test-postgres.sh / the CI postgres job). Proves the
  * Bun.SQL pool, TLS option plumbing, and the Drizzle seam connect and execute.
  */
-import { describe, test, expect, afterAll } from 'bun:test'
+import { describe, test, expect, beforeAll, afterAll } from 'bun:test'
 import { sql as drizzleSql } from 'drizzle-orm'
 import { createPostgresClient } from './client.ts'
+import { testPostgresUrl, waitForPostgres } from './test-support.ts'
 
-const url = process.env.KAWAII_WIKI_TEST_POSTGRES_URL?.trim()
-
-describe.skipIf(!url)('postgres client (integration)', () => {
+describe.skipIf(!testPostgresUrl)('postgres client (integration)', () => {
   const client = createPostgresClient({
     driver: 'postgres',
-    url: url ?? '',
+    url: testPostgresUrl ?? '',
     ssl: false,
     maxConnections: 4,
+  })
+
+  beforeAll(async () => {
+    await waitForPostgres(client)
   })
 
   afterAll(async () => {
