@@ -10,10 +10,12 @@ import { createMysqlLinkPreviewRepository } from './repositories/link-previews.t
 import { createMysqlPageTemplateRepository } from './repositories/page-templates.ts'
 import { createMysqlNotificationRepository } from './repositories/notifications.ts'
 import { createMysqlAssetRepository } from './repositories/assets.ts'
+import { createMysqlCommentRepository } from './repositories/comments.ts'
 import type { LinkPreviewRecord } from '../../repositories/link-previews.ts'
 import type { StoredPageTemplate } from '../../repositories/page-templates.ts'
 import type { NotificationRecord } from '../../repositories/notifications.ts'
 import type { AssetRecord } from '../../repositories/assets.ts'
+import type { CommentRecord } from '../../repositories/comments.ts'
 
 describe.skipIf(!testMysqlUrl)('mysql content repository contracts', () => {
   let harness: MysqlContractDb
@@ -143,5 +145,36 @@ describe.skipIf(!testMysqlUrl)('mysql content repository contracts', () => {
 
     await repo.delete('a2')
     expect(await repo.findActive('a2')).toBeUndefined()
+  })
+
+  test('comments: active page, author join, and affectedRows-based mutations', async () => {
+    await seedUser('u1', 'Alice')
+    await seedPage('p1', 'docs/a')
+    const repo = createMysqlCommentRepository(harness.db)
+    expect((await repo.findActivePage('docs/a'))?.id).toBe('p1')
+    expect(await repo.findActivePage('missing')).toBeUndefined()
+
+    const comment = (over: Partial<CommentRecord>): CommentRecord => ({
+      id: 'c', pageId: 'p1', path: 'docs/a', body: 'hi', authorId: 'u1',
+      resolvedAt: null, createdAt: 1, updatedAt: 1, ...over,
+    })
+    await repo.insert(comment({ id: 'c1', createdAt: 1 }))
+    await repo.insert(comment({ id: 'c2', createdAt: 2, authorId: null }))
+    expect((await repo.findById('c1'))?.body).toBe('hi')
+
+    const listed = await repo.listByPageId('p1')
+    expect(listed.map((r) => [r.comment.id, r.authorName])).toEqual([['c1', 'Alice'], ['c2', null]])
+    expect(await repo.findAuthorName('u1')).toBe('Alice')
+    expect(await repo.findAuthorName('missing')).toBeNull()
+
+    expect(await repo.updateBody('c1', 'edited', 10)).toBe(true)
+    expect(await repo.updateBody('missing', 'x', 10)).toBe(false)
+    expect((await repo.findById('c1'))?.body).toBe('edited')
+
+    expect(await repo.resolve('c1', 5, 11)).toBe(true)
+    expect((await repo.findById('c1'))?.resolvedAt).toBe(5)
+
+    expect(await repo.delete('c1')).toBe(true)
+    expect(await repo.delete('c1')).toBe(false)
   })
 })
