@@ -14,7 +14,26 @@
   --c-accent: var(--accent);
   --c-accent-text: var(--c-accent);
   --accent-hover: color-mix(in srgb, var(--accent) 82%, #000);
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
   --radius: 0.5rem;
+  --radius-full: 999px;
+  /* Type scale — single source of truth for hand-written font sizes.
+     Steps align with the UnoCSS `text-*` utilities used in templates; keep new
+     sizes on a token instead of introducing another one-off rem value. */
+  --fs-2xs: 0.7rem;
+  --fs-xs: 0.75rem;
+  --fs-sm: 0.8rem;
+  --fs-md: 0.875rem;
+  --fs-lg: 0.9375rem;
+  --fs-xl: 1rem;
+  --fs-2xl: 1.05rem;
+  --fs-3xl: 1.1rem;
+  --fs-4xl: 1.25rem;
+  --fs-5xl: 2rem;
+  --fs-hero: clamp(2rem, 6vw, 4.5rem);
+  --fs-hero-sm: clamp(2rem, 6vw, 3.25rem);
+  --fs-lead: clamp(1rem, 2.4vw, 1.35rem);
   --font-ui: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --site-background: var(--c-bg);
   --site-background-size: auto;
@@ -158,7 +177,7 @@ body {
   height: 1.75rem;
   flex: 0 0 1.75rem;
   place-items: center;
-  border-radius: 0.55rem;
+  border-radius: var(--radius);
   background: linear-gradient(145deg, color-mix(in srgb, var(--c-accent) 78%, #ffffff), var(--c-accent));
   color: #ffffff;
   box-shadow:
@@ -216,11 +235,11 @@ body {
   width: max-content;
   max-width: min(18rem, calc(100vw - 1rem));
   transform: translateX(-50%) translateY(-0.15rem);
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   background: var(--c-text);
   color: var(--c-bg);
   padding: 0.35rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   font-weight: 500;
   line-height: 1.25;
   white-space: normal;
@@ -265,29 +284,29 @@ body {
 .admin-content {
   container-name: admin-content;
   container-type: inline-size;
-  font-size: 1rem;
+  font-size: var(--fs-xl);
 }
 
 .admin-content > section > h2,
 .admin-content > section > div:first-child > h2 {
-  font-size: 1.25rem;
+  font-size: var(--fs-4xl);
   line-height: 1.75rem;
 }
 
 .admin-content .text-sm {
-  font-size: 0.9375rem;
+  font-size: var(--fs-lg);
   line-height: 1.45rem;
 }
 
 .admin-content .text-xs {
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
   line-height: 1.2rem;
 }
 
 .admin-content .input,
 .admin-content button,
 .admin-content select {
-  font-size: 0.9375rem;
+  font-size: var(--fs-lg);
 }
 
 .admin-content input,
@@ -530,7 +549,7 @@ main:focus {
 
 .skeleton-line {
   height: 0.85rem;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: linear-gradient(
     90deg,
     var(--c-surface-muted) 0%,
@@ -565,7 +584,7 @@ main:focus {
 /* CodeMirror fills its pane and uses our mono stack. */
 .cm-editor {
   height: 100%;
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
 }
 .cm-editor .cm-scroller {
   font-family: var(--font-mono, ui-monospace, monospace);
@@ -592,7 +611,7 @@ main:focus {
 .editor-toolbar-label {
   padding: 0 0.35rem;
   color: var(--c-text-muted);
-  font-size: 0.68rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0;
   text-transform: uppercase;
@@ -615,11 +634,11 @@ main:focus {
   z-index: 20;
   max-width: min(18rem, 80vw);
   transform: translateX(-50%);
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   background: var(--c-text);
   color: var(--c-bg);
   padding: 0.35rem 0.5rem;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1.2;
   opacity: 0;
   pointer-events: none;
@@ -632,7 +651,7 @@ main:focus {
 }
 
 .editor-tool-icon {
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
 }
 
@@ -651,7 +670,7 @@ main:focus {
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   padding: 0.45rem 0.55rem;
   text-align: left;
 }
@@ -772,7 +791,7 @@ main:focus {
 .visual-editor img {
   max-width: min(100%, 44rem);
   max-height: 28rem;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   object-fit: contain;
 }
 
@@ -815,7 +834,7 @@ main:focus {
 
 .wiki-event-kicker {
   margin: 0 0 0.2rem;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -824,7 +843,7 @@ main:focus {
 
 .wiki-event-card h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--fs-3xl);
 }
 
 .wiki-event-time,
@@ -837,7 +856,7 @@ main:focus {
   display: grid;
   gap: 0.35rem;
   margin-top: 0.7rem;
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
 }
 
 .wiki-event-details div {
@@ -873,7 +892,7 @@ main:focus {
   border-radius: var(--radius);
   background: var(--c-surface-muted);
   color: var(--c-text);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   font-weight: 600;
   text-decoration: none;
 }
@@ -888,10 +907,10 @@ main:focus {
   align-items: center;
   min-height: 1.35rem;
   padding: 0.1rem 0.45rem;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: color-mix(in srgb, var(--c-accent) 12%, var(--c-surface-muted));
   color: var(--c-accent);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
 }
 
@@ -946,7 +965,7 @@ main:focus {
 }
 
 .wiki-media-kicker {
-  font-size: 0.72rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -955,11 +974,11 @@ main:focus {
 .wiki-media-card h3 {
   margin: 0.25rem 0;
   overflow-wrap: anywhere;
-  font-size: 1.05rem;
+  font-size: var(--fs-2xl);
 }
 
 .wiki-media-note {
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
 }
 
 .wiki-media-actions {
@@ -980,7 +999,7 @@ main:focus {
   border-radius: var(--radius);
   background: var(--c-surface-muted);
   color: var(--c-text);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   font-weight: 700;
   text-decoration: none;
 }
@@ -1009,7 +1028,7 @@ main:focus {
 
 .wiki-youtube-latest-header h3 {
   margin: 0.2rem 0 0;
-  font-size: 1.05rem;
+  font-size: var(--fs-2xl);
 }
 
 .wiki-youtube-latest-items {
@@ -1059,7 +1078,7 @@ main:focus {
 .wiki-youtube-latest-meta {
   margin-top: 0.25rem;
   color: var(--c-text-muted);
-  font-size: 0.82rem;
+  font-size: var(--fs-sm);
 }
 
 .wiki-landing-hero {
@@ -1103,7 +1122,7 @@ main:focus {
 
 .wiki-landing-hero h2 {
   margin: 0;
-  font-size: clamp(2rem, 6vw, 4.5rem);
+  font-size: var(--fs-hero);
   line-height: 1;
 }
 
@@ -1114,7 +1133,7 @@ main:focus {
 
 .wiki-landing-eyebrow {
   margin-bottom: 0.6rem;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1124,7 +1143,7 @@ main:focus {
   margin-top: 0.85rem;
   max-width: 38rem;
   color: rgb(255 255 255 / 0.86);
-  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  font-size: var(--fs-lead);
 }
 
 .wiki-landing-actions {
@@ -1167,13 +1186,13 @@ main:focus {
 
 .wiki-page-widget-header h3 {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: var(--fs-3xl);
 }
 
 .wiki-page-widget-header p {
   margin: 0;
   color: var(--c-text-muted);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .wiki-page-grid {
@@ -1206,7 +1225,7 @@ main:focus {
 }
 
 .wiki-page-card-icon {
-  font-size: 2.1rem;
+  font-size: var(--fs-5xl);
 }
 
 .wiki-page-card-body {
@@ -1234,13 +1253,13 @@ main:focus {
 .wiki-page-card-path,
 .wiki-page-card-meta {
   color: var(--c-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
 }
 
 .wiki-page-card-description {
   display: -webkit-box;
   color: var(--c-text-muted);
-  font-size: 0.86rem;
+  font-size: var(--fs-md);
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
 }
@@ -1272,7 +1291,7 @@ main:focus {
   width: 2rem;
   height: 2rem;
   place-items: center;
-  border-radius: 0.45rem;
+  border-radius: var(--radius);
   background: var(--c-surface-muted);
 }
 
@@ -1295,7 +1314,7 @@ main:focus {
 
 .wiki-activity-meta {
   color: var(--c-text-muted);
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
 }
 
 .wiki-callout {
@@ -1373,7 +1392,7 @@ main:focus {
 }
 
 .wiki-infobox-title {
-  font-size: 1.05rem;
+  font-size: var(--fs-2xl);
   font-weight: 700;
   color: var(--c-text);
   text-align: center;
@@ -1382,7 +1401,7 @@ main:focus {
 .wiki-infobox-caption {
   margin-top: 0.15rem;
   text-align: center;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   color: var(--c-text-muted);
 }
 
@@ -1398,7 +1417,7 @@ main:focus {
   gap: 0.5rem;
   padding: 0.35rem 0;
   border-top: 1px solid var(--c-border);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
 }
 
 .wiki-infobox-row dt {
@@ -1415,7 +1434,7 @@ main:focus {
 
 .wiki-infobox-body {
   margin-top: 0.6rem;
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   color: var(--c-text-muted);
 }
 
@@ -1448,11 +1467,11 @@ main:focus {
   align-items: center;
   gap: 0.4rem;
   padding: 0.45rem 0.95rem;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: 1px solid var(--c-border);
   background: var(--c-surface);
   color: var(--c-text);
-  font-size: 0.85rem;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-decoration: none;
   transition: filter 0.12s ease, border-color 0.12s ease, color 0.12s ease;
@@ -1519,9 +1538,9 @@ main:focus {
   top: 0.4rem;
   right: 0.4rem;
   padding: 0.15rem 0.55rem;
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   font-weight: 600;
-  border-radius: 0.35rem;
+  border-radius: var(--radius-md);
   border: 1px solid var(--c-border);
   background: var(--c-surface-muted);
   color: var(--c-text);
@@ -1552,7 +1571,7 @@ main:focus {
   margin-top: 2rem;
   padding-top: 1rem;
   border-top: 1px solid var(--c-border);
-  font-size: 0.9rem;
+  font-size: var(--fs-lg);
   color: var(--c-text-muted);
 }
 
@@ -1600,7 +1619,7 @@ main:focus {
 .wiki-embed-meta {
   margin-bottom: 0.2rem;
   color: var(--c-text-muted);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   font-weight: 700;
   text-transform: uppercase;
 }
@@ -1619,7 +1638,7 @@ main:focus {
   margin-top: 0.35rem;
   color: var(--c-text-muted);
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
 
@@ -1663,7 +1682,7 @@ main:focus {
   padding: 0.35rem 0.75rem;
   border-radius: var(--radius);
   color: var(--c-text-muted);
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
   font-weight: 600;
   text-decoration: none;
 }
@@ -1860,17 +1879,17 @@ html.dark {
   height: 5rem;
   place-items: center;
   border: 4px solid var(--c-bg);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   background: var(--c-accent);
   color: white;
-  font-size: 2rem;
+  font-size: var(--fs-5xl);
   font-weight: 800;
 }
 
 .profile-main h1 {
   margin: 0;
   color: var(--c-text);
-  font-size: clamp(2rem, 6vw, 3.25rem);
+  font-size: var(--fs-hero-sm);
   font-weight: 800;
   line-height: 1;
 }
@@ -1918,7 +1937,7 @@ html.dark {
 
 .profile-section h2 {
   margin-bottom: 0.75rem;
-  font-size: 1rem;
+  font-size: var(--fs-xl);
   font-weight: 800;
 }
 
@@ -1946,7 +1965,7 @@ html.dark {
 .profile-page-grid span {
   color: var(--c-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   overflow-wrap: anywhere;
 }
 
@@ -1957,11 +1976,11 @@ html.dark {
   padding-left: 0.5rem;
   padding-right: 0.5rem;
   padding-bottom: 0.25rem;
-  border-radius: 0.375rem;
+  border-radius: var(--radius-md);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
 }
 
 .page-tree-row {
@@ -1988,7 +2007,7 @@ html.dark {
   position: absolute;
   right: 0.2rem;
   z-index: 2;
-  border-radius: 0.35rem;
+  border-radius: var(--radius-md);
   background: var(--c-surface-muted);
 }
 
@@ -2004,7 +2023,7 @@ html.dark {
   display: grid;
   width: 10.5rem;
   border: 1px solid var(--c-border);
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   background: var(--c-surface);
   padding: 0.25rem;
   box-shadow: 0 12px 28px var(--c-shadow);
@@ -2014,10 +2033,10 @@ html.dark {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  border-radius: 0.35rem;
+  border-radius: var(--radius-md);
   padding: 0.45rem 0.55rem;
   color: var(--c-text);
-  font-size: 0.78rem;
+  font-size: var(--fs-sm);
   text-align: left;
 }
 
@@ -2042,9 +2061,9 @@ html.dark {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   color: rgb(107 114 128);
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   line-height: 1;
 }
 
@@ -2055,10 +2074,10 @@ html.dark {
 
 .page-tree-move {
   flex: 0 0 auto;
-  border-radius: 0.25rem;
+  border-radius: var(--radius-sm);
   padding: 0.25rem 0.35rem;
   color: rgb(107 114 128);
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   line-height: 1;
 }
 
@@ -2110,7 +2129,7 @@ html.dark {
   min-height: 1.45rem;
   padding-top: 0.1rem;
   padding-bottom: 0.1rem;
-  font-size: 0.8125rem;
+  font-size: var(--fs-sm);
 }
 
 .page-tree-compact .page-tree-line {
@@ -2185,7 +2204,7 @@ html.dark {
   min-width: 0;
   max-width: 100%;
   border: 1px solid rgb(229 231 235);
-  border-radius: 0.5rem;
+  border-radius: var(--radius);
   background: rgb(255 255 255);
   overflow: hidden;
 }
@@ -2204,13 +2223,13 @@ html.dark {
 }
 
 .interactive-graph-head h2 {
-  font-size: 0.95rem;
+  font-size: var(--fs-lg);
   font-weight: 700;
 }
 
 .interactive-graph-head p {
   margin-top: 0.125rem;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
   color: rgb(107 114 128);
 }
 
@@ -2221,7 +2240,7 @@ html.dark {
 
 .interactive-graph-actions .btn-ghost {
   padding: 0.25rem 0.45rem;
-  font-size: 0.75rem;
+  font-size: var(--fs-xs);
 }
 
 .interactive-graph-controls {
@@ -2230,7 +2249,7 @@ html.dark {
   align-items: center;
   gap: 0.65rem 1rem;
   padding: 0 0.9rem 0.75rem;
-  font-size: 0.8rem;
+  font-size: var(--fs-sm);
   color: rgb(75 85 99);
 }
 
@@ -2320,7 +2339,7 @@ html.dark {
   gap: 1rem;
   border-top: 1px solid rgb(229 231 235);
   padding: 0.9rem;
-  font-size: 0.875rem;
+  font-size: var(--fs-md);
 }
 
 .interactive-graph-detail h3 {
@@ -2342,7 +2361,7 @@ html.dark {
 }
 
 .interactive-graph-kicker {
-  font-size: 0.7rem;
+  font-size: var(--fs-2xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
