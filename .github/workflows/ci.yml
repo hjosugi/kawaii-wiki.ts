@@ -169,4 +169,10 @@ jobs:
         env:
           # Root: the contract harness creates/drops a database per test file.
           KAWAII_WIKI_TEST_MYSQL_URL: mysql://root:wiki@127.0.0.1:3306/wiki
-        run: bun test apps/server/src/db/mysql
+        # One file at a time: each provisions its own 35-table database, so
+        # running them together serialises MySQL DDL and starves per-file setup.
+        run: |
+          for file in apps/server/src/db/mysql/*.test.ts; do
+            echo "-- $file --"
+            bun test "$file"
+          done
