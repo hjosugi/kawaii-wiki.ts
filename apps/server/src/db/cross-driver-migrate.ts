@@ -11,6 +11,7 @@
  *
  *   DATABASE_DRIVER=postgres DATABASE_URL=... bun run db:migrate-to --to postgres [--from sqlite.db] [--dry-run]
  */
+import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core'
 import type { PgTable } from 'drizzle-orm/pg-core'
@@ -57,6 +58,8 @@ export interface CrossDriverTarget {
   insert(name: string, rows: Record<string, unknown>[]): Promise<void>
   isEmpty(): Promise<boolean>
   finalize(): Promise<void>
+  /** Read every row of a target table, for verification. */
+  readRows(name: string): Promise<Record<string, unknown>[]>
 }
 
 interface NamedTable<T> {
@@ -86,6 +89,10 @@ export const createPostgresMigrationTarget = (client: PostgresClient, tokenizer:
       const table = tables.get(name)
       if (table) await client.db.insert(table).values(rows as never)
     },
+    async readRows(name) {
+      const table = tables.get(name)
+      return table ? ((await client.db.select().from(table)) as Record<string, unknown>[]) : []
+    },
     async isEmpty() {
       const rows = await client.db.select({ id: pgSchema.users.id }).from(pgSchema.users).limit(1)
       return rows.length === 0
@@ -110,6 +117,10 @@ export const createMysqlMigrationTarget = (client: MysqlClient, tokenizer: Searc
     async insert(name, rows) {
       const table = tables.get(name)
       if (table) await client.db.insert(table).values(rows as never)
+    },
+    async readRows(name) {
+      const table = tables.get(name)
+      return table ? ((await client.db.select().from(table)) as Record<string, unknown>[]) : []
     },
     async isEmpty() {
       const rows = await client.db.select({ id: mysqlSchema.users.id }).from(mysqlSchema.users).limit(1)
@@ -156,6 +167,46 @@ export const migrateToDriver = async (
   }
 }
 
+// Canonical, key-sorted JSON of a flat row (DB columns are primitives or null).
+const canonicalRow = (row: Record<string, unknown>): string => JSON.stringify(row, Object.keys(row).sort())
+
+/** Order-independent content hash of a table's rows. */
+const checksumRows = (rows: Record<string, unknown>[]): string =>
+  createHash('sha256').update(rows.map(canonicalRow).sort().join('\n')).digest('hex')
+
+export interface TableVerification {
+  readonly table: string
+  readonly sourceRows: number
+  readonly targetRows: number
+  readonly countMatch: boolean
+  readonly checksumMatch: boolean
+}
+export interface VerifyReport {
+  readonly target: TargetDriver
+  readonly tables: TableVerification[]
+  readonly ok: boolean
+}
+
+/**
+ * Compare a SQLite source against a migrated target: per-table row counts and an
+ * order-independent content checksum. The schemas return the same JS values for
+ * matching data, so a faithful migration hashes identically.
+ */
+export const verifyMigration = async (source: DB, target: CrossDriverTarget): Promise<VerifyReport> => {
+  const tables: TableVerification[] = []
+  let ok = true
+  for (const { name, table } of sourceTables()) {
+    if (!target.hasTable(name)) continue
+    const sourceRows = source.select().from(table).all() as Record<string, unknown>[]
+    const targetRows = await target.readRows(name)
+    const countMatch = sourceRows.length === targetRows.length
+    const checksumMatch = checksumRows(sourceRows) === checksumRows(targetRows)
+    if (!countMatch || !checksumMatch) ok = false
+    tables.push({ table: name, sourceRows: sourceRows.length, targetRows: targetRows.length, countMatch, checksumMatch })
+  }
+  return { target: target.driver, tables, ok }
+}
+
 const argvValue = (argv: string[], flag: string): string | undefined => {
   const index = argv.indexOf(flag)
   return index >= 0 ? argv[index + 1] : undefined
@@ -172,12 +223,23 @@ const printReport = (report: MigrationReport): void => {
   console.log(`  ${report.mode === 'dry-run' ? 'would migrate' : 'migrated'} ${report.totalRows} rows across ${report.tables.filter((t) => !t.skipped).length} tables\n`)
 }
 
+const printVerifyReport = (report: VerifyReport): void => {
+  console.log(`\nverify sqlite → ${report.target}`)
+  for (const table of report.tables) {
+    const mark = table.countMatch && table.checksumMatch ? '✓' : '✗'
+    const detail = table.countMatch ? (table.checksumMatch ? '' : ' (checksum mismatch)') : ` (${table.sourceRows} vs ${table.targetRows} rows)`
+    console.log(`  ${mark} ${table.table}${detail}`)
+  }
+  console.log(`  ${report.ok ? '✓ all tables match' : '✗ mismatches found'}\n`)
+}
+
 /** CLI entry: opens the SQLite source and the env-configured Postgres/MySQL target. */
 export const runCrossDriverMigration = async (argv: string[] = process.argv.slice(2)): Promise<void> => {
   const to = argvValue(argv, '--to')
+  const verify = argv.includes('--verify')
   const mode: MigrationMode = argv.includes('--dry-run') ? 'dry-run' : 'apply'
   if (to !== 'postgres' && to !== 'mysql') {
-    throw new Error('Usage: db:migrate-to --to <postgres|mysql> [--from <sqlite path>] [--dry-run]')
+    throw new Error('Usage: db:migrate-to --to <postgres|mysql> [--from <sqlite path>] [--dry-run | --verify]')
   }
   const env = loadEnv()
   if (env.database.driver !== to) {
@@ -185,13 +247,24 @@ export const runCrossDriverMigration = async (argv: string[] = process.argv.slic
   }
   const tokenizer: SearchTokenizer = env.search.ftsTokenizer
   const source = createDb(argvValue(argv, '--from') ?? defaultSourcePath(env), { ftsTokenizer: env.search.ftsTokenizer })
+
+  const run = async (target: CrossDriverTarget): Promise<void> => {
+    if (verify) {
+      const report = await verifyMigration(source, target)
+      printVerifyReport(report)
+      if (!report.ok) process.exitCode = 1
+    } else {
+      printReport(await migrateToDriver(source, target, { mode }))
+    }
+  }
+
   try {
     if (env.database.driver === 'postgres') {
       const client = createPostgresClient(env.database)
       try {
         await client.ping()
         await runPostgresMigrations(client.sql)
-        printReport(await migrateToDriver(source, createPostgresMigrationTarget(client, tokenizer), { mode }))
+        await run(createPostgresMigrationTarget(client, tokenizer))
       } finally {
         await client.close()
       }
@@ -200,7 +273,7 @@ export const runCrossDriverMigration = async (argv: string[] = process.argv.slic
       try {
         await client.ping()
         await runMysqlMigrations(client.pool)
-        printReport(await migrateToDriver(source, createMysqlMigrationTarget(client, tokenizer), { mode }))
+        await run(createMysqlMigrationTarget(client, tokenizer))
       } finally {
         await client.close()
       }
