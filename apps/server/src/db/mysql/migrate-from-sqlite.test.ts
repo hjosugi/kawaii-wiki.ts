@@ -10,7 +10,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } fr
 import type { Principal } from '@kawaii-wiki/core'
 import { createDb, type DB } from '../client.ts'
 import { createServices } from '../services.ts'
-import { createMysqlMigrationTarget, migrateToDriver } from '../cross-driver-migrate.ts'
+import { createMysqlMigrationTarget, migrateToDriver, verifyMigration } from '../cross-driver-migrate.ts'
 import { createMysqlContractDb, testMysqlUrl, type MysqlContractDb } from './test-support.ts'
 import { createMysqlSearchIndexer } from './repositories/search.ts'
 import { pageRevisions, pages, users } from './schema.ts'
@@ -66,5 +66,17 @@ describe.skipIf(!testMysqlUrl)('sqlite → mysql migration', () => {
     await expect(
       migrateToDriver(source, createMysqlMigrationTarget(harness.client, 'unicode61'), { mode: 'apply' }),
     ).rejects.toThrow(/not empty/i)
+  })
+
+  test('verify passes after a faithful migration and fails on tampering', async () => {
+    await migrateToDriver(source, createMysqlMigrationTarget(harness.client, 'unicode61'), { mode: 'apply' })
+    const clean = await verifyMigration(source, createMysqlMigrationTarget(harness.client, 'unicode61'))
+    expect(clean.ok).toBe(true)
+    expect(clean.tables.every((table) => table.countMatch && table.checksumMatch)).toBe(true)
+
+    await harness.client.db.delete(users) // tamper: drop the migrated users
+    const dirty = await verifyMigration(source, createMysqlMigrationTarget(harness.client, 'unicode61'))
+    expect(dirty.ok).toBe(false)
+    expect(dirty.tables.find((table) => table.table === 'users')?.countMatch).toBe(false)
   })
 })
