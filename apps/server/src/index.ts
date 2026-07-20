@@ -7,20 +7,29 @@ import { loadEnv } from './env.ts'
 import { createDb } from './db/client.ts'
 import { createPostgresClient } from './db/postgres/client.ts'
 import { runPostgresMigrations } from './db/postgres/migrate.ts'
+import { createMysqlClient } from './db/mysql/client.ts'
+import { runMysqlMigrations } from './db/mysql/migrate.ts'
 import { createSqliteDatabaseAdapter, type DatabaseAdapter } from './http/database-adapter.ts'
 import { createPostgresDatabaseAdapter } from './http/postgres-adapter.ts'
+import { createMysqlDatabaseAdapter } from './http/mysql-adapter.ts'
 import { createApp } from './http/app.ts'
 
 const env = loadEnv()
 mkdirSync(join(env.dataDir, 'assets'), { recursive: true })
 
-/** Open the connection for the configured driver, migrating Postgres on boot. */
+/** Open the connection for the configured driver, migrating server DBs on boot. */
 const openDatabase = async (): Promise<DatabaseAdapter> => {
   if (env.database.driver === 'postgres') {
     const client = createPostgresClient(env.database)
     await client.ping() // fail fast on an unreachable server before migrating
     await runPostgresMigrations(client.sql)
     return createPostgresDatabaseAdapter(client)
+  }
+  if (env.database.driver === 'mysql') {
+    const client = createMysqlClient(env.database)
+    await client.ping() // fail fast on an unreachable server before migrating
+    await runMysqlMigrations(client.pool)
+    return createMysqlDatabaseAdapter(client)
   }
   return createSqliteDatabaseAdapter(createDb(env.database, { ftsTokenizer: env.search.ftsTokenizer }))
 }

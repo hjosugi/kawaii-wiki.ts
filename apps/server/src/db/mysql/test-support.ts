@@ -31,7 +31,8 @@ export const createMysqlTestClient = async (): Promise<MysqlClient> => {
   return client
 }
 
-const withDatabase = (url: string, database: string | null): string => {
+/** Re-point a MySQL URL at a named database (or the server root when null). */
+export const withDatabase = (url: string, database: string | null): string => {
   const parsed = new URL(url)
   parsed.pathname = database ? `/${database}` : '/'
   return parsed.toString()
