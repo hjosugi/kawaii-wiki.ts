@@ -37,6 +37,14 @@ export const createPostgresSearchOutboxRepository = (db: PostgresDb): SearchOutb
     return Number(row?.count ?? 0)
   },
 
+  async backlogCount(maxAttempts) {
+    const [row] = await db
+      .select({ count: sql<number>`count(*)` })
+      .from(searchOutbox)
+      .where(lt(searchOutbox.attempts, maxAttempts))
+    return Number(row?.count ?? 0)
+  },
+
   async deadLetterCount(maxAttempts) {
     const [row] = await db
       .select({ count: sql<number>`count(*)` })

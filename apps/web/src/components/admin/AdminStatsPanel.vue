@@ -29,8 +29,12 @@ function percent(value: number): string {
   return `${Math.round(value * 100)}%`
 }
 
-async function rebuildAsTrigram(): Promise<void> {
-  if (!await dialogs.confirm({ message: 'Rebuild the search index with the trigram tokenizer? Back up the database first; searches may be incomplete while the rebuild is running.', danger: true })) return
+async function rebuildSearchIndex(): Promise<void> {
+  const external = searchIndex.value?.backend === 'elasticsearch'
+  const message = external
+    ? 'Rebuild the Elasticsearch index and atomically swap its alias? Verify cluster capacity first.'
+    : 'Rebuild the search index with the trigram tokenizer? Back up the database first; searches may be incomplete while the rebuild is running.'
+  if (!await dialogs.confirm({ message, danger: true })) return
   rebuilding.value = true
   error.value = null
   try {
@@ -68,6 +72,10 @@ async function rebuildAsTrigram(): Promise<void> {
       <div class="card p-4 space-y-3">
         <div class="grid sm:grid-cols-2 gap-3 text-sm">
           <div>
+            <div class="text-gray-500">Backend</div>
+            <div class="font-mono">{{ searchIndex.backend }}</div>
+          </div>
+          <div>
             <div class="text-gray-500">Current tokenizer</div>
             <div class="font-mono">{{ searchIndex.tokenizer }}</div>
           </div>
@@ -87,8 +95,8 @@ async function rebuildAsTrigram(): Promise<void> {
         <p v-if="searchIndex.needsTrigram" class="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-100">
           CJK content is present while the index uses unicode61. Rebuild with trigram for better Japanese/CJK matching after taking a database backup.
         </p>
-        <button class="btn-primary" type="button" :disabled="rebuilding" @click="rebuildAsTrigram">
-          {{ rebuilding ? 'Rebuilding...' : 'Rebuild index as trigram' }}
+        <button class="btn-primary" type="button" :disabled="rebuilding" @click="rebuildSearchIndex">
+          {{ rebuilding ? 'Rebuilding...' : (searchIndex.backend === 'elasticsearch' ? 'Rebuild Elasticsearch index' : 'Rebuild index as trigram') }}
         </button>
       </div>
     </div>

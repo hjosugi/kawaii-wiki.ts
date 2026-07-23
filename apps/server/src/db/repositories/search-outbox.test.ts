@@ -15,6 +15,7 @@ describe('sqlite search outbox', () => {
     expect(due.map((entry) => entry.pageId)).toEqual(['p1', 'p3'])
     expect(due[0]).toMatchObject({ operation: 'index', attempts: 0, lastError: null })
     expect(await repo.pendingCount(10, 5)).toBe(2)
+    expect(await repo.backlogCount(5)).toBe(3)
   })
 
   test('complete removes an entry', async () => {
@@ -41,5 +42,6 @@ describe('sqlite search outbox', () => {
     expect(await repo.claimDue(1000, 50, 2)).toEqual([])
     expect(await repo.deadLetterCount(2)).toBe(1)
     expect(await repo.pendingCount(1000, 2)).toBe(0)
+    expect(await repo.backlogCount(2)).toBe(0)
   })
 })

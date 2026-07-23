@@ -294,6 +294,7 @@ export const createElasticsearchSearchIndexer = (deps: ElasticsearchSearchIndexe
         cjkCharacters += counts.cjk
       }
       return {
+        backend: 'elasticsearch',
         tokenizer: 'trigram',
         configuredTokenizer: 'trigram',
         totalPages: records.length,
@@ -314,18 +315,17 @@ export const createElasticsearchSearchIndexer = (deps: ElasticsearchSearchIndexe
     },
 
     async health(): Promise<ElasticsearchHealth> {
-      const currentTime = now()
       try {
         await deps.client.ping()
         const [index, pending, deadLettered] = await Promise.all([
           currentPageIndex(deps.client, deps.indexPrefix),
-          deps.outbox.pendingCount(currentTime, MAX_OUTBOX_ATTEMPTS),
+          deps.outbox.backlogCount(MAX_OUTBOX_ATTEMPTS),
           deps.outbox.deadLetterCount(MAX_OUTBOX_ATTEMPTS),
         ])
         return { healthy: index !== null && deadLettered === 0, index, pending, deadLettered }
       } catch {
         const [pending, deadLettered] = await Promise.all([
-          deps.outbox.pendingCount(currentTime, MAX_OUTBOX_ATTEMPTS),
+          deps.outbox.backlogCount(MAX_OUTBOX_ATTEMPTS),
           deps.outbox.deadLetterCount(MAX_OUTBOX_ATTEMPTS),
         ])
         return { healthy: false, index: null, pending, deadLettered }
