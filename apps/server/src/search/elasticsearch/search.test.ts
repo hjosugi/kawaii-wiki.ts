@@ -169,6 +169,8 @@ describe.skipIf(!testElasticsearchUrl)('elasticsearch ACL-safe search indexer', 
     await indexer.removePage('secret-1')
     const health = await indexer.health()
     expect(health).toMatchObject({ healthy: true, pending: 2, deadLettered: 0 })
-    expect(await indexer.status()).toMatchObject({ tokenizer: 'trigram', totalPages: 3, needsTrigram: false })
+    expect(await indexer.status()).toMatchObject({
+      backend: 'elasticsearch', tokenizer: 'trigram', totalPages: 3, needsTrigram: false,
+    })
   })
 })

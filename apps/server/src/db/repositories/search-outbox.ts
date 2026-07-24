@@ -39,6 +39,15 @@ export const createSqliteSearchOutboxRepository = (db: DB): SearchOutboxReposito
     return row?.count ?? 0
   },
 
+  async backlogCount(maxAttempts) {
+    const [row] = db
+      .select({ count: sql<number>`count(*)` })
+      .from(searchOutbox)
+      .where(lt(searchOutbox.attempts, maxAttempts))
+      .all()
+    return row?.count ?? 0
+  },
+
   async deadLetterCount(maxAttempts) {
     const [row] = db
       .select({ count: sql<number>`count(*)` })

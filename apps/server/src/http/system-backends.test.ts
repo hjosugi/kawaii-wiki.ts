@@ -25,4 +25,27 @@ describe('describeSystemBackends', () => {
     expect(status.search).toEqual({ backend: 'builtin', engine: 'tsvector', healthy: false })
     expect(status.assets).toEqual({ backend: 'r2', healthy: true })
   })
+
+  test('reports live Elasticsearch index and queue health independently of the database', () => {
+    const status = describeSystemBackends({
+      databaseDriver: 'postgres',
+      assetBackend: 'r2',
+      databaseHealthy: true,
+      searchBackend: 'elasticsearch',
+      elasticsearchHealth: {
+        healthy: false,
+        index: 'kawaii-wiki-pages-v42',
+        pending: 3,
+        deadLettered: 1,
+      },
+    })
+    expect(status.search).toEqual({
+      backend: 'elasticsearch',
+      engine: 'elasticsearch',
+      healthy: false,
+      index: 'kawaii-wiki-pages-v42',
+      pending: 3,
+      deadLettered: 1,
+    })
+  })
 })

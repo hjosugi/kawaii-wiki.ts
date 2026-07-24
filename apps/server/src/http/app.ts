@@ -20,6 +20,7 @@ import { createGitStorage, type GitConfig } from '../storage/git.ts'
 import { createGitSyncHandlers, startGitSyncScheduler } from '../storage/git-sync.ts'
 import { isUserActive } from '../services/users.ts'
 import type { SearchIndexer } from '../services/search.ts'
+import type { ElasticsearchHealth } from '../search/elasticsearch/search.ts'
 import {
   audit,
   createAuditLogger,
@@ -66,6 +67,7 @@ export interface AppDeps {
   readonly logger?: StructuredLogger
   readonly assetStorage?: AssetStorage
   readonly searchIndexer?: SearchIndexer
+  readonly elasticsearchHealth?: () => Promise<ElasticsearchHealth>
   readonly mailSender?: MailSender
   readonly webhookFetcher?: WebhookFetcher
   readonly webhookResolver?: WebhookHostnameResolver
@@ -123,6 +125,7 @@ export const createApp = ({
   logger: suppliedLogger = consoleStructuredLogger,
   assetStorage: suppliedAssetStorage,
   searchIndexer,
+  elasticsearchHealth,
   mailSender,
   webhookFetcher,
   webhookResolver,
@@ -631,6 +634,8 @@ export const createApp = ({
       publishAutomation,
       databaseDriver: database.driver,
       assetBackend: assetStorage.type,
+      searchBackend: env.search.backend ?? 'fts5',
+      elasticsearchHealth,
     }))
     .use(createGitRoutes({
       git,

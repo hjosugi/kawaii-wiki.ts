@@ -5,14 +5,20 @@
  * knowledge the services deliberately do not hold.
  */
 import type { DatabaseDriver } from '../db/config.ts'
+import type { SearchBackend } from '../env.ts'
+import type { ElasticsearchHealth } from '../search/elasticsearch/search.ts'
 import type { AssetStorageType } from '../storage/assets.ts'
 
 /** The full-text engine each database driver uses for the built-in search. */
 export type SearchEngine = 'fts5' | 'tsvector' | 'fulltext'
 
+export type SearchBackendStatus =
+  | { readonly backend: 'builtin'; readonly engine: SearchEngine; readonly healthy: boolean }
+  | ({ readonly backend: 'elasticsearch'; readonly engine: 'elasticsearch' } & ElasticsearchHealth)
+
 export interface SystemBackendsStatus {
   readonly database: { readonly driver: DatabaseDriver; readonly healthy: boolean }
-  readonly search: { readonly backend: 'builtin'; readonly engine: SearchEngine; readonly healthy: boolean }
+  readonly search: SearchBackendStatus
   readonly assets: { readonly backend: AssetStorageType; readonly healthy: boolean }
 }
 
@@ -27,17 +33,25 @@ export const describeSystemBackends = (input: {
   readonly databaseDriver: DatabaseDriver
   readonly assetBackend: AssetStorageType
   readonly databaseHealthy: boolean
-}): SystemBackendsStatus => ({
-  database: { driver: input.databaseDriver, healthy: input.databaseHealthy },
-  // Full-text search is currently provided by the database driver itself, so
-  // its health tracks the database's — the index lives there. An external
-  // search backend (Elasticsearch, #366) will add a second `backend` value.
-  search: {
-    backend: 'builtin',
-    engine: searchEngineForDriver(input.databaseDriver),
-    healthy: input.databaseHealthy,
-  },
-  // Local storage is always available; R2 is not actively probed yet, so its
-  // presence in config is reported as healthy until a live probe is added.
-  assets: { backend: input.assetBackend, healthy: true },
-})
+  readonly searchBackend?: SearchBackend
+  readonly elasticsearchHealth?: ElasticsearchHealth
+}): SystemBackendsStatus => {
+  const search: SearchBackendStatus = input.searchBackend === 'elasticsearch'
+    ? {
+        backend: 'elasticsearch',
+        engine: 'elasticsearch',
+        ...(input.elasticsearchHealth ?? { healthy: false, index: null, pending: 0, deadLettered: 0 }),
+      }
+    : {
+        backend: 'builtin',
+        engine: searchEngineForDriver(input.databaseDriver),
+        healthy: input.databaseHealthy,
+      }
+  return {
+    database: { driver: input.databaseDriver, healthy: input.databaseHealthy },
+    search,
+    // Local storage is always available; R2 is not actively probed yet, so its
+    // presence in config is reported as healthy until a live probe is added.
+    assets: { backend: input.assetBackend, healthy: true },
+  }
+}
