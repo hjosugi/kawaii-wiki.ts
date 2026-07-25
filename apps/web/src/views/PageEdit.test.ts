@@ -2,7 +2,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import type { Page, PublicUser } from '@/lib/api'
+import type { Page, PageTemplate, PublicUser } from '@/lib/api'
 import { ApiClientError } from '@/lib/api'
 import { useAuth } from '@/stores/auth'
 import PageEdit from './PageEdit.vue'
@@ -45,7 +45,9 @@ vi.mock('@/composables/useMarkdownFeatures', async () => {
   return {
     useMarkdownFeatures: () => ({
       markdownFeatures: ref({}),
-      markdownRenderer: ref({ renderMarkdown: (content: string) => ({ html: content }) }),
+      markdownRenderer: ref({
+        renderMarkdown: (content: string) => ({ html: `<div class="mock-rendered-markdown">${content}</div>` }),
+      }),
     }),
   }
 })
@@ -272,6 +274,44 @@ describe('PageEdit', () => {
     expect(mounted.wrapper.text()).toContain('Content editor')
     expect(mounted.wrapper.find('textarea[aria-label="Editor content"]').exists()).toBe(true)
     expect(mounted.wrapper.find('input[aria-label="Page title"]').exists()).toBe(false)
+  })
+
+  test('shows one rendered preview for the selected built-in or custom template', async () => {
+    const customTemplate: PageTemplate = {
+      id: 'custom-1',
+      name: 'Release notes',
+      description: 'A compact custom release template.',
+      icon: 'Ship',
+      content: '# Release notes\n\n## Changes\n',
+      metadata: { title: 'Release notes', path: 'releases/new' },
+      createdBy: 'editor-1',
+      createdAt: 1,
+      updatedAt: 1,
+    }
+    api.templates.mockResolvedValue([customTemplate])
+    const mounted = await mountEdit('/_new')
+    wrappers.push(mounted.wrapper)
+
+    const details = mounted.wrapper.findAll('details').find((item) => item.text().includes('Template:'))
+    expect(details).toBeTruthy()
+    const detailsElement = details!.element as HTMLDetailsElement
+    detailsElement.open = true
+    await settle()
+
+    const preview = mounted.wrapper.get('[data-testid="selected-template-preview"]')
+    expect(preview.text()).toContain('Blank')
+    expect(preview.find('.mock-rendered-markdown').text()).toContain('# New page')
+    expect(mounted.wrapper.findAll('[data-testid="selected-template-preview"]')).toHaveLength(1)
+
+    const customButton = mounted.wrapper.findAll('button').find((item) => item.text().includes('Release notes'))
+    expect(customButton).toBeTruthy()
+    await customButton!.trigger('click')
+    await settle()
+
+    expect(preview.text()).toContain('Release notes')
+    expect(preview.text()).toContain('A compact custom release template.')
+    expect(preview.find('.mock-rendered-markdown').text()).toContain('## Changes')
+    expect(mounted.wrapper.findAll('[data-testid="selected-template-preview"]')).toHaveLength(1)
   })
 
   test('does not expose editable settings until asynchronous initialization finishes', async () => {
