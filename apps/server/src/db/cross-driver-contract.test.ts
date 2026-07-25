@@ -18,40 +18,62 @@
  * on every driver rather than papering the difference over.
  */
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
+import { asc } from 'drizzle-orm'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { can, parsePageFile, serializePageFile, type Principal } from '@kawaii-wiki/core'
 import { createLibsqlDb, createSqliteDb, type DB } from './client.ts'
 import { createServices } from './services.ts'
 import { createDbEventBus, type WikiEvent } from '../realtime/bus.ts'
+import { wikiEvents } from './schema.ts'
 
 const admin: Principal = { id: 'contract-admin', role: 'admin' }
 
 const externalUrl = process.env.KAWAII_WIKI_TEST_LIBSQL_URL?.trim()
-const externalReplicaDir = externalUrl
-  ? mkdtempSync(join(process.cwd(), '.kawaii-wiki-libsql-full-contract-'))
-  : null
+const contractDir = mkdtempSync(join(process.cwd(), '.kawaii-wiki-full-contract-'))
 let externalReplicaSequence = 0
 
 const drivers: Array<readonly [string, () => DB]> = [
-  ['sqlite', () => createSqliteDb(':memory:')],
-  ['libsql', () => createLibsqlDb({ driver: 'libsql', url: ':memory:', authToken: null, replicaPath: null })],
+  ['sqlite', () => createSqliteDb(join(contractDir, 'sqlite.db'))],
+  ['libsql', () => createLibsqlDb({ driver: 'libsql', url: join(contractDir, 'libsql.db'), authToken: null, replicaPath: null })],
 ]
-if (externalUrl && externalReplicaDir) {
+if (externalUrl) {
   drivers.push([
     'external-libsql',
     () => createLibsqlDb({
       driver: 'libsql',
       url: externalUrl,
       authToken: process.env.KAWAII_WIKI_TEST_LIBSQL_AUTH_TOKEN?.trim() || null,
-      replicaPath: join(externalReplicaDir, `replica-${externalReplicaSequence += 1}.db`),
+      replicaPath: join(contractDir, `external-replica-${externalReplicaSequence += 1}.db`),
     }),
   ])
 }
 
 afterAll(() => {
-  if (externalReplicaDir) rmSync(externalReplicaDir, { recursive: true, force: true })
+  rmSync(contractDir, { recursive: true, force: true })
 })
+
+const eventually = async (predicate: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) return
+    await Bun.sleep(25)
+  }
+  throw new Error('condition was not met in time')
+}
+
+const readStoredEventPaths = (db: DB): string[] => {
+  const reader = db.$openReadReplica?.()
+  try {
+    return (reader ?? db)
+      .select({ path: wikiEvents.path })
+      .from(wikiEvents)
+      .orderBy(asc(wikiEvents.id))
+      .all()
+      .map((row) => row.path)
+  } finally {
+    reader?.$client.close()
+  }
+}
 
 describe.each(drivers)('%s cross-driver service contract', (driver, create) => {
   // A single database per driver, shared across the domains below. Each domain
@@ -213,27 +235,50 @@ describe.each(drivers)('%s cross-driver service contract', (driver, create) => {
     expect(exported?.content).toContain(`import body ${driver}`)
   })
 
-  test('realtime: event bus delivers page events to in-process subscribers', async () => {
-    // Synchronous in-process delivery is the bus contract that holds identically
-    // on every driver, so it is what the matrix asserts here. The shared-log
-    // persistence/poll/prune path (used for cross-instance fan-out) is covered
-    // strictly on SQLite by realtime/bus.test.ts; it is not yet driver-portable
-    // to a remote libSQL embedded replica, where the connection's first read pins
-    // its snapshot and later writes never surface to the same connection's reads.
-    // Tracked as follow-up before remote libSQL is exposed as a selectable driver.
-    const bus = createDbEventBus(db, { sourceId: `${driver}-src`, pollIntervalMs: 10 })
+  test('realtime: event bus persists, polls, and prunes across instances', async () => {
+    const peerDb = create()
+    const busA = createDbEventBus(db, {
+      sourceId: `${driver}-a`,
+      pollIntervalMs: 10,
+      maxStoredEvents: 3,
+    })
+    const busB = createDbEventBus(peerDb, {
+      sourceId: `${driver}-b`,
+      pollIntervalMs: 10,
+      maxStoredEvents: 3,
+    })
     try {
-      const seen: WikiEvent[] = []
-      bus.subscribe((event) => seen.push(event))
-      const events: WikiEvent[] = [
-        { type: 'page:changed', action: 'created', path: `${driver}/a` },
-        { type: 'page:changed', action: 'updated', path: `${driver}/a` },
-        { type: 'page:changed', action: 'moved', path: `${driver}/b`, from: `${driver}/a` },
-      ]
-      for (const event of events) bus.emit(event)
-      expect(seen).toEqual(events)
+      const seenA: WikiEvent[] = []
+      const seenB: WikiEvent[] = []
+      busA.subscribe((event) => seenA.push(event))
+      busB.subscribe((event) => seenB.push(event))
+
+      const fromA: WikiEvent = { type: 'page:changed', action: 'created', path: `${driver}/from-a` }
+      busA.emit(fromA)
+      expect(seenA).toEqual([fromA])
+      await eventually(() => seenB.length === 1)
+      expect(seenB).toEqual([fromA])
+
+      const fromB: WikiEvent = { type: 'page:changed', action: 'moved', path: `${driver}/from-b`, from: fromA.path }
+      busB.emit(fromB)
+      expect(seenB.at(-1)).toEqual(fromB)
+      await eventually(() => seenA.length === 2)
+      expect(seenA.at(-1)).toEqual(fromB)
+
+      for (let index = 0; index < 5; index += 1) {
+        busA.emit({ type: 'page:changed', action: 'updated', path: `${driver}/prune-${index}` })
+      }
+      await eventually(() =>
+        readStoredEventPaths(db).join(',') === [2, 3, 4].map((index) => `${driver}/prune-${index}`).join(','),
+      )
+
+      await Bun.sleep(75)
+      expect(seenA.filter((event) => event.path === fromA.path)).toHaveLength(1)
+      expect(seenB.filter((event) => event.path === fromB.path)).toHaveLength(1)
     } finally {
-      bus.close()
+      busA.close()
+      busB.close()
+      peerDb.$client.close()
     }
   })
 })
