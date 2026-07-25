@@ -1,6 +1,6 @@
 {
   "name": "@kawaii-wiki/core",
-  "version": "1.0.32",
+  "version": "1.0.33",
   "license": "0BSD",
   "private": true,
   "type": "module",
