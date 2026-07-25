@@ -28,6 +28,21 @@ the preferred prefix; legacy `TS_WIKI_*` aliases remain accepted for 1.x.
 | `DATABASE_POOL_MAX` | driver default | Upper bound on pooled Postgres or MySQL connections |
 | `KAWAII_WIKI_FTS_TOKENIZER` | `unicode61` | `unicode61` or `trigram`; back up before changing an existing index |
 
+## Search
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SEARCH_BACKEND` | `fts5` | `fts5` (the selected database's built-in index) or `elasticsearch` |
+| `ELASTICSEARCH_URL` | unset | Elasticsearch base URL; required when `SEARCH_BACKEND=elasticsearch` |
+| `ELASTICSEARCH_API_KEY` | unset | API key sent with the `ApiKey` authorization scheme |
+| `ELASTICSEARCH_USERNAME`, `ELASTICSEARCH_PASSWORD` | unset | Basic-auth alternative when no API key is set |
+| `ELASTICSEARCH_INDEX_PREFIX` | `kawaii-wiki` | Prefix for versioned indices and the live alias |
+
+Elasticsearch is a derived index, not the source of truth. Existing pages must
+be rebuilt from Admin after enabling it; page writes continue through the
+database-backed retry outbox while the cluster is unavailable. Search ACLs are
+applied inside Elasticsearch before totals, pagination, and highlighting.
+
 ## Authentication and policy
 
 | Variable | Default | Purpose |
@@ -112,3 +127,11 @@ Never embed a personal access token in `KAWAII_WIKI_GIT_REMOTE_URL`. Configure
 an SSH deploy key at the host/container level for private or writable remotes.
 The admin Git panel shows status and performs an explicit sync after the service
 has been redeployed with these settings.
+
+Database URLs, libSQL tokens, Elasticsearch credentials, R2 keys, SMTP URLs,
+OIDC client secrets, and `JWT_SECRET` are environment-only secrets. Supply them
+through the deployment platform's secret manager or mounted secret files; do
+not commit them, paste them into Admin, or include them in support logs. Use
+TLS and least-privilege credentials scoped to the selected database, index
+prefix, or R2 bucket. See [Upgrading and rollback](UPGRADING.md) before changing
+an active backend.
