@@ -3,6 +3,8 @@ import type { Principal } from '@kawaii-wiki/core'
 import { audit, type StructuredLogger } from '../../observability/logging.ts'
 import type { AutomationEvent } from '../../services/webhooks.ts'
 import type { DatabaseDriver } from '../../db/config.ts'
+import type { SearchBackend } from '../../env.ts'
+import type { ElasticsearchHealth } from '../../search/elasticsearch/search.ts'
 import type { AssetStorageType } from '../../storage/assets.ts'
 import { unwrap } from '../errors.ts'
 import { requireHttpPermission } from '../permissions.ts'
@@ -86,6 +88,9 @@ export interface AdminRoutesContext {
   readonly databaseDriver: DatabaseDriver
   /** Active asset-storage backend, for the same report. */
   readonly assetBackend: AssetStorageType
+  /** Active search backend and optional live Elasticsearch health probe. */
+  readonly searchBackend: SearchBackend
+  readonly elasticsearchHealth?: () => Promise<ElasticsearchHealth>
 }
 
 export const createAdminRoutes = ({
@@ -94,6 +99,8 @@ export const createAdminRoutes = ({
   publishAutomation,
   databaseDriver,
   assetBackend,
+  searchBackend,
+  elasticsearchHealth,
 }: AdminRoutesContext) => (app: BaseApp) =>
   app
     .get('/api/admin/stats', async ({ services, principal }) => unwrap(await services.admin.stats(principal)))
@@ -105,7 +112,21 @@ export const createAdminRoutes = ({
       } catch {
         databaseHealthy = false
       }
-      return describeSystemBackends({ databaseDriver, assetBackend, databaseHealthy })
+      let searchHealth: ElasticsearchHealth | undefined
+      if (searchBackend === 'elasticsearch' && elasticsearchHealth) {
+        try {
+          searchHealth = await elasticsearchHealth()
+        } catch {
+          searchHealth = { healthy: false, index: null, pending: 0, deadLettered: 0 }
+        }
+      }
+      return describeSystemBackends({
+        databaseDriver,
+        assetBackend,
+        databaseHealthy,
+        searchBackend,
+        elasticsearchHealth: searchHealth,
+      })
     })
     .get('/api/admin/history', async ({ services, principal }) => unwrap(await services.admin.historyStats(principal)))
     .post('/api/admin/history/purge', async ({ body, services, principal }) => {

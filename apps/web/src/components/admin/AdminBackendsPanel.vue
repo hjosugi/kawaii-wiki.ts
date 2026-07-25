@@ -7,6 +7,7 @@ import AdminAsyncState from './AdminAsyncState.vue'
 
 type DatabaseDriver = SystemBackendsStatus['database']['driver']
 type AssetBackend = SystemBackendsStatus['assets']['backend']
+type SearchTarget = 'fts5' | 'elasticsearch'
 
 const { t } = useI18n()
 const { data: backends, loading, error, reload } = useAsyncData<SystemBackendsStatus | null>(Api.adminBackends, { initial: null })
@@ -31,10 +32,16 @@ const ASSET_CONFIGS: Record<AssetBackend, string> = {
   local: 'ASSET_STORAGE=local\n# ASSET_PUBLIC_BASE_URL=https://cdn.example.com   # optional',
   r2: 'ASSET_STORAGE=r2\nR2_ACCESS_KEY_ID=<access-key-id>\nR2_SECRET_ACCESS_KEY=<secret-access-key>\nR2_BUCKET=<bucket>\nR2_ACCOUNT_ID=<account-id>\n# or set R2_ENDPOINT instead of R2_ACCOUNT_ID',
 }
+const SEARCH_CONFIGS: Record<SearchTarget, string> = {
+  fts5: 'SEARCH_BACKEND=fts5\n# TS_WIKI_FTS_TOKENIZER=trigram   # optional; improves Japanese/CJK matching',
+  elasticsearch: 'SEARCH_BACKEND=elasticsearch\nELASTICSEARCH_URL=https://search.example.com\nELASTICSEARCH_API_KEY=<api-key>\n# Or use ELASTICSEARCH_USERNAME and ELASTICSEARCH_PASSWORD instead\n# ELASTICSEARCH_INDEX_PREFIX=kawaii-wiki   # optional',
+}
 
 const databaseTarget = ref<DatabaseDriver>('postgres')
+const searchTarget = ref<SearchTarget>('elasticsearch')
 const assetTarget = ref<AssetBackend>('r2')
 const databaseConfig = computed(() => DATABASE_CONFIGS[databaseTarget.value])
+const searchConfig = computed(() => SEARCH_CONFIGS[searchTarget.value])
 const assetConfig = computed(() => ASSET_CONFIGS[assetTarget.value])
 </script>
 
@@ -63,7 +70,18 @@ const assetConfig = computed(() => ASSET_CONFIGS[assetTarget.value])
           <div>
             <h3 class="font-semibold">{{ t('backendSearch') }}</h3>
             <p class="mt-1 font-mono text-sm text-[var(--c-text-muted)]">{{ backends.search.engine }}</p>
-            <p class="mt-0.5 text-xs text-[var(--c-text-muted)]">{{ t('backendSearchBuiltin') }}</p>
+            <p class="mt-0.5 text-xs text-[var(--c-text-muted)]">
+              {{ t(backends.search.backend === 'builtin' ? 'backendSearchBuiltin' : 'backendSearchElasticsearch') }}
+            </p>
+            <template v-if="backends.search.backend === 'elasticsearch'">
+              <p class="mt-2 break-all font-mono text-xs text-[var(--c-text-muted)]">
+                {{ backends.search.index ?? t('backendSearchNoIndex') }}
+              </p>
+              <p class="mt-1 text-xs text-[var(--c-text-muted)]">
+                {{ t('backendSearchPending') }}: {{ backends.search.pending }} ·
+                {{ t('backendSearchDeadLettered') }}: {{ backends.search.deadLettered }}
+              </p>
+            </template>
           </div>
           <span :class="chipClass(backends.search.healthy)">{{ t(backends.search.healthy ? 'backendHealthy' : 'backendUnhealthy') }}</span>
         </div>
@@ -98,6 +116,17 @@ const assetConfig = computed(() => ASSET_CONFIGS[assetTarget.value])
             </select>
           </label>
           <pre class="max-w-full overflow-x-auto rounded-md bg-[var(--c-code-bg)] p-3 text-xs"><code>{{ databaseConfig }}</code></pre>
+        </div>
+
+        <div class="space-y-2">
+          <label class="block text-sm font-medium">
+            {{ t('backendSearch') }}
+            <select v-model="searchTarget" class="input mt-1">
+              <option value="fts5">fts5</option>
+              <option value="elasticsearch">elasticsearch</option>
+            </select>
+          </label>
+          <pre class="max-w-full overflow-x-auto rounded-md bg-[var(--c-code-bg)] p-3 text-xs"><code>{{ searchConfig }}</code></pre>
         </div>
 
         <div class="space-y-2">

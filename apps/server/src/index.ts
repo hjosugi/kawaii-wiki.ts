@@ -14,7 +14,7 @@ import { createPostgresDatabaseAdapter } from './http/postgres-adapter.ts'
 import { createMysqlDatabaseAdapter } from './http/mysql-adapter.ts'
 import { createApp } from './http/app.ts'
 import { createElasticsearchClient } from './search/elasticsearch/client.ts'
-import { createElasticsearchSearchIndexer } from './search/elasticsearch/search.ts'
+import { createElasticsearchSearchIndexer, type ElasticsearchSearchIndexer } from './search/elasticsearch/search.ts'
 import { startOutboxWorker, type OutboxWorker } from './search/elasticsearch/worker.ts'
 import type { SearchIndexer } from './services/search.ts'
 
@@ -41,6 +41,7 @@ const openDatabase = async (): Promise<DatabaseAdapter> => {
 const database = await openDatabase()
 let searchIndexer: SearchIndexer | undefined
 let searchWorker: OutboxWorker | undefined
+let elasticsearchHealth: (() => ReturnType<ElasticsearchSearchIndexer['health']>) | undefined
 let closeSearch = (): void => {}
 if (env.search.backend === 'elasticsearch') {
   const config = env.search.elasticsearch
@@ -58,10 +59,11 @@ if (env.search.backend === 'elasticsearch') {
     indexPrefix: config.indexPrefix,
   })
   searchIndexer = elasticsearch
+  elasticsearchHealth = () => elasticsearch.health()
   closeSearch = () => client.close()
 }
 
-const app = createApp({ database, env, searchIndexer }).listen(env.port)
+const app = createApp({ database, env, searchIndexer, elasticsearchHealth }).listen(env.port)
 
 const shutdown = async () => {
   app.server?.stop(true)

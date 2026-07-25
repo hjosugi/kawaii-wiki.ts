@@ -251,6 +251,7 @@ export const createPostgresSearchIndexer = (
       // Postgres always matches CJK through the pg_trgm index, so it never needs
       // a tokenizer switch the way SQLite FTS5 does.
       return {
+        backend: 'builtin',
         tokenizer: configuredTokenizer,
         configuredTokenizer,
         totalPages: active.length,

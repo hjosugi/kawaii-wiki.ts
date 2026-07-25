@@ -91,6 +91,7 @@ export interface SearchResponse {
 }
 
 export interface SearchIndexStatus {
+  readonly backend: 'builtin' | 'elasticsearch'
   readonly tokenizer: SearchTokenizer
   readonly configuredTokenizer: SearchTokenizer
   readonly totalPages: number

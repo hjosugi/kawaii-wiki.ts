@@ -36,6 +36,8 @@ export interface SearchOutboxRepository {
   fail(id: number, error: string, nextAttemptAt: number): Promise<void>
   /** Entries still awaiting a first try or a retry. */
   pendingCount(now: number, maxAttempts: number): Promise<number>
+  /** All non-dead-lettered entries, including retries waiting for backoff. */
+  backlogCount(maxAttempts: number): Promise<number>
   /** Entries that exhausted their attempts (dead-lettered), for admin visibility. */
   deadLetterCount(maxAttempts: number): Promise<number>
 }

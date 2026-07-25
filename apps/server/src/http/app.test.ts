@@ -12,6 +12,8 @@ import { ASSET_MAX_BYTES, safeAssetFilename } from '../services/assets.ts'
 import { totpCode } from '../services/auth.ts'
 import type { MailMessage, MailSender } from '../services/mail.ts'
 import type { WebhookFetcher, WebhookHostnameResolver, WebhookPayload } from '../services/webhooks.ts'
+import type { ElasticsearchHealth } from '../search/elasticsearch/search.ts'
+import type { SearchIndexer } from '../services/search.ts'
 import type { AssetStorage } from '../storage/assets.ts'
 import type { LogEvent, StructuredLogger } from '../observability/logging.ts'
 import { createApp, type App } from './app.ts'
@@ -59,6 +61,8 @@ const createFixture = (
     mailSender?: MailSender
     webhookFetcher?: WebhookFetcher
     webhookResolver?: WebhookHostnameResolver
+    elasticsearchHealth?: () => Promise<ElasticsearchHealth>
+    searchIndexer?: SearchIndexer
     env?: (env: Env) => Env
   } = {},
 ): { app: App; db: DB; dataDir: string } => {
@@ -82,6 +86,8 @@ const createFixture = (
     mailSender: options.mailSender,
     webhookFetcher: options.webhookFetcher,
     webhookResolver: options.webhookResolver ?? (options.webhookFetcher ? publicWebhookResolver : undefined),
+    elasticsearchHealth: options.elasticsearchHealth,
+    searchIndexer: options.searchIndexer,
   })
   fixtures.push({ db, dataDir, app })
   return { app, db, dataDir }
@@ -888,6 +894,77 @@ describe('http app auth', () => {
       headers: { authorization: `Bearer ${viewer.token}` },
     }))
     expect(denied.status).toBe(403)
+  }, HTTP_TEST_TIMEOUT_MS)
+
+  test('admin system backends probes Elasticsearch and exposes its backlog', async () => {
+    let rebuilds = 0
+    const searchIndexer: SearchIndexer = {
+      indexPage: () => {},
+      indexPageById: () => {},
+      removePage: () => {},
+      search: (_query, request) => ({ query: _query, hits: [], total: 0, ...request, hasMore: false }),
+      rebuild: () => { rebuilds += 1 },
+      status: () => ({
+        backend: 'elasticsearch',
+        tokenizer: 'trigram',
+        configuredTokenizer: 'trigram',
+        totalPages: 0,
+        cjkPages: 0,
+        cjkPageRatio: 0,
+        indexedCharacters: 0,
+        cjkCharacters: 0,
+        cjkCharacterRatio: 0,
+        recommendedTokenizer: 'trigram',
+        needsTrigram: false,
+      }),
+    }
+    const { app } = createFixture(undefined, {
+      env: (env) => ({
+        ...env,
+        search: {
+          ...env.search,
+          backend: 'elasticsearch',
+          elasticsearch: {
+            url: 'https://search.example.test',
+            apiKey: null,
+            username: null,
+            password: null,
+            indexPrefix: 'test-wiki',
+          },
+        },
+      }),
+      elasticsearchHealth: async () => ({
+        healthy: true,
+        index: 'test-wiki-pages-v7',
+        pending: 2,
+        deadLettered: 0,
+      }),
+      searchIndexer,
+    })
+    const admin = await register(app, 'admin@example.com')
+    const response = await app.handle(new Request('http://localhost/api/admin/system/backends', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      search: {
+        backend: 'elasticsearch',
+        engine: 'elasticsearch',
+        healthy: true,
+        index: 'test-wiki-pages-v7',
+        pending: 2,
+        deadLettered: 0,
+      },
+    })
+
+    const status = await app.handle(new Request('http://localhost/api/admin/search-index', {
+      headers: { authorization: `Bearer ${admin.token}` },
+    }))
+    expect(await status.json()).toMatchObject({ searchIndex: { backend: 'elasticsearch', tokenizer: 'trigram' } })
+
+    const rebuilt = await app.handle(jsonRequest('/api/admin/search-index/rebuild', {}, admin.token))
+    expect(rebuilt.status).toBe(200)
+    expect(rebuilds).toBe(1)
   }, HTTP_TEST_TIMEOUT_MS)
 
   test('admin reset/deactivate invalidates sessions and demoted admins lose admin access', async () => {

@@ -267,6 +267,7 @@ export const createFtsSearchIndexer = (
     const cjkCharacterRatio = indexedCharacters === 0 ? 0 : cjkCharacters / indexedCharacters
     const needsTrigram = tokenizer === 'unicode61' && cjkCharacters > 0
     return {
+      backend: 'builtin',
       tokenizer,
       configuredTokenizer,
       totalPages: activePages.length,

@@ -282,6 +282,7 @@ export const createMysqlSearchIndexer = (
       // MySQL always matches CJK through the ngram FULLTEXT index plus the LIKE
       // backstop, so it never needs a tokenizer switch the way SQLite FTS5 does.
       return {
+        backend: 'builtin',
         tokenizer: configuredTokenizer,
         configuredTokenizer,
         totalPages: active.length,

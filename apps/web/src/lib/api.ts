@@ -480,10 +480,20 @@ export interface AdminStats {
 }
 export interface SystemBackendsStatus {
   database: { driver: 'sqlite' | 'libsql' | 'postgres' | 'mysql'; healthy: boolean }
-  search: { backend: 'builtin'; engine: 'fts5' | 'tsvector' | 'fulltext'; healthy: boolean }
+  search:
+    | { backend: 'builtin'; engine: 'fts5' | 'tsvector' | 'fulltext'; healthy: boolean }
+    | {
+        backend: 'elasticsearch'
+        engine: 'elasticsearch'
+        healthy: boolean
+        index: string | null
+        pending: number
+        deadLettered: number
+      }
   assets: { backend: 'local' | 'r2'; healthy: boolean }
 }
 export interface SearchIndexStatus {
+  backend: 'builtin' | 'elasticsearch'
   tokenizer: FtsTokenizer
   configuredTokenizer: FtsTokenizer
   totalPages: number
