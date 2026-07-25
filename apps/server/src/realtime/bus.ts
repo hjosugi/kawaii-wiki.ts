@@ -6,9 +6,9 @@
  * later with no other change.
  *
  * `createEventBus()` is the tiny in-memory implementation used by focused unit
- * tests. `createDbEventBus()` persists events into SQLite and polls that shared
- * log, so multiple server processes attached to the same database see each
- * other's page-change notifications.
+ * tests. `createDbEventBus()` persists events into the SQLite-family shared log
+ * (including remote libSQL replicas) and polls it, so multiple server processes
+ * attached to the same database see each other's page-change notifications.
  */
 import { asc, gt, lte, sql } from 'drizzle-orm'
 import type { DB } from '../db/client.ts'
@@ -91,9 +91,25 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
   const pruneIntervalMs = Math.max(pollIntervalMs, options.pruneIntervalMs ?? Math.max(60_000, pollIntervalMs * 20))
   const maxStoredEvents = maxStoredEventsFrom(options.maxStoredEvents)
   const ownDelivered = new Set<number>()
+  const insertEvent = db.$client.prepare(`
+    INSERT INTO wiki_events (source_id, event_type, action, path, from_path, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `)
+
+  const withReader = <T>(read: (reader: DB) => T): T => {
+    const reader = db.$openReadReplica?.()
+    if (!reader) return read(db)
+    try {
+      return read(reader)
+    } finally {
+      reader.$client.close()
+    }
+  }
 
   const getMaxEventId = (): number =>
-    db.select({ id: sql<number>`coalesce(max(${wikiEvents.id}), 0)` }).from(wikiEvents).get()?.id ?? 0
+    withReader((reader) =>
+      reader.select({ id: sql<number>`coalesce(max(${wikiEvents.id}), 0)` }).from(wikiEvents).get()?.id ?? 0,
+    )
 
   let lastSeenId = getMaxEventId()
   let polling = false
@@ -121,13 +137,15 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
     if (polling) return
     polling = true
     try {
-      const rows = db
-        .select()
-        .from(wikiEvents)
-        .where(gt(wikiEvents.id, lastSeenId))
-        .orderBy(asc(wikiEvents.id))
-        .limit(100)
-        .all()
+      const rows = withReader((reader) =>
+        reader
+          .select()
+          .from(wikiEvents)
+          .where(gt(wikiEvents.id, lastSeenId))
+          .orderBy(asc(wikiEvents.id))
+          .limit(100)
+          .all(),
+      )
       for (const row of rows) {
         lastSeenId = row.id
         const alreadyDeliveredLocally = row.sourceId === sourceId && ownDelivered.delete(row.id)
@@ -140,6 +158,8 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
         })
       }
       pruneBestEffort()
+    } catch {
+      // A transient replica sync/read failure is retried on the next poll.
     } finally {
       polling = false
     }
@@ -154,19 +174,21 @@ export const createDbEventBus = (db: DB, options: DbEventBusOptions = {}): Event
 
   return {
     emit(event) {
-      const inserted = db
-        .insert(wikiEvents)
-        .values({
-          sourceId,
-          eventType: event.type,
-          action: event.action,
-          path: event.path,
-          fromPath: event.from ?? null,
-          createdAt: Date.now(),
-        })
-        .returning({ id: wikiEvents.id })
-        .get()
-      ownDelivered.add(inserted.id)
+      // The raw run result exposes lastInsertRowid without issuing a RETURNING
+      // read, which would pin a remote libSQL replica's writer snapshot.
+      const inserted = insertEvent.run(
+        sourceId,
+        event.type,
+        event.action,
+        event.path,
+        event.from ?? null,
+        Date.now(),
+      )
+      const insertedId = Number(inserted.lastInsertRowid)
+      if (!Number.isSafeInteger(insertedId) || insertedId <= 0) {
+        throw new Error('wiki event insert did not return a valid row id')
+      }
+      ownDelivered.add(insertedId)
       deliver(listeners, event)
       pruneBestEffort()
     },

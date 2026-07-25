@@ -39,6 +39,12 @@ export type DB = BunSQLiteDatabase<typeof schema> & {
   readonly $client: RawDatabase
   readonly $driver: DatabaseDriver
   readonly $syncAfterWrite?: () => Promise<void>
+  /**
+   * Open a fresh, synced reader for databases whose long-lived read snapshot
+   * does not advance. Remote libSQL embedded replicas provide this hook; local
+   * SQLite-family databases can read through the main connection directly.
+   */
+  readonly $openReadReplica?: () => DB
 }
 
 export interface CreateDbOptions {
@@ -152,6 +158,26 @@ export const createLibsqlDb = (config: LibsqlDatabaseConfig, options: CreateDbOp
           // short read-your-writes delay even when sync() reports no new frame.
           await new Promise((resolve) => setTimeout(resolve, 250))
           client.sync?.()
+        },
+        $openReadReplica: (): DB => {
+          // A libSQL embedded replica pins its snapshot on the first read and
+          // sync() does not advance that snapshot. Polling readers therefore
+          // need a fresh connection. Keep the reader on its own replica file so
+          // it never shares connection state with the application's writer.
+          const readerPath = `${target.path}.bus-reader`
+          mkdirForDatabasePath(readerPath)
+          const readerClient = new LibsqlDatabase(readerPath, {
+            syncUrl: target.syncUrl,
+            ...(config.authToken ? { authToken: config.authToken } : {}),
+          } as ConstructorParameters<typeof LibsqlDatabase>[1]) as RawDatabase
+          try {
+            readerClient.sync?.()
+            readerClient.exec('PRAGMA foreign_keys = ON;')
+            return drizzleLibsqlSync(readerClient)
+          } catch (error) {
+            readerClient.close()
+            throw error
+          }
         },
       })
     : db
