@@ -8,6 +8,7 @@ import { paramToPath } from '@/router'
 import { useAuth } from '@/stores/auth'
 import { usePages } from '@/stores/pages'
 import { usePresence } from '@/composables/usePresence'
+import { useMarkdownFeatures } from '@/composables/useMarkdownFeatures'
 import { assetFolderFromPagePath, attachmentsForPage } from '@/lib/assets'
 import { useI18n, type MessageKey } from '@/lib/i18n'
 import { useDialogs } from '@/composables/useDialogs'
@@ -38,6 +39,7 @@ const auth = useAuth()
 const pagesStore = usePages()
 const { t, locale: interfaceLocale } = useI18n()
 const dialogs = useDialogs()
+const { markdownRenderer } = useMarkdownFeatures()
 
 const isEdit = computed(() => route.name === 'edit')
 const {
@@ -171,10 +173,17 @@ const editorView = computed<EditorView>(() => {
   if (requested === 'content' && (isEdit.value || title.value.trim())) return 'content'
   return isEdit.value ? 'content' : 'settings'
 })
-const selectedTemplateLabel = computed(() => {
-  const template = templateOptions.value.find((item) => item.key === selectedTemplate.value)
-  return template ? templateDisplayLabel(template) : t('templateBlank')
-})
+const selectedTemplateOption = computed(() =>
+  templateOptions.value.find((item) => item.key === selectedTemplate.value) ?? null,
+)
+const selectedTemplateLabel = computed(() =>
+  selectedTemplateOption.value ? templateDisplayLabel(selectedTemplateOption.value) : t('templateBlank'),
+)
+const selectedTemplatePreview = computed(() =>
+  selectedTemplateOption.value
+    ? markdownRenderer.value.renderMarkdown(selectedTemplateOption.value.content).html
+    : '',
+)
 
 function switchEditorView(view: EditorView): void {
   if (view === 'content' && !title.value.trim()) return
@@ -698,6 +707,33 @@ async function archive(): Promise<void> {
             </span>
           </button>
         </div>
+        <section
+          v-if="selectedTemplateOption"
+          class="rounded-md border border-[var(--c-border)] bg-[var(--c-surface-muted)] p-3"
+          data-testid="selected-template-preview"
+        >
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-wide text-[var(--c-accent-text)]">{{ t('preview') }}</p>
+              <h3 class="mt-1 text-sm font-semibold">
+                {{ selectedTemplateOption.icon ? `${selectedTemplateOption.icon} ` : '' }}{{ selectedTemplateLabel }}
+              </h3>
+              <p v-if="selectedTemplateOption.description" class="mt-1 text-xs text-[var(--c-text-muted)]">
+                {{ selectedTemplateOption.description }}
+              </p>
+            </div>
+            <span class="rounded-full bg-[var(--c-surface)] px-2 py-1 text-xs text-[var(--c-text-muted)]">
+              {{ selectedTemplateOption.builtIn ? t('builtInStarter') : t('customTemplate') }}
+            </span>
+          </div>
+          <div
+            class="mt-3 max-h-64 overflow-auto rounded-md border border-[var(--c-border)] bg-[var(--c-surface)] p-4"
+            inert
+            aria-hidden="true"
+          >
+            <div class="prose max-w-none text-sm dark:prose-invert" v-html="selectedTemplatePreview"></div>
+          </div>
+        </section>
         <p v-if="!filteredTemplateOptions.length" class="rounded-md border border-dashed border-[var(--c-border)] p-6 text-center text-sm text-[var(--c-text-muted)]">
           {{ t('noMatchingTemplates') }}
         </p>
