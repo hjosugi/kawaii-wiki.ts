@@ -25,6 +25,18 @@
 | `DATABASE_POOL_MAX` | ドライバ既定 | Postgres または MySQL のプール接続数の上限 |
 | `KAWAII_WIKI_FTS_TOKENIZER` | `unicode61` | `unicode61` または `trigram`。既存のインデックスを変更する前にバックアップ推奨 |
 
+## 検索
+
+| 変数 | デフォルト | 用途 |
+| --- | --- | --- |
+| `SEARCH_BACKEND` | `fts5` | `fts5`（選択したデータベースの組み込みインデックス）または `elasticsearch` |
+| `ELASTICSEARCH_URL` | 未設定 | Elasticsearch のベースURL。`SEARCH_BACKEND=elasticsearch` の場合は必須 |
+| `ELASTICSEARCH_API_KEY` | 未設定 | `ApiKey` 認証方式で送信するAPIキー |
+| `ELASTICSEARCH_USERNAME`, `ELASTICSEARCH_PASSWORD` | 未設定 | APIキーを設定しない場合のBasic認証 |
+| `ELASTICSEARCH_INDEX_PREFIX` | `kawaii-wiki` | バージョン付きインデックスとlive aliasのプレフィックス |
+
+Elasticsearch は派生インデックスであり、正本ではありません。有効化後は管理画面から既存ページを再構築してください。クラスター停止中もページ書き込みはデータベース上のリトライoutboxに保存されます。検索ACLは件数、ページング、ハイライトより前にElasticsearchクエリ内で適用されます。
+
 ## 認証とポリシー
 
 | 変数 | デフォルト | 用途 |
@@ -87,3 +99,5 @@ KAWAII_WIKI_GIT_SYNC_INTERVAL_MS=300000
 ```
 
 `KAWAII_WIKI_GIT_REMOTE_URL` に個人アクセストークンを埋め込まないでください。プライベートまたは書き込み可能なリモートにはホストやコンテナレベルでSSHデプロイキーを設定してください。管理者用Gitパネルはステータスを表示し、これらの設定でサービスを再デプロイ後に明示的な同期を実行します。
+
+データベースURL、libSQLトークン、Elasticsearch認証情報、R2キー、SMTP URL、OIDCクライアントシークレット、`JWT_SECRET` は環境変数専用のシークレットです。デプロイ基盤のシークレットマネージャーまたはマウントしたシークレットファイルから渡し、リポジトリへのコミット、管理画面への貼り付け、サポートログへの記載は避けてください。TLSを有効にし、選択したデータベース、インデックスプレフィックス、R2バケットだけに権限を限定してください。稼働中のバックエンドを変更する前に[アップグレードとロールバック](UPGRADING.ja.md)を確認してください。
