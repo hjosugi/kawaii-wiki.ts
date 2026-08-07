@@ -11,9 +11,9 @@ small, dependable foundation that people, developers, and AI can improve
 together.
 
 [Official documentation](https://kawaii-wiki-ts-docs.up.railway.app/docs/home) ·
-[Documentation source](https://github.com/hjosugi/kawaii-wiki.ts-doc) ·
-[Releases](https://github.com/hjosugi/kawaii-wiki.ts/releases) ·
-[Issues](https://github.com/hjosugi/kawaii-wiki.ts/issues)
+[Documentation source](https://github.com/kawaii-wiki/kawaii-wiki.ts-doc) ·
+[Releases](https://github.com/kawaii-wiki/kawaii-wiki.ts/releases) ·
+[Issues](https://github.com/kawaii-wiki/kawaii-wiki.ts/issues)
 
 ## Run locally with Docker
 
@@ -54,7 +54,7 @@ Detailed installation, configuration, backup, restore, Railway, Git mirror,
 API, administration, and development guides live in the
 [official documentation](https://kawaii-wiki-ts-docs.up.railway.app/docs/home).
 Their Markdown source is maintained in
-[`hjosugi/kawaii-wiki.ts-doc`](https://github.com/hjosugi/kawaii-wiki.ts-doc).
+[`kawaii-wiki/kawaii-wiki.ts-doc`](https://github.com/kawaii-wiki/kawaii-wiki.ts-doc).
 
 ## Develop
 

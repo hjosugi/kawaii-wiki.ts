@@ -392,7 +392,7 @@ Versioning; API compatibility details are in `docs/API.md`.
 
 - Centered and simplified the header, compacted page graphs, clarified display
   settings and staged two-factor login, and redesigned redirect management.
-- Made `hjosugi/kawaii-wiki.ts-doc` the authoritative Markdown source for the
+- Made `kawaii-wiki/kawaii-wiki.ts-doc` the authoritative Markdown source for the
   deployed documentation site.
 
 ### Fixed

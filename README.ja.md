@@ -8,8 +8,8 @@ Markdownで知識をつなげるための無料のセルフホスト型Wiki。�
 あなたのWikiが主役です。kawaii-wiki.tsは、ユーザー、開発者、AIが共に改善できる、小さく信頼できる基盤として裏方に徹します。
 
 [公式ドキュメント](https://kawaii-wiki-ts-docs.up.railway.app/docs/home) ·
-[リリース](https://github.com/hjosugi/kawaii-wiki.ts/releases) ·
-[課題](https://github.com/hjosugi/kawaii-wiki.ts/issues)
+[リリース](https://github.com/kawaii-wiki/kawaii-wiki.ts/releases) ·
+[課題](https://github.com/kawaii-wiki/kawaii-wiki.ts/issues)
 
 ## Dockerでローカル実行
 

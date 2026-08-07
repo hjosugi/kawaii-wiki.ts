@@ -32,7 +32,7 @@ onMounted(async () => {
             {{ link.label }}
           </a>
         </nav>
-        <a class="text-xs opacity-70 hover:text-[var(--c-accent)] hover:opacity-100" href="https://github.com/hjosugi/kawaii-wiki.ts" target="_blank" rel="noopener noreferrer">Powered by kawaii-wiki.ts</a>
+        <a class="text-xs opacity-70 hover:text-[var(--c-accent)] hover:opacity-100" href="https://github.com/kawaii-wiki/kawaii-wiki.ts" target="_blank" rel="noopener noreferrer">Powered by kawaii-wiki.ts</a>
       </div>
     </div>
   </footer>

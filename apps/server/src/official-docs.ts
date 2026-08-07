@@ -329,7 +329,7 @@ GraphQLは現在未対応です。存在しない機能を暗黙に提供せず�
 
 変更理由、範囲、テスト結果、互換性、スクリーンショットを示します。小さくレビュー可能な変更を優先し、データ移行やAPI変更にはアップグレード手順を付けます。
 
-ソース: [GitHub](https://github.com/hjosugi/kawaii-wiki.ts)`, 110),
+ソース: [GitHub](https://github.com/kawaii-wiki/kawaii-wiki.ts)`, 110),
 
   page('docs/reference', 'リポジトリ原文', '設定、設計、API、RFC、監査、各パッケージの原文資料。', `# リポジトリ原文
 
