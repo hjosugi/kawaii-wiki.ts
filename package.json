@@ -33,7 +33,9 @@
     "typecheck": "bun --filter '*' typecheck",
     "test": "bun test packages apps/server && bun --filter '@kawaii-wiki/web' test",
     "test:e2e": "playwright test",
-    "version:bump": "bun scripts/bump-version.ts"
+    "version:bump": "bun scripts/bump-version.ts",
+    "graphify:setup": "sh scripts/graphify.sh setup",
+    "graphify:update": "sh scripts/graphify.sh update"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
